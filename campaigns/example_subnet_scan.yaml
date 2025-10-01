@@ -1,0 +1,207 @@
+name: example_subnet_scan
+description: Example comprehensive subnet security assessment
+scope:
+    type: subnet
+    value: 192.168.1.0/24
+
+mode: live
+
+runtime:
+    out_dir: results/subnet_scan_001
+    concurrency: 8
+    duration_seconds: 3600
+    timeout_seconds: 300
+    safety:
+        read_only: false
+        non_destructive: true
+        dry_run: false
+        forbidden_ports: [21, 23]
+        max_connections: 100
+        rate_limit_rps: 10
+    scheduling:
+        max_retries: 2
+        retry_delay: 30s
+        job_timeout_seconds: 300
+        priority: normal
+    logging:
+        level: info
+        format: json
+        enable_file: true
+        verbose: false
+
+steps:
+    - id: tls_baseline_check
+      kind: check
+      name: TLS Configuration Baseline
+      description: Check TLS/SSL configuration against security baselines
+      enabled: true
+      selector:
+          ports: [443, 8443, 9443, 8883]
+          proto_guesses: ["tls", "https", "mqtt-tls"]
+          exclude:
+              ports: [8080]
+      implementation:
+          manifest: ../extensions/grpc/tls_checker/manifest.yaml
+          backend: grpc
+      params:
+          min_version: "1.2"
+          reject_self_signed: true
+          check_expiration: true
+          expiration_warning_days: 30
+          forbidden_ciphers: ["RC4", "DES", "3DES", "NULL"]
+          timeout_seconds: 15
+      policy:
+          severity_if_fail: high
+          failure_action: continue
+          required_findings: 0
+          max_findings: 50
+      schedule:
+          max_retries: 3
+          job_timeout_seconds: 180
+          priority: high
+      tags:
+          category: security
+          compliance: pci-dss
+      metadata:
+          baseline: "NIST SP 800-52r2"
+          risk_level: high
+
+    - id: web_security_headers
+      kind: check
+      name: Web Security Headers Check
+      description: Verify security headers on web services
+      enabled: true
+      selector:
+          ports: [80, 8080, 443, 8443]
+          proto_guesses: ["http", "https"]
+          services: ["http", "httpd", "nginx", "apache"]
+      implementation:
+          manifest: ../extensions/grpc/http_checker/manifest.yaml
+          backend: grpc
+      params:
+          required_headers:
+              - "Strict-Transport-Security"
+              - "Content-Security-Policy"
+              - "X-Content-Type-Options"
+              - "X-Frame-Options"
+              - "Referrer-Policy"
+          check_methods: ["GET", "HEAD", "OPTIONS"]
+          follow_redirects: true
+          max_redirects: 3
+      policy:
+          severity_if_fail: medium
+          failure_action: continue
+      tags:
+          category: configuration
+          compliance: owasp
+      metadata:
+          owasp_category: "A05:2021 – Security Misconfiguration"
+
+    - id: ssh_security_audit
+      kind: check
+      name: SSH Security Configuration Audit
+      description: Audit SSH server configuration for security issues
+      enabled: true
+      selector:
+          ports: [22]
+          protocols: ["tcp"]
+          services: ["ssh", "openssh"]
+      implementation:
+          manifest: ../extensions/grpc/ssh_checker/manifest.yaml
+          backend: grpc
+      params:
+          check_algorithms: true
+          check_authentication: true
+          check_protocol_version: true
+          forbidden_auth_methods: ["password"]
+          required_auth_methods: ["publickey"]
+          min_key_size: 2048
+          timeout_seconds: 10
+      policy:
+          severity_if_fail: high
+          failure_action: continue
+      tags:
+          category: security
+          service: ssh
+
+    - id: database_exposure_check
+      kind: check
+      name: Database Service Exposure Check
+      description: Check for exposed database services
+      enabled: true
+      selector:
+          ports: [3306, 5432, 1433, 27017, 6379, 5984]
+          services: ["mysql", "postgresql", "mssql", "mongodb", "redis", "couchdb"]
+      implementation:
+          manifest: ../extensions/grpc/db_checker/manifest.yaml
+          backend: grpc
+      params:
+          check_authentication: true
+          check_encryption: true
+          attempt_anonymous: false
+          check_versions: true
+          identify_only: true
+      policy:
+          severity_if_fail: critical
+          failure_action: continue
+      tags:
+          category: exposure
+          risk: critical
+      metadata:
+          risk_description: "Database services exposed to network"
+
+    - id: service_banner_enum
+      kind: check
+      name: Service Banner Enumeration
+      description: Enumerate service banners and versions
+      enabled: true
+      selector:
+          ports: [21, 25, 53, 80, 110, 143, 443, 993, 995]
+      implementation:
+          manifest: ../extensions/grpc/banner_enum/manifest.yaml
+          backend: grpc
+      params:
+          collect_banners: true
+          fingerprint_services: true
+          detect_versions: true
+          timeout_seconds: 5
+          max_banner_size: 1024
+      policy:
+          severity_if_fail: info
+          failure_action: continue
+      tags:
+          category: reconnaissance
+          phase: enumeration
+
+    - id: port_knocking_detection
+      kind: check
+      name: Port Knocking Detection
+      description: Detect potential port knocking configurations
+      enabled: false
+      selector:
+          expression: "protocol == 'tcp'"
+      implementation:
+          manifest: ../extensions/grpc/port_knock_detector/manifest.yaml
+          backend: grpc
+      params:
+          sequence_detection: true
+          timing_analysis: true
+          max_attempts: 5
+      policy:
+          severity_if_fail: low
+          failure_action: continue
+      tags:
+          category: detection
+          technique: steganography
+
+metadata:
+    campaign_type: subnet_assessment
+    assessment_framework: custom
+    compliance_standards: ["NIST", "OWASP", "PCI-DSS"]
+    target_environment: internal_network
+    assessment_level: standard
+    risk_tolerance: medium
+    created_by: security_team
+    created_date: 2024-01-15
+    last_modified: 2024-01-15
+    version: 1.0

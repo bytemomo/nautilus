@@ -1,0 +1,50 @@
+name: simple_tls_check
+description: Simple TLS/SSL security check campaign
+scope:
+    type: subnet
+    value: 192.168.1.0/24
+
+mode: live
+
+runtime:
+    out_dir: results/simple_tls_check
+    concurrency: 4
+    duration_seconds: 1800
+    safety:
+        read_only: true
+        non_destructive: true
+        dry_run: false
+    logging:
+        level: info
+        format: text
+        enable_file: true
+
+steps:
+    - id: tls_check
+      kind: check
+      name: TLS Configuration Check
+      description: Basic TLS/SSL configuration and security check
+      enabled: true
+      selector:
+          ports: [443, 8443]
+          proto_guesses: ["tls", "https"]
+      implementation:
+          manifest: ../extensions/grpc/tls_checker/manifest.yaml
+          backend: grpc
+      params:
+          min_version: "1.2"
+          reject_self_signed: true
+          check_expiration: true
+          expiration_warning_days: 30
+          timeout_seconds: 10
+      policy:
+          severity_if_fail: high
+          failure_action: continue
+      tags:
+          category: security
+          protocol: tls
+
+metadata:
+    campaign_type: tls_assessment
+    created_by: orca_user
+    version: 1.0
