@@ -1,8 +1,6 @@
-# ---------- Shells ----------
 set shell := ["bash", "-c"]
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-# ---------- Config (override with: just CONFIG=Debug GEN="Unix Makefiles") ----------
 CONFIG := "Release"
 GEN := "Ninja"
 TOOLCHAIN_WIN := "D:\\.scoop\\apps\\vcpkg\\current\\scripts\\buildsystems\\vcpkg.cmake"
@@ -59,9 +57,9 @@ clean-all-unix:
 
 # ---------- Windows implementations (PowerShell) ----------
 build-all-windows:
-	#! pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass
+	#! pwsh
 	$ErrorActionPreference = "Stop"
-	Get-ChildItem -Directory .\plugins | ForEach-Object {
+	Get-ChildItem -Directory . | ForEach-Object {
 		$dir = $_.FullName
 		if (Test-Path (Join-Path $dir 'CMakeLists.txt')) {
 			Write-Host "==> Configuring $dir"
@@ -72,7 +70,7 @@ build-all-windows:
 	}
 
 build-one-windows name:
-	#! pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass
+	#! pwsh
 	$ErrorActionPreference = "Stop"
 	$dir = Join-Path "plugins" "{{name}}"
 	if (!(Test-Path (Join-Path $dir 'CMakeLists.txt'))) {
@@ -85,9 +83,9 @@ build-one-windows name:
 	cmake --build (Join-Path $dir 'build') --config {{CONFIG}}
 
 clean-all-windows:
-	#! pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass
+	#! pwsh
 	$ErrorActionPreference = "Stop"
-	Get-ChildItem -Directory .\plugins | ForEach-Object {
+	Get-ChildItem -Directory . | ForEach-Object {
 		$b = Join-Path $_.FullName 'build'
 		if (Test-Path $b) {
 			Write-Host "==> Removing $b"
