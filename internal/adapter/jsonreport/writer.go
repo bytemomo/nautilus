@@ -10,7 +10,7 @@ import (
 )
 
 type Writer struct {
-	OutDir string // e.g., ./output
+	OutDir string
 }
 
 func New(out string) *Writer { return &Writer{OutDir: out} }

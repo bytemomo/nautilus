@@ -1,10 +1,13 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type PluginExecutor interface {
-	// ORCA sends only {host,port}
-	Run(ctx context.Context, endpoint string, t HostPort) (RunResult, error)
+	Supports(transport string) bool
+	Run(ctx context.Context, params map[string]string, t HostPort, timeout time.Duration) (RunResult, error)
 }
 
 type ResultRepo interface {

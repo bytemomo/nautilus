@@ -3,29 +3,39 @@ package grpcplugin
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
+	"bytemomo/orca/internal/domain"
+	plugpb "bytemomo/orca/pkg/plugpb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-
-	"bytemomo/orca/internal/domain"
-	pluginpb "bytemomo/orca/pkg/plugpb"
 )
 
 type Client struct{}
 
 func New() *Client { return &Client{} }
 
-// Implements domain.PluginExecutor
-func (c *Client) Run(ctx context.Context, endpoint string, t domain.HostPort) (domain.RunResult, error) {
+func (c *Client) Supports(transport string) bool {
+	return strings.EqualFold(transport, "grpc")
+}
+
+func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	endpoint := params["endpoint"]
+	if endpoint == "" {
+		return domain.RunResult{}, fmt.Errorf("grpc endpoint missing in exec.params")
+	}
+
 	conn, err := grpc.DialContext(ctx, endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return domain.RunResult{}, err
 	}
 	defer conn.Close()
 
-	cl := pluginpb.NewOrcaPluginClient(conn)
-	resp, err := cl.Run(ctx, &pluginpb.RunRequest{
-		Target: &pluginpb.Target{Host: t.Host, Port: uint32(t.Port)},
+	cl := plugpb.NewOrcaPluginClient(conn)
+	resp, err := cl.Run(ctx, &plugpb.RunRequest{
+		Target: &plugpb.Target{Host: t.Host, Port: uint32(t.Port)},
 	})
 	if err != nil {
 		return domain.RunResult{}, fmt.Errorf("plugin run: %w", err)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"bytemomo/orca/internal/adapter/abiplugin"
 	"bytemomo/orca/internal/adapter/grpcplugin"
 	"bytemomo/orca/internal/adapter/jsonreport"
 	"bytemomo/orca/internal/adapter/yamlconfig"
@@ -21,14 +22,19 @@ func main() {
 	var (
 		campaignPath = flag.String("campaign", "", "Path to campaign YAML (required)")
 		cidrsArg     = flag.String("cidrs", "", "Comma-separated CIDRs to scan (required)")
-		outDir       = flag.String("out", "./output", "Output directory")
-		timeoutSec   = flag.Int("timeout", 20, "Global plugin timeout (seconds)")
+		outDir       = flag.String("out", "./results", "Output directory")
+		timeoutSec   = flag.Int("timeout", 20, "Per-plugin timeout seconds")
 		targetsPar   = flag.Int("targets-par", 16, "Parallel targets for plugin execution")
-		udp          = flag.Bool("udp", false, "Enable UDP scanning (slower)")
-		minRate      = flag.Int("min-rate", 0, "Set nmap --min-rate (packets/sec)")
-		tAggressive  = flag.Bool("T4", true, "Use nmap -T4 timing template")
-		versionInfo  = flag.Bool("sV", true, "Enable service/version detection (-sV)")
-		verLight     = flag.Bool("version-light", true, "Use --version-light with -sV")
+
+		// Scanner knobs (example; if your scanner is elsewhere, keep this minimal)
+		udp      = flag.Bool("udp", false, "Enable UDP scanning")
+		minRate  = flag.Int("min-rate", 0, "nmap --min-rate")
+		useT4    = flag.Bool("T4", true, "Use nmap -T4")
+		useSV    = flag.Bool("sV", true, "Enable -sV service detection")
+		verLight = flag.Bool("version-light", true, "Use --version-light")
+		// preferSYN = flag.Bool("syn", false, "Prefer SYN scan (falls back to connect if unavailable)")
+		// skipPn    = flag.Bool("Pn", false, "Skip host discovery (-Pn)")
+		// verbosity = flag.Int("v", 0, "nmap verbosity (0..2)")
 	)
 	flag.Parse()
 
@@ -47,21 +53,30 @@ func main() {
 	}
 
 	// Adapters
-	exec := grpcplugin.New()
+	executors := []domain.PluginExecutor{
+		grpcplugin.New(), // transport: "grpc"
+		abiplugin.New(),  // transport: "abi"
+	}
 	reporter := jsonreport.New(*outDir)
 
-	// Use-cases
+	// Scanner (Nmap-based; returns []ClassifiedTarget)
 	scanner := usecase.ScannerUC{
 		EnableUDP:      *udp,
-		ServiceDetect:  *versionInfo,
+		ServiceDetect:  *useSV,
 		VersionLight:   *verLight,
 		MinRate:        *minRate,
-		Timing:         ternary(*tAggressive, nmap.TimingAggressive, nmap.TimingNormal),
+		Timing:         ternary(*useT4, nmap.TimingAggressive, nmap.TimingNormal),
 		CommandTimeout: 30 * time.Minute,
+		// PreferSYN:         *preferSYN,
+		// PreflightSYNCheck: true,
+		// SkipHostDisc:      *skipPn,
+		// Verbosity:         *verbosity,
 	}
+
+	// Runner
 	runner := usecase.RunnerUC{
-		Exec:  exec,
-		Store: reporter,
+		Executors: executors,
+		Store:     reporter,
 		Config: domain.RunnerConfig{
 			GlobalTimeout: time.Duration(*timeoutSec) * time.Second,
 			MaxTargets:    *targetsPar,
@@ -69,9 +84,8 @@ func main() {
 	}
 	report := usecase.ReporterUC{Writer: reporter}
 
-	// Pipeline
 	ctx := context.Background()
-	classified, err := scanner.Execute(ctx, cidrs)
+	classified, err := scanner.Execute(ctx, cidrs) // scanner returns []ClassifiedTarget
 	must(err)
 
 	all, err := runner.Execute(ctx, *camp, classified)

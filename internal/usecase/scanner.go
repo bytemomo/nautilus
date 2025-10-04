@@ -30,22 +30,25 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 
 	opts := []nmap.Option{
 		nmap.WithTargets(targets...),
-		nmap.WithSYNScan(),               // -sS (falls back to -sT if not privileged)
+		// nmap.WithSYNScan(),            // -sS (falls back to -sT if not privileged)
 		nmap.WithDisabledDNSResolution(), // -n
 	}
 
 	if s.EnableUDP {
 		opts = append(opts, nmap.WithUDPScan()) // -sU
 	}
+
 	if s.ServiceDetect {
 		opts = append(opts, nmap.WithServiceInfo()) // -sV
 		if s.VersionLight {
 			opts = append(opts, nmap.WithVersionLight()) // --version-light
 		}
 	}
+
 	if s.MinRate > 0 {
 		opts = append(opts, nmap.WithMinRate(s.MinRate))
 	}
+
 	if s.Timing != 0 {
 		opts = append(opts, nmap.WithTimingTemplate(s.Timing))
 	}

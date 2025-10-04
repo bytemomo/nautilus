@@ -3,9 +3,17 @@ name: "Default IoT Network Assessment"
 version: "1.0.0"
 steps:
     - plugin_id: "tls_version_check"
-      endpoint: "127.0.0.1:50051"
       required_tags: ["protocol:tcp", "supports:tls"]
       max_duration_s: 20
+      exec:
+          transport: grpc
+          params:
+              endpoint: "127.0.0.1:50051"
+
     - plugin_id: "mqtt_basic_auth_bypass"
-      endpoint: "127.0.0.1:50052"
       required_tags: ["protocol:mqtt"]
+      exec:
+          transport: abi
+          params:
+              library: "./plugins/mqtt_bypass.so"
+              symbol: "ORCA_Run"
