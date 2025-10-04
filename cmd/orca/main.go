@@ -54,8 +54,8 @@ func main() {
 
 	// Adapters
 	executors := []domain.PluginExecutor{
-		grpcplugin.New(), // transport: "grpc"
-		abiplugin.New(),  // transport: "abi"
+		grpcplugin.New(),
+		abiplugin.New(),
 	}
 	reporter := jsonreport.New(*outDir)
 
@@ -85,14 +85,23 @@ func main() {
 	report := usecase.ReporterUC{Writer: reporter}
 
 	ctx := context.Background()
-	classified, err := scanner.Execute(ctx, cidrs) // scanner returns []ClassifiedTarget
-	must(err)
+	classified, err := scanner.Execute(ctx, cidrs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fatal:", err)
+		os.Exit(1)
+	}
 
 	all, err := runner.Execute(ctx, *camp, classified)
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fatal:", err)
+		os.Exit(1)
+	}
 
 	path, err := report.Execute(ctx, all)
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fatal:", err)
+		os.Exit(1)
+	}
 
 	fmt.Println("Report written to:", path)
 }
