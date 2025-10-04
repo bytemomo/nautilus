@@ -1,3 +1,4 @@
+#include <stddef.h>   // for size_t
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,16 +6,16 @@
 #include <time.h>
 
 #ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-#define EXPORT __declspec(dllexport)
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #pragma comment(lib, "ws2_32.lib")
+  #define EXPORT __declspec(dllexport)
 #else
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#define EXPORT
+  #include <arpa/inet.h>
+  #include <netdb.h>
+  #include <sys/socket.h>
+  #include <unistd.h>
+  #define EXPORT
 #endif
 
 #include <openssl/err.h>
@@ -24,8 +25,7 @@
 static char *dup_json(const char *s) {
   size_t n = strlen(s);
   char *p = (char *)malloc(n + 1);
-  if (p)
-    memcpy(p, s, n + 1);
+  if (p) memcpy(p, s, n + 1);
   return p;
 }
 
@@ -36,13 +36,13 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
   WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
 
+  /* OpenSSL 1.1+ auto-inits, but these calls are harmless on newer versions */
   SSL_library_init();
   SSL_load_error_strings();
   OpenSSL_add_ssl_algorithms();
 
   SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-  if (!ctx)
-    return 1;
+  if (!ctx) return 1;
 
   char portstr[16];
   snprintf(portstr, sizeof(portstr), "%u", port);
@@ -66,15 +66,14 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
   }
   SSL_set_tlsext_host_name(ssl, host);
 
-  int ok = BIO_do_connect(bio);
-  if (ok != 1) {
+  (void)timeout_ms; /* TODO: wire up a real timeout if you need it */
+
+  if (BIO_do_connect(bio) != 1) {
     BIO_free_all(bio);
     SSL_CTX_free(ctx);
     return 4;
   }
-
-  ok = SSL_do_handshake(ssl);
-  if (ok != 1) {
+  if (SSL_do_handshake(ssl) != 1) {
     BIO_free_all(bio);
     SSL_CTX_free(ctx);
     return 5;
@@ -87,67 +86,63 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
     return 6;
   }
 
-  ASN1_TIME *notAfter = X509_get_notAfter(cert);
-  BIO *mem = BIO_new(BIO_s_mem());
-  ASN1_TIME_print(mem, notAfter);
-  char datebuf[128];
-  memset(datebuf, 0, sizeof(datebuf));
-  BIO_read(mem, datebuf, sizeof(datebuf) - 1);
-  BIO_free(mem);
+  const ASN1_TIME *notAfter = X509_get0_notAfter(cert);
 
-  // Convert ASN1_TIME to time_t
-  int days, secs;
-  if (X509_cmp_time(notAfter, &days) == 0) {
-    // fallback: manual conversion if needed
+  /* Render notAfter for human-readable report */
+  char datebuf[128] = {0};
+  {
+    BIO *mem = BIO_new(BIO_s_mem());
+    if (mem) {
+      ASN1_TIME_print(mem, notAfter);
+      BIO_read(mem, datebuf, sizeof(datebuf) - 1);
+      BIO_free(mem);
+    }
   }
 
-  // Safer: convert ASN1_TIME into struct tm
-  struct tm t;
-  memset(&t, 0, sizeof(t));
-  const char *str = (const char *)notAfter->data;
-  if (notAfter->type == V_ASN1_UTCTIME) {
-    sscanf(str, "%2d%2d%2d%2d%2dZ", &t.tm_year, &t.tm_mon, &t.tm_mday,
-           &t.tm_hour, &t.tm_min);
-    t.tm_year += (t.tm_year < 70) ? 2000 - 1900 : 1900 - 1900;
-    t.tm_mon -= 1;
-  } else if (notAfter->type == V_ASN1_GENERALIZEDTIME) {
-    sscanf(str, "%4d%2d%2d%2d%2dZ", &t.tm_year, &t.tm_mon, &t.tm_mday,
-           &t.tm_hour, &t.tm_min);
-    t.tm_year -= 1900;
-    t.tm_mon -= 1;
-  }
-  time_t expiry = mktime(&t);
-  time_t now = time(NULL);
-  int days_left = (int)((expiry - now) / 86400);
+  /* Compute days_left using ASN1_TIME_diff (difference from now to notAfter) */
+  int pday = 0, psec = 0;
+  int days_left = 0;  /* positive -> days until expiry; negative -> expired */
 
-  char report[1024];
+  if (ASN1_TIME_diff(&pday, &psec, NULL, notAfter) == 1) {
+    /* Total seconds (can be negative if already expired) */
+    long long total = (long long)pday * 86400 + (long long)psec;
+    if (total >= 0) {
+      days_left = (int)((total + 86399) / 86400);  /* ceil to whole days */
+    } else {
+      long long neg = -total;
+      days_left = -(int)((neg + 86399) / 86400);   /* ceil toward zero, keep sign */
+    }
+  } else {
+    /* If diff fails, mark unknown conservatively */
+    days_left = 0;
+  }
+
   const char *severity = "info";
-  if (days_left < 0)
-    severity = "high";
-  else if (days_left < 30)
-    severity = "medium";
+  if (days_left < 0)      severity = "high";
+  else if (days_left < 30) severity = "medium";
 
+  time_t now = time(NULL);
+  char report[1024];
   snprintf(report, sizeof(report),
            "{ \"findings\":[{"
-           "\"id\":\"CERT-EXPIRY\","
-           "\"plugin_id\":\"cert_expiry_check\","
-           "\"title\":\"Certificate expiry check\","
-           "\"severity\":\"%s\","
-           "\"description\":\"Leaf certificate expiry\","
-           "\"evidence\":{\"notAfter\":\"%s\",\"days_left\":\"%d\"},"
-           "\"tags\":[\"tls:cert\"],"
-           "\"timestamp\":%lld"
+             "\"id\":\"CERT-EXPIRY\","
+             "\"plugin_id\":\"cert_expiry_check\","
+             "\"title\":\"Certificate expiry check\","
+             "\"severity\":\"%s\","
+             "\"description\":\"Leaf certificate expiry\","
+             "\"evidence\":{\"notAfter\":\"%s\",\"days_left\":\"%d\"},"
+             "\"tags\":[\"tls:cert\"],"
+             "\"timestamp\":%lld"
            "}],"
            "\"logs\":[{\"ts\":%lld,\"line\":\"Checked certificate expiry\"}] }",
            severity, datebuf, days_left, (long long)now, (long long)now);
 
   *out_json = dup_json(report);
-  *out_len = strlen(report);
+  *out_len  = strlen(report);
 
   X509_free(cert);
   BIO_free_all(bio);
   SSL_CTX_free(ctx);
-
 #ifdef _WIN32
   WSACleanup();
 #endif
@@ -155,6 +150,6 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
 }
 
 EXPORT void ORCA_Free(void *p) {
-  if (p)
-    free(p);
+  if (p) free(p);
 }
+

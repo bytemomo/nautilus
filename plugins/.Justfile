@@ -1,80 +1,65 @@
+# ---------- Shells ----------
+set shell := ["bash", "-c"]
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+# ---------- Config (override with: just CONFIG=Debug GEN="Unix Makefiles") ----------
 CONFIG := "Release"
 GEN := "Ninja"
-TOOLCHAIN_WIN := r#"D:\.scoop\apps\vcpkg\current\scripts\buildsystems\vcpkg.cmake"#
+TOOLCHAIN_WIN := "D:\\.scoop\\apps\\vcpkg\\current\\scripts\\buildsystems\\vcpkg.cmake"
 
+# ---------- Top-level Platform Dispatch (shell-agnostic) ----------
 build-all:
-	if [[ "{{os()}}" == "windows" ]]; then
-		just build-all-windows
-	else
-		just build-all-unix
-	fi
-
+	@just {{ if os() == "windows" { "build-all-windows" } else { "build-all-unix" } }}
 
 rebuild-all:
-	if [[ "{{os()}}" == "windows" ]]; then
-		just clean-all-windows
-		just build-all-windows
-	else
-		just clean-all-unix
-		just build-all-unix
-	fi
-
+	@just {{ if os() == "windows" { "clean-all-windows && just build-all-windows" } else { "clean-all-unix && just build-all-unix" } }}
 
 build-one name:
-	if [[ "{{os()}}" == "windows" ]]; then
-		just build-one-windows {{name}}
-	else
-		just build-one-unix {{name}}
-	fi
-
+	@just {{ if os() == "windows" { "build-one-windows " + name } else { "build-one-unix " + name } }}
 
 clean-all:
-	if [[ "{{os()}}" == "windows" ]]; then
-		just clean-all-windows
-	else
-		just clean-all-unix
-	fi
+	@just {{ if os() == "windows" { "clean-all-windows" } else { "clean-all-unix" } }}
 
-
-# -----------------------------
-# Unix implementations
-# -----------------------------
+# ---------- Unix implementations (Bash) ----------
 build-all-unix:
+	#!/usr/bin/env bash
 	set -euo pipefail
-	for d in plugins/*; do
-		if [ -d "$d" ] && [ -f "$d/CMakeLists.txt" ]; then
-			echo "==> Configuring $d"
-			cmake -S "$d" -B "$d/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
-			echo "==> Building $d"
-			cmake --build "$d/build" --config {{CONFIG}}
-		fi
+	root="plugins"
+	[[ -d "$root" ]] || root="."
+	for d in "$root"/*; do
+		[[ -d "$d" ]] || continue
+		[[ -f "$d/CMakeLists.txt" ]] || continue
+		echo "==> Configuring $d"
+		cmake -S "$d" -B "$d/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
+		echo "==> Building $d"
+		cmake --build "$d/build" --config {{CONFIG}}
 	done
-
 
 build-one-unix name:
+	#!/usr/bin/env bash
 	set -euo pipefail
-	d="plugins/{{name}}"
-	if [ ! -f "$d/CMakeLists.txt" ]; then
-		echo "No CMakeLists.txt in $d" >&2
-		exit 1
-	fi
-	cmake -S "$d" -B "$d/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
-	cmake --build "$d/build" --config {{CONFIG}}
-
+	dir="plugins/{{name}}"
+	[[ -d "$dir" ]] || dir="./{{name}}"
+	[[ -f "$dir/CMakeLists.txt" ]] || { echo "No CMakeLists.txt in $dir" >&2; exit 1; }
+	echo "==> Configuring $dir"
+	cmake -S "$dir" -B "$dir/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
+	echo "==> Building $dir"
+	cmake --build "$dir/build" --config {{CONFIG}}
 
 clean-all-unix:
+	#!/usr/bin/env bash
 	set -euo pipefail
-	for d in plugins/*; do
-		if [ -d "$d/build" ]; then
-			echo "==> Removing $d/build"
-			rm -rf "$d/build"
-		fi
+	root="plugins"
+	[[ -d "$root" ]] || root="."
+	for d in "$root"/*; do
+		[[ -d "$d/build" ]] || continue
+		echo "==> Removing $d/build"
+		rm -rf "$d/build"
 	done
 
-# -----------------------------
-# Windows implementations (PowerShell)
-# -----------------------------
+# ---------- Windows implementations (PowerShell) ----------
 build-all-windows:
+	#! pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass
 	$ErrorActionPreference = "Stop"
 	Get-ChildItem -Directory .\plugins | ForEach-Object {
 		$dir = $_.FullName
@@ -86,19 +71,21 @@ build-all-windows:
 		}
 	}
 
-
 build-one-windows name:
+	#! pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass
 	$ErrorActionPreference = "Stop"
 	$dir = Join-Path "plugins" "{{name}}"
 	if (!(Test-Path (Join-Path $dir 'CMakeLists.txt'))) {
 		Write-Error "No CMakeLists.txt in $dir"
 		exit 1
 	}
+	Write-Host "==> Configuring $dir"
 	cmake -S $dir -B (Join-Path $dir 'build') -G {{GEN}} -DCMAKE_TOOLCHAIN_FILE="{{TOOLCHAIN_WIN}}" -DCMAKE_BUILD_TYPE={{CONFIG}}
+	Write-Host "==> Building $dir"
 	cmake --build (Join-Path $dir 'build') --config {{CONFIG}}
 
-
 clean-all-windows:
+	#! pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass
 	$ErrorActionPreference = "Stop"
 	Get-ChildItem -Directory .\plugins | ForEach-Object {
 		$b = Join-Path $_.FullName 'build'

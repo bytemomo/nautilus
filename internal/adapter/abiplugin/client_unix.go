@@ -6,13 +6,32 @@ package abiplugin
 #cgo LDFLAGS: -ldl
 #include <dlfcn.h>
 #include <stdlib.h>
-typedef int (*ORCA_RunFn)(const char*, unsigned int, unsigned int, char**, size_t*);
-typedef void (*ORCA_FreeFn)(void*);
+#include <stdint.h>
+#include <stddef.h>
+
+typedef int (*ORCA_RunFn)(const char* host, uint32_t port, uint32_t timeout_ms, char** out_json, size_t* out_len);
+typedef void (*ORCA_FreeFn)(void* p);
+
 static void* my_dlopen(const char* p) { return dlopen(p, RTLD_NOW); }
 static void* my_dlsym(void* h, const char* s) { return dlsym(h, s); }
 static const char* my_dlerror() { return dlerror(); }
+
+// bridge: call C function pointers from Go
+static inline int call_ORCA_Run(ORCA_RunFn f,
+                                const char* host,
+                                uint32_t port,
+                                uint32_t timeout_ms,
+                                char** out_json,
+                                size_t* out_len) {
+    return f(host, port, timeout_ms, out_json, out_len);
+}
+
+static inline void call_ORCA_Free(ORCA_FreeFn f, void* p) {
+    f(p);
+}
 */
 import "C"
+
 import (
 	"context"
 	"encoding/json"
@@ -34,7 +53,7 @@ func (c *Client) Supports(transport string) bool {
 }
 
 func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	libPath := params["library"]
+	libPath := params["library"] + ".so"
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}
@@ -45,50 +64,54 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 
 	clib := C.CString(libPath)
 	defer C.free(unsafe.Pointer(clib))
-	h := C.my_dlopen(clib)
-	if h == nil {
-		return domain.RunResult{}, fmt.Errorf("dlopen(%s): %s", libPath, C.GoString(C.my_dlerror()))
+	handle := C.my_dlopen(clib)
+	if handle == nil {
+		return domain.RunResult{}, fmt.Errorf("dlopen(%s) failed: %s", libPath, C.GoString(C.my_dlerror()))
 	}
 
-	runSym := C.CString(symbol)
-	defer C.free(unsafe.Pointer(runSym))
+	// resolve run symbol
+	csym := C.CString(symbol)
+	defer C.free(unsafe.Pointer(csym))
+	runPtr := C.my_dlsym(handle, csym)
+	if runPtr == nil {
+		return domain.RunResult{}, fmt.Errorf("dlsym(%s) failed: %s", symbol, C.GoString(C.my_dlerror()))
+	}
+	run := (C.ORCA_RunFn)(runPtr)
+
+	// resolve free symbol
 	freeSym := C.CString("ORCA_Free")
 	defer C.free(unsafe.Pointer(freeSym))
-
-	runPtr := C.my_dlsym(h, runSym)
-	if runPtr == nil {
-		return domain.RunResult{}, fmt.Errorf("dlsym(%s): %s", symbol, C.GoString(C.my_dlerror()))
-	}
-	freePtr := C.my_dlsym(h, freeSym)
+	freePtr := C.my_dlsym(handle, freeSym)
 	if freePtr == nil {
-		return domain.RunResult{}, fmt.Errorf("dlsym(ORCA_Free): %s", C.GoString(C.my_dlerror()))
+		return domain.RunResult{}, fmt.Errorf("dlsym(ORCA_Free) failed: %s", C.GoString(C.my_dlerror()))
 	}
+	freeFn := (C.ORCA_FreeFn)(freePtr)
 
-	run := (C.ORCA_RunFn)(runPtr)
-	fre := (C.ORCA_FreeFn)(freePtr)
-
+	// prepare args
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
-	portC := C.uint(t.Port)
-	timeoutMs := C.uint(timeout.Milliseconds())
+	portC := C.uint32_t(t.Port)
+	timeoutMs := C.uint32_t(timeout.Milliseconds())
+
 	var outBuf *C.char
 	var outLen C.size_t
 
-	// Blocking call; plugin expected to respect timeoutMs
-	ret := run(hostC, portC, timeoutMs, &outBuf, &outLen)
-	if ret != 0 {
+	// call into plugin
+	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, &outBuf, &outLen)
+	if int(ret) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
 	}
 	if outBuf == nil || outLen == 0 {
 		return domain.RunResult{}, errors.New("plugin returned empty buffer")
 	}
-	defer fre(unsafe.Pointer(outBuf))
+	defer C.call_ORCA_Free(freeFn, unsafe.Pointer(outBuf))
 
-	// Parse JSON to RunResult
-	data := C.GoBytes(unsafe.Pointer(outBuf), C.int(outLen))
-	return decodeJSONResult(data, t)
+	// copy buffer then decode
+	buf := C.GoBytes(unsafe.Pointer(outBuf), C.int(outLen))
+	return decodeJSONResult(buf, t)
 }
 
+// decodeJSONResult is shared logic (duplicated to avoid build tag import hassles)
 func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) {
 	var wire struct {
 		Findings []struct {
@@ -98,8 +121,8 @@ func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) 
 			Timestamp                                  int64
 		} `json:"findings"`
 		Logs []struct {
-			TS   int64  `json:"ts"`
-			Line string `json:"line"`
+			TS   int64
+			Line string
 		} `json:"logs"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {

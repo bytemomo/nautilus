@@ -24,7 +24,7 @@ func (c *Client) Supports(transport string) bool {
 }
 
 func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	libPath := params["library"]
+	libPath := params["library"] + ".dll"
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}
