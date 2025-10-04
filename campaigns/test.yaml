@@ -10,3 +10,21 @@ steps:
           params:
               library: "./plugins/tls_version_check/build/tls_version_check.dll"
               symbol: "ORCA_Run"
+
+    - plugin_id: "default_password_audit"
+      required_tags: ["protocol:tcp", "service:telnet"]
+      max_duration_s: 20
+      exec:
+          transport: abi
+          params:
+              library: "./plugins/telnet_default_creds/build/tls_version_check.dll"
+              symbol: "ORCA_Run"
+
+    - plugin_id: "cert_expiry_check"
+      required_tags: ["supports:tls", "protocol:tcp"]
+      max_duration_s: 15
+      exec:
+          transport: abi
+          params:
+              library: "./plugins/cert_expiry_check/build/cert_expiry_check.dll"
+          symbol: "ORCA_Run"

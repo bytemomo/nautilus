@@ -1,6 +1,0 @@
-*
-
-!.gitignore
-!.justfile
-!CMakeLists.txt
-!tls_version_check.c

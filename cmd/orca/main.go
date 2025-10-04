@@ -26,7 +26,7 @@ func main() {
 		timeoutSec   = flag.Int("timeout", 20, "Per-plugin timeout seconds")
 		targetsPar   = flag.Int("targets-par", 16, "Parallel targets for plugin execution")
 
-		// Scanner knobs (example; if your scanner is elsewhere, keep this minimal)
+		// Scanner knobs
 		udp      = flag.Bool("udp", false, "Enable UDP scanning")
 		minRate  = flag.Int("min-rate", 0, "nmap --min-rate")
 		useT4    = flag.Bool("T4", true, "Use nmap -T4")
@@ -45,7 +45,10 @@ func main() {
 	}
 
 	camp, err := yamlconfig.LoadCampaign(*campaignPath)
-	must(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	cidrs := splitCSV(*cidrsArg)
 	if len(cidrs) == 0 {
