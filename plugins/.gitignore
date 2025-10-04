@@ -2,6 +2,7 @@
 
 !.gitignore
 !CMakeLists.txt
+!.Justfile
 !*.c
 
 !/**/
