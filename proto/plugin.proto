@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package orca.plugin.v1;
+
+option go_package = ".;plugpb";
+
+// ------------------------------
+// Messages
+// ------------------------------
+
+message Target {
+  string host = 1;
+  uint32 port = 2;
+}
+
+message RunRequest {
+  Target target = 1;
+}
+
+message Finding {
+  string id = 1;
+  string plugin_id = 2;
+
+  string title = 3;
+  string severity = 4;      // e.g., "info","low","medium","high","critical"
+  string description = 5;
+
+  map<string, string> evidence = 6;
+  repeated string tags = 7;
+
+  int64 timestamp = 8;
+}
+
+message LogLine {
+  int64 ts = 1;
+  string line = 2;
+}
+
+message RunResponse {
+  repeated Finding findings = 1;
+  repeated LogLine logs = 2;
+}
+
+message PluginMetadata {
+  string id = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+}
+
+// ------------------------------
+// Service
+// ------------------------------
+
+service OrcaPlugin {
+  rpc Run(RunRequest) returns (RunResponse);
+  rpc Metadata(google.protobuf.Empty) returns (PluginMetadata);
+}
+
+import "google/protobuf/empty.proto";
