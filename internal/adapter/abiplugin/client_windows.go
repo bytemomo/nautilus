@@ -45,6 +45,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	if err != nil {
 		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s): %w", symbol, err)
 	}
+
 	freeProc, err := dll.FindProc("ORCA_Free")
 	if err != nil {
 		return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free): %w", err)
@@ -68,8 +69,6 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	var outPtr uintptr
 	var outLen uintptr
 	timeoutMs := uintptr(timeout.Milliseconds())
-
-	// int ORCA_Run(const char* host, uint32_t port, uint32_t timeout_ms, char** out_json, size_t* out_len)
 	r1, _, callErr := runProc.Call(
 		uintptr(unsafe.Pointer(hostPtr)),
 		uintptr(uint32(t.Port)),
@@ -78,12 +77,15 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 		uintptr(unsafe.Pointer(&outPtr)),
 		uintptr(unsafe.Pointer(&outLen)),
 	)
+
 	if callErr != syscall.Errno(0) {
 		return domain.RunResult{}, fmt.Errorf("ORCA_Run call error: %v", callErr)
 	}
+
 	if int(r1) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(r1))
 	}
+
 	if outPtr == 0 || outLen == 0 {
 		return domain.RunResult{}, errors.New("plugin returned empty buffer")
 	}
@@ -111,9 +113,11 @@ func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) 
 			Line string
 		} `json:"logs"`
 	}
+
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return domain.RunResult{}, fmt.Errorf("decode plugin JSON: %w", err)
 	}
+
 	var res domain.RunResult
 	res.Target = t
 	for _, f := range wire.Findings {
@@ -131,8 +135,10 @@ func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) 
 			Target: t,
 		})
 	}
+
 	for _, l := range wire.Logs {
 		res.Logs = append(res.Logs, l.Line)
 	}
+
 	return res, nil
 }

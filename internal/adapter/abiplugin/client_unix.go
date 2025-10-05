@@ -14,13 +14,8 @@ static int   my_dlclose(void* h)                   { return dlclose(h); }
 static const char* my_dlerror()                    { return dlerror(); }
 
 // Thin bridge wrappers so Go can call function pointers.
-static inline int call_ORCA_Run(ORCA_RunFn f,
-                                const char* host,
-                                uint32_t port,
-                                uint32_t timeout_ms,
-                                const char* params_json,
-                                char** out_json,
-                                size_t* out_len) {
+static inline int call_ORCA_Run(ORCA_RunFn f, const char* host, uint32_t port, uint32_t timeout_ms,
+                                const char* params_json, char** out_json, size_t* out_len) {
     return f(host, port, timeout_ms, params_json, out_json, out_len);
 }
 
@@ -63,6 +58,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 
 	clib := C.CString(libPath)
 	defer C.free(unsafe.Pointer(clib))
+
 	handle := C.my_dlopen(clib)
 	if handle == nil {
 		return domain.RunResult{}, fmt.Errorf("dlopen(%s) failed: %s", libPath, C.GoString(C.my_dlerror()))
@@ -71,6 +67,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	// resolve run symbol
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
+
 	runPtr := C.my_dlsym(handle, csym)
 	if runPtr == nil {
 		return domain.RunResult{}, fmt.Errorf("dlsym(%s) failed: %s", symbol, C.GoString(C.my_dlerror()))
@@ -80,6 +77,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	// resolve free symbol
 	freeSym := C.CString("ORCA_Free")
 	defer C.free(unsafe.Pointer(freeSym))
+
 	freePtr := C.my_dlsym(handle, freeSym)
 	if freePtr == nil {
 		return domain.RunResult{}, fmt.Errorf("dlsym(ORCA_Free) failed: %s", C.GoString(C.my_dlerror()))
@@ -89,6 +87,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	// prepare args
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
+
 	portC := C.uint32_t(t.Port)
 	timeoutMs := C.uint32_t(timeout.Milliseconds())
 
@@ -104,6 +103,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	if int(ret) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
 	}
+
 	if outBuf == nil || outLen == 0 {
 		return domain.RunResult{}, errors.New("plugin returned empty buffer")
 	}
@@ -128,9 +128,11 @@ func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) 
 			Line string
 		} `json:"logs"`
 	}
+
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return domain.RunResult{}, fmt.Errorf("decode plugin JSON: %w", err)
 	}
+
 	var res domain.RunResult
 	res.Target = t
 	for _, f := range wire.Findings {
@@ -148,8 +150,10 @@ func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) 
 			Target: t,
 		})
 	}
+
 	for _, l := range wire.Logs {
 		res.Logs = append(res.Logs, l.Line)
 	}
+
 	return res, nil
 }
