@@ -1,4 +1,4 @@
-#include <stddef.h>   // for size_t
+#include <stddef.h> // for size_t
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,16 +6,16 @@
 #include <time.h>
 
 #ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #pragma comment(lib, "ws2_32.lib")
-  #define EXPORT __declspec(dllexport)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#define EXPORT __declspec(dllexport)
 #else
-  #include <arpa/inet.h>
-  #include <netdb.h>
-  #include <sys/socket.h>
-  #include <unistd.h>
-  #define EXPORT
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#define EXPORT
 #endif
 
 #include <openssl/err.h>
@@ -25,12 +25,14 @@
 static char *dup_json(const char *s) {
   size_t n = strlen(s);
   char *p = (char *)malloc(n + 1);
-  if (p) memcpy(p, s, n + 1);
+  if (p)
+    memcpy(p, s, n + 1);
   return p;
 }
 
 EXPORT int ORCA_Run(const char *host, unsigned int port,
-                    unsigned int timeout_ms, char **out_json, size_t *out_len) {
+                    unsigned int timeout_ms, const char *params_json,
+                    char **out_json, size_t *out_len) {
 #ifdef _WIN32
   WSADATA wsa;
   WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -42,7 +44,8 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
   OpenSSL_add_ssl_algorithms();
 
   SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-  if (!ctx) return 1;
+  if (!ctx)
+    return 1;
 
   char portstr[16];
   snprintf(portstr, sizeof(portstr), "%u", port);
@@ -101,16 +104,17 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
 
   /* Compute days_left using ASN1_TIME_diff (difference from now to notAfter) */
   int pday = 0, psec = 0;
-  int days_left = 0;  /* positive -> days until expiry; negative -> expired */
+  int days_left = 0; /* positive -> days until expiry; negative -> expired */
 
   if (ASN1_TIME_diff(&pday, &psec, NULL, notAfter) == 1) {
     /* Total seconds (can be negative if already expired) */
     long long total = (long long)pday * 86400 + (long long)psec;
     if (total >= 0) {
-      days_left = (int)((total + 86399) / 86400);  /* ceil to whole days */
+      days_left = (int)((total + 86399) / 86400); /* ceil to whole days */
     } else {
       long long neg = -total;
-      days_left = -(int)((neg + 86399) / 86400);   /* ceil toward zero, keep sign */
+      days_left =
+          -(int)((neg + 86399) / 86400); /* ceil toward zero, keep sign */
     }
   } else {
     /* If diff fails, mark unknown conservatively */
@@ -118,27 +122,29 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
   }
 
   const char *severity = "info";
-  if (days_left < 0)      severity = "high";
-  else if (days_left < 30) severity = "medium";
+  if (days_left < 0)
+    severity = "high";
+  else if (days_left < 30)
+    severity = "medium";
 
   time_t now = time(NULL);
   char report[1024];
   snprintf(report, sizeof(report),
            "{ \"findings\":[{"
-             "\"id\":\"CERT-EXPIRY\","
-             "\"plugin_id\":\"cert_expiry_check\","
-             "\"title\":\"Certificate expiry check\","
-             "\"severity\":\"%s\","
-             "\"description\":\"Leaf certificate expiry\","
-             "\"evidence\":{\"notAfter\":\"%s\",\"days_left\":\"%d\"},"
-             "\"tags\":[\"tls:cert\"],"
-             "\"timestamp\":%lld"
+           "\"id\":\"CERT-EXPIRY\","
+           "\"plugin_id\":\"cert_expiry_check\","
+           "\"title\":\"Certificate expiry check\","
+           "\"severity\":\"%s\","
+           "\"description\":\"Leaf certificate expiry\","
+           "\"evidence\":{\"notAfter\":\"%s\",\"days_left\":\"%d\"},"
+           "\"tags\":[\"tls:cert\"],"
+           "\"timestamp\":%lld"
            "}],"
            "\"logs\":[{\"ts\":%lld,\"line\":\"Checked certificate expiry\"}] }",
            severity, datebuf, days_left, (long long)now, (long long)now);
 
   *out_json = dup_json(report);
-  *out_len  = strlen(report);
+  *out_len = strlen(report);
 
   X509_free(cert);
   BIO_free_all(bio);
@@ -150,6 +156,6 @@ EXPORT int ORCA_Run(const char *host, unsigned int port,
 }
 
 EXPORT void ORCA_Free(void *p) {
-  if (p) free(p);
+  if (p)
+    free(p);
 }
-

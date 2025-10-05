@@ -122,7 +122,8 @@ static int try_telnet_login(const char *host, uint16_t port, const char *user,
 }
 
 EXPORT int ORCA_Run(const char *host, unsigned int port,
-                    unsigned int timeout_ms, char **out_json, size_t *out_len) {
+                    unsigned int timeout_ms, const char *params_json,
+                    char **out_json, size_t *out_len) {
 #ifdef _WIN32
   WSADATA wsa;
   WSAStartup(MAKEWORD(2, 2), &wsa);

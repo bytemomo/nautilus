@@ -12,11 +12,6 @@ type ClassifiedTarget struct {
 	Tags   []Tag
 }
 
-type ExecSpec struct {
-	Transport string            `yaml:"transport"`        // e.g., "grpc", "abi"
-	Params    map[string]string `yaml:"params,omitempty"` // e.g., {"endpoint":"...", "library":"...", "symbol":"..."}
-}
-
 type Campaign struct {
 	ID      string         `yaml:"id"`
 	Name    string         `yaml:"name"`
@@ -24,11 +19,27 @@ type Campaign struct {
 	Steps   []CampaignStep `yaml:"steps"`
 }
 
+type ABIConfig struct {
+	LibraryPath string `yaml:"library"`
+	Symbol      string `yaml:"symbol"`
+}
+
+type GRPCConfig struct {
+	Server string `yaml:"server"`
+}
+
+type ExecConfig struct {
+	ABI       *ABIConfig        `yaml:"abi,omitempty"`
+	GRPC      *GRPCConfig       `yaml:"grpc,omitempty"`
+	Transport string            `yaml:"transport,omitempty"`
+	Params    map[string]string `yaml:"params,omitempty"`
+}
+
 type CampaignStep struct {
-	PluginID     string   `yaml:"plugin_id"`
-	Exec         ExecSpec `yaml:"exec"` // neutral spec (transport + params)
-	RequiredTags []Tag    `yaml:"required_tags"`
-	MaxDurationS int      `yaml:"max_duration_s"`
+	PluginID     string     `yaml:"plugin_id"`
+	RequiredTags []string   `yaml:"required_tags"`
+	MaxDurationS int        `yaml:"max_duration_s"`
+	Exec         ExecConfig `yaml:"exec"`
 }
 
 type Finding struct {

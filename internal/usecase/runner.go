@@ -53,6 +53,12 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 		}
 
 		cctx, cancel := context.WithTimeout(ctx, timeout)
+		if step.Exec.ABI != nil {
+			cctx = context.WithValue(cctx, "abi", step.Exec.ABI)
+		} else if step.Exec.GRPC != nil {
+			cctx = context.WithValue(cctx, "grpc", step.Exec.GRPC)
+		}
+
 		rr, err := exec.Run(cctx, step.Exec.Params, ct.Target, timeout)
 		cancel()
 
@@ -85,7 +91,7 @@ func filterStepsByTags(steps []domain.CampaignStep, tags []domain.Tag) []domain.
 STEP:
 	for _, s := range steps {
 		for _, req := range s.RequiredTags {
-			if _, ok := tagset[req]; !ok {
+			if _, ok := tagset[domain.Tag(req)]; !ok {
 				continue STEP
 			}
 		}

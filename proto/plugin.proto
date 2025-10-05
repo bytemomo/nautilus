@@ -15,6 +15,8 @@ message Target {
 
 message RunRequest {
   Target target = 1;
+  uint32 timeout_ms = 2;
+  map<string, string> params = 3;
 }
 
 message Finding {

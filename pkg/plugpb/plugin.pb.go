@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v6.32.1
-// source: plugin.proto
+// source: proto/plugin.proto
 
 package plugpb
 
@@ -32,7 +32,7 @@ type Target struct {
 
 func (x *Target) Reset() {
 	*x = Target{}
-	mi := &file_plugin_proto_msgTypes[0]
+	mi := &file_proto_plugin_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *Target) String() string {
 func (*Target) ProtoMessage() {}
 
 func (x *Target) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[0]
+	mi := &file_proto_plugin_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *Target) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Target.ProtoReflect.Descriptor instead.
 func (*Target) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{0}
+	return file_proto_plugin_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Target) GetHost() string {
@@ -77,13 +77,15 @@ func (x *Target) GetPort() uint32 {
 type RunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Target        *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	TimeoutMs     uint32                 `protobuf:"varint,2,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	Params        map[string]string      `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RunRequest) Reset() {
 	*x = RunRequest{}
-	mi := &file_plugin_proto_msgTypes[1]
+	mi := &file_proto_plugin_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -95,7 +97,7 @@ func (x *RunRequest) String() string {
 func (*RunRequest) ProtoMessage() {}
 
 func (x *RunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[1]
+	mi := &file_proto_plugin_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -108,12 +110,26 @@ func (x *RunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRequest.ProtoReflect.Descriptor instead.
 func (*RunRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{1}
+	return file_proto_plugin_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RunRequest) GetTarget() *Target {
 	if x != nil {
 		return x.Target
+	}
+	return nil
+}
+
+func (x *RunRequest) GetTimeoutMs() uint32 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+func (x *RunRequest) GetParams() map[string]string {
+	if x != nil {
+		return x.Params
 	}
 	return nil
 }
@@ -134,7 +150,7 @@ type Finding struct {
 
 func (x *Finding) Reset() {
 	*x = Finding{}
-	mi := &file_plugin_proto_msgTypes[2]
+	mi := &file_proto_plugin_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -146,7 +162,7 @@ func (x *Finding) String() string {
 func (*Finding) ProtoMessage() {}
 
 func (x *Finding) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[2]
+	mi := &file_proto_plugin_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -159,7 +175,7 @@ func (x *Finding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finding.ProtoReflect.Descriptor instead.
 func (*Finding) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{2}
+	return file_proto_plugin_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Finding) GetId() string {
@@ -228,7 +244,7 @@ type LogLine struct {
 
 func (x *LogLine) Reset() {
 	*x = LogLine{}
-	mi := &file_plugin_proto_msgTypes[3]
+	mi := &file_proto_plugin_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -240,7 +256,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[3]
+	mi := &file_proto_plugin_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -253,7 +269,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{3}
+	return file_proto_plugin_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LogLine) GetTs() int64 {
@@ -280,7 +296,7 @@ type RunResponse struct {
 
 func (x *RunResponse) Reset() {
 	*x = RunResponse{}
-	mi := &file_plugin_proto_msgTypes[4]
+	mi := &file_proto_plugin_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -292,7 +308,7 @@ func (x *RunResponse) String() string {
 func (*RunResponse) ProtoMessage() {}
 
 func (x *RunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[4]
+	mi := &file_proto_plugin_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -305,7 +321,7 @@ func (x *RunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
 func (*RunResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{4}
+	return file_proto_plugin_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RunResponse) GetFindings() []*Finding {
@@ -333,7 +349,7 @@ type PluginMetadata struct {
 
 func (x *PluginMetadata) Reset() {
 	*x = PluginMetadata{}
-	mi := &file_plugin_proto_msgTypes[5]
+	mi := &file_proto_plugin_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -345,7 +361,7 @@ func (x *PluginMetadata) String() string {
 func (*PluginMetadata) ProtoMessage() {}
 
 func (x *PluginMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[5]
+	mi := &file_proto_plugin_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -358,7 +374,7 @@ func (x *PluginMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginMetadata.ProtoReflect.Descriptor instead.
 func (*PluginMetadata) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{5}
+	return file_proto_plugin_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PluginMetadata) GetId() string {
@@ -382,17 +398,23 @@ func (x *PluginMetadata) GetCapabilities() []string {
 	return nil
 }
 
-var File_plugin_proto protoreflect.FileDescriptor
+var File_proto_plugin_proto protoreflect.FileDescriptor
 
-const file_plugin_proto_rawDesc = "" +
+const file_proto_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\fplugin.proto\x12\x0eorca.plugin.v1\x1a\x1bgoogle/protobuf/empty.proto\"0\n" +
+	"\x12proto/plugin.proto\x12\x0eorca.plugin.v1\x1a\x1bgoogle/protobuf/empty.proto\"0\n" +
 	"\x06Target\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\rR\x04port\"<\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\"\xd6\x01\n" +
 	"\n" +
 	"RunRequest\x12.\n" +
-	"\x06target\x18\x01 \x01(\v2\x16.orca.plugin.v1.TargetR\x06target\"\xbc\x02\n" +
+	"\x06target\x18\x01 \x01(\v2\x16.orca.plugin.v1.TargetR\x06target\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x02 \x01(\rR\ttimeoutMs\x12>\n" +
+	"\x06params\x18\x03 \x03(\v2&.orca.plugin.v1.RunRequest.ParamsEntryR\x06params\x1a9\n" +
+	"\vParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\x02\n" +
 	"\aFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x14\n" +
@@ -422,64 +444,66 @@ const file_plugin_proto_rawDesc = "" +
 	"Z\b.;plugpbb\x06proto3"
 
 var (
-	file_plugin_proto_rawDescOnce sync.Once
-	file_plugin_proto_rawDescData []byte
+	file_proto_plugin_proto_rawDescOnce sync.Once
+	file_proto_plugin_proto_rawDescData []byte
 )
 
-func file_plugin_proto_rawDescGZIP() []byte {
-	file_plugin_proto_rawDescOnce.Do(func() {
-		file_plugin_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)))
+func file_proto_plugin_proto_rawDescGZIP() []byte {
+	file_proto_plugin_proto_rawDescOnce.Do(func() {
+		file_proto_plugin_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_plugin_proto_rawDesc), len(file_proto_plugin_proto_rawDesc)))
 	})
-	return file_plugin_proto_rawDescData
+	return file_proto_plugin_proto_rawDescData
 }
 
-var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_plugin_proto_goTypes = []any{
+var file_proto_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_plugin_proto_goTypes = []any{
 	(*Target)(nil),         // 0: orca.plugin.v1.Target
 	(*RunRequest)(nil),     // 1: orca.plugin.v1.RunRequest
 	(*Finding)(nil),        // 2: orca.plugin.v1.Finding
 	(*LogLine)(nil),        // 3: orca.plugin.v1.LogLine
 	(*RunResponse)(nil),    // 4: orca.plugin.v1.RunResponse
 	(*PluginMetadata)(nil), // 5: orca.plugin.v1.PluginMetadata
-	nil,                    // 6: orca.plugin.v1.Finding.EvidenceEntry
-	(*emptypb.Empty)(nil),  // 7: google.protobuf.Empty
+	nil,                    // 6: orca.plugin.v1.RunRequest.ParamsEntry
+	nil,                    // 7: orca.plugin.v1.Finding.EvidenceEntry
+	(*emptypb.Empty)(nil),  // 8: google.protobuf.Empty
 }
-var file_plugin_proto_depIdxs = []int32{
+var file_proto_plugin_proto_depIdxs = []int32{
 	0, // 0: orca.plugin.v1.RunRequest.target:type_name -> orca.plugin.v1.Target
-	6, // 1: orca.plugin.v1.Finding.evidence:type_name -> orca.plugin.v1.Finding.EvidenceEntry
-	2, // 2: orca.plugin.v1.RunResponse.findings:type_name -> orca.plugin.v1.Finding
-	3, // 3: orca.plugin.v1.RunResponse.logs:type_name -> orca.plugin.v1.LogLine
-	1, // 4: orca.plugin.v1.OrcaPlugin.Run:input_type -> orca.plugin.v1.RunRequest
-	7, // 5: orca.plugin.v1.OrcaPlugin.Metadata:input_type -> google.protobuf.Empty
-	4, // 6: orca.plugin.v1.OrcaPlugin.Run:output_type -> orca.plugin.v1.RunResponse
-	5, // 7: orca.plugin.v1.OrcaPlugin.Metadata:output_type -> orca.plugin.v1.PluginMetadata
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6, // 1: orca.plugin.v1.RunRequest.params:type_name -> orca.plugin.v1.RunRequest.ParamsEntry
+	7, // 2: orca.plugin.v1.Finding.evidence:type_name -> orca.plugin.v1.Finding.EvidenceEntry
+	2, // 3: orca.plugin.v1.RunResponse.findings:type_name -> orca.plugin.v1.Finding
+	3, // 4: orca.plugin.v1.RunResponse.logs:type_name -> orca.plugin.v1.LogLine
+	1, // 5: orca.plugin.v1.OrcaPlugin.Run:input_type -> orca.plugin.v1.RunRequest
+	8, // 6: orca.plugin.v1.OrcaPlugin.Metadata:input_type -> google.protobuf.Empty
+	4, // 7: orca.plugin.v1.OrcaPlugin.Run:output_type -> orca.plugin.v1.RunResponse
+	5, // 8: orca.plugin.v1.OrcaPlugin.Metadata:output_type -> orca.plugin.v1.PluginMetadata
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
-func init() { file_plugin_proto_init() }
-func file_plugin_proto_init() {
-	if File_plugin_proto != nil {
+func init() { file_proto_plugin_proto_init() }
+func file_proto_plugin_proto_init() {
+	if File_proto_plugin_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_plugin_proto_rawDesc), len(file_proto_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_plugin_proto_goTypes,
-		DependencyIndexes: file_plugin_proto_depIdxs,
-		MessageInfos:      file_plugin_proto_msgTypes,
+		GoTypes:           file_proto_plugin_proto_goTypes,
+		DependencyIndexes: file_proto_plugin_proto_depIdxs,
+		MessageInfos:      file_proto_plugin_proto_msgTypes,
 	}.Build()
-	File_plugin_proto = out.File
-	file_plugin_proto_goTypes = nil
-	file_plugin_proto_depIdxs = nil
+	File_proto_plugin_proto = out.File
+	file_proto_plugin_proto_goTypes = nil
+	file_proto_plugin_proto_depIdxs = nil
 }

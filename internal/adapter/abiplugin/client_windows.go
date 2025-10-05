@@ -24,11 +24,14 @@ func (c *Client) Supports(transport string) bool {
 }
 
 func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	libPath := params["library"] + ".dll"
+	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
+
+	libPath := abiConfig.LibraryPath + ".dll"
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}
-	symbol := params["symbol"]
+
+	symbol := abiConfig.Symbol
 	if symbol == "" {
 		symbol = "ORCA_Run"
 	}
@@ -52,6 +55,16 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 		return domain.RunResult{}, err
 	}
 
+	paramsBytes, err := json.Marshal(params)
+	if err != nil {
+		return domain.RunResult{}, fmt.Errorf("encode params json: %w", err)
+	}
+
+	paramsPtr, err := syscall.BytePtrFromString(string(paramsBytes))
+	if err != nil {
+		return domain.RunResult{}, fmt.Errorf("encode params json: %w", err)
+	}
+
 	var outPtr uintptr
 	var outLen uintptr
 	timeoutMs := uintptr(timeout.Milliseconds())
@@ -61,6 +74,7 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 		uintptr(unsafe.Pointer(hostPtr)),
 		uintptr(uint32(t.Port)),
 		timeoutMs,
+		uintptr(unsafe.Pointer(paramsPtr)),
 		uintptr(unsafe.Pointer(&outPtr)),
 		uintptr(unsafe.Pointer(&outLen)),
 	)

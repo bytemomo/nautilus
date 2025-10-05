@@ -7,20 +7,20 @@ extern "C" {
 
 // ORCA_API: visibility/export across compilers
 #if defined(_WIN32)
-  #if defined(BUILDING_TLS_VERSION_CHECK)
-    #define ORCA_API __declspec(dllexport)
-  #else
-    #define ORCA_API __declspec(dllimport)
-  #endif
-#elif defined(__GNUC__) && __GNUC__ >= 4
-  #define ORCA_API __attribute__((visibility("default")))
+#if defined(BUILDING_TLS_VERSION_CHECK)
+#define ORCA_API __declspec(dllexport)
 #else
-  #define ORCA_API
+#define ORCA_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) && __GNUC__ >= 4
+#define ORCA_API __attribute__((visibility("default")))
+#else
+#define ORCA_API
 #endif
 
 ORCA_API int ORCA_Run(const char *host, unsigned int port,
-                      unsigned int timeout_ms, char **out_json,
-                      size_t *out_len);
+                      unsigned int timeout_ms, const char *params_json,
+                      char **out_json, size_t *out_len);
 ORCA_API void ORCA_Free(void *p);
 
 #ifdef __cplusplus
@@ -35,44 +35,47 @@ ORCA_API void ORCA_Free(void *p);
 #include <time.h>
 
 #ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #pragma comment(lib, "ws2_32.lib")
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
 #endif
 
-#include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ssl.h>
 
 // Some environments may lack TLS1_3_VERSION; make it optional
 #ifndef TLS1_VERSION
-  #define TLS1_VERSION 0
+#define TLS1_VERSION 0
 #endif
 #ifndef TLS1_1_VERSION
-  #define TLS1_1_VERSION 0
+#define TLS1_1_VERSION 0
 #endif
 #ifndef TLS1_2_VERSION
-  #define TLS1_2_VERSION 0
+#define TLS1_2_VERSION 0
 #endif
 #ifndef TLS1_3_VERSION
-  #define TLS1_3_VERSION 0
+#define TLS1_3_VERSION 0
 #endif
 
 static char *dup_json(const char *s) {
   size_t n = strlen(s);
   char *p = (char *)malloc(n + 1);
-  if (p) memcpy(p, s, n + 1);
+  if (p)
+    memcpy(p, s, n + 1);
   return p;
 }
 
 static int try_tls_version(const char *host, unsigned short port, int version,
                            unsigned int timeout_ms) {
-  if (version == 0) return -1; // “not available” on this OpenSSL
+  if (version == 0)
+    return -1; // “not available” on this OpenSSL
 
   char portstr[16];
   snprintf(portstr, sizeof(portstr), "%hu", port);
 
   SSL_CTX *ctx = SSL_CTX_new(TLS_method());
-  if (!ctx) return 0;
+  if (!ctx)
+    return 0;
 
   // lock min/max to a single protocol
   SSL_CTX_set_min_proto_version(ctx, (uint16_t)version);
@@ -110,8 +113,8 @@ static const char *status_str(int v) {
 
 // --- Exported ABI ---
 ORCA_API int ORCA_Run(const char *host, unsigned int port,
-                      unsigned int timeout_ms, char **out_json,
-                      size_t *out_len) {
+                      unsigned int timeout_ms, const char *params_json,
+                      char **out_json, size_t *out_len) {
 #ifdef _WIN32
   WSADATA wsa;
   WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -126,7 +129,8 @@ ORCA_API int ORCA_Run(const char *host, unsigned int port,
   OpenSSL_add_ssl_algorithms();
 #endif
 
-  const int vers[4] = { TLS1_VERSION, TLS1_1_VERSION, TLS1_2_VERSION, TLS1_3_VERSION };
+  const int vers[4] = {TLS1_VERSION, TLS1_1_VERSION, TLS1_2_VERSION,
+                       TLS1_3_VERSION};
   int ok[4];
 
   for (int i = 0; i < 4; ++i) {
@@ -140,32 +144,29 @@ ORCA_API int ORCA_Run(const char *host, unsigned int port,
   int n = snprintf(
       buf, sizeof(buf),
       "{"
-        "\"findings\":[{"
-          "\"id\":\"TLS-VERSIONS\","
-          "\"plugin_id\":\"tls_version_check\","
-          "\"title\":\"TLS versions supported\","
-          "\"severity\":\"info\","
-          "\"description\":\"Versions the server accepted.\","
-          "\"evidence\":{"
-            "\"host\":\"%s\",\"port\":\"%u\","
-            "\"tls10\":\"%s\",\"tls11\":\"%s\",\"tls12\":\"%s\",\"tls13\":\"%s\""
-          "},"
-          "\"tags\":[\"supports:tls\"],"
-          "\"timestamp\":%lld"
-        "}],"
-        "\"logs\":["
-          "{\"ts\":%lld,\"line\":\"TLS 1.0 %s\"},"
-          "{\"ts\":%lld,\"line\":\"TLS 1.1 %s\"},"
-          "{\"ts\":%lld,\"line\":\"TLS 1.2 %s\"},"
-          "{\"ts\":%lld,\"line\":\"TLS 1.3 %s\"}"
-        "]"
+      "\"findings\":[{"
+      "\"id\":\"TLS-VERSIONS\","
+      "\"plugin_id\":\"tls_version_check\","
+      "\"title\":\"TLS versions supported\","
+      "\"severity\":\"info\","
+      "\"description\":\"Versions the server accepted.\","
+      "\"evidence\":{"
+      "\"host\":\"%s\",\"port\":\"%u\","
+      "\"tls10\":\"%s\",\"tls11\":\"%s\",\"tls12\":\"%s\",\"tls13\":\"%s\""
+      "},"
+      "\"tags\":[\"supports:tls\"],"
+      "\"timestamp\":%lld"
+      "}],"
+      "\"logs\":["
+      "{\"ts\":%lld,\"line\":\"TLS 1.0 %s\"},"
+      "{\"ts\":%lld,\"line\":\"TLS 1.1 %s\"},"
+      "{\"ts\":%lld,\"line\":\"TLS 1.2 %s\"},"
+      "{\"ts\":%lld,\"line\":\"TLS 1.3 %s\"}"
+      "]"
       "}",
-      host, port,
-      status_str(ok[0]), status_str(ok[1]), status_str(ok[2]), status_str(ok[3]),
-      (long long)now,
-      (long long)now, status_str(ok[0]),
-      (long long)now, status_str(ok[1]),
-      (long long)now, status_str(ok[2]),
+      host, port, status_str(ok[0]), status_str(ok[1]), status_str(ok[2]),
+      status_str(ok[3]), (long long)now, (long long)now, status_str(ok[0]),
+      (long long)now, status_str(ok[1]), (long long)now, status_str(ok[2]),
       (long long)now, status_str(ok[3]));
   if (n <= 0) {
 #ifdef _WIN32
@@ -191,6 +192,6 @@ ORCA_API int ORCA_Run(const char *host, unsigned int port,
 }
 
 ORCA_API void ORCA_Free(void *p) {
-  if (p) free(p);
+  if (p)
+    free(p);
 }
-

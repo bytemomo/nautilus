@@ -21,6 +21,7 @@ static inline int call_ORCA_Run(ORCA_RunFn f,
                                 const char* host,
                                 uint32_t port,
                                 uint32_t timeout_ms,
+                                const char* params_json,
                                 char** out_json,
                                 size_t* out_len) {
     return f(host, port, timeout_ms, out_json, out_len);
@@ -53,11 +54,13 @@ func (c *Client) Supports(transport string) bool {
 }
 
 func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	libPath := params["library"] + ".so"
+	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
+
+	libPath := abiConfig.LibraryPath + ".so"
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}
-	symbol := params["symbol"]
+	symbol := abiConfig.Symbol
 	if symbol == "" {
 		symbol = "ORCA_Run"
 	}
@@ -93,11 +96,15 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	portC := C.uint32_t(t.Port)
 	timeoutMs := C.uint32_t(timeout.Milliseconds())
 
+	paramsBytes, _ := json.Marshal(params)
+	cParams := C.CString(string(paramsBytes))
+	defer C.free(unsafe.Pointer(cParams))
+
 	var outBuf *C.char
 	var outLen C.size_t
 
 	// call into plugin
-	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, &outBuf, &outLen)
+	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, cParams, &outBuf, &outLen)
 	if int(ret) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
 	}

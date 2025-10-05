@@ -22,7 +22,9 @@ func (c *Client) Supports(transport string) bool {
 }
 
 func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	endpoint := params["endpoint"]
+	grpcConfig := ctx.Value("grpc").(*domain.GRPCConfig)
+
+	endpoint := grpcConfig.Server
 	if endpoint == "" {
 		return domain.RunResult{}, fmt.Errorf("grpc endpoint missing in exec.params")
 	}
@@ -33,9 +35,11 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	}
 	defer conn.Close()
 
+	timeoutMs := uint32(timeout.Milliseconds())
 	cl := plugpb.NewOrcaPluginClient(conn)
 	resp, err := cl.Run(ctx, &plugpb.RunRequest{
-		Target: &plugpb.Target{Host: t.Host, Port: uint32(t.Port)},
+		Target:    &plugpb.Target{Host: t.Host, Port: uint32(t.Port)},
+		TimeoutMs: timeoutMs, Params: params,
 	})
 	if err != nil {
 		return domain.RunResult{}, fmt.Errorf("plugin run: %w", err)

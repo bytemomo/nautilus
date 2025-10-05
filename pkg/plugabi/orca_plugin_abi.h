@@ -32,7 +32,8 @@ typedef int (*ORCA_MetadataFn)(char *buf, size_t buf_len, size_t *needed_out);
 // ORCA will call ORCA_Free on *out_json. Implementations must allocate with the
 // same CRT.
 typedef int (*ORCA_RunFn)(const char *host, uint32_t port, uint32_t timeout_ms,
-                          char **out_json, size_t *out_len);
+                          const char *params_json, char **out_json,
+                          size_t *out_len);
 
 // ORCA calls this to free any buffers returned by ORCA_Run.
 typedef void (*ORCA_FreeFn)(void *p);
@@ -43,7 +44,8 @@ typedef void (*ORCA_FreeFn)(void *p);
 //   ORCA_Metadata : ORCA_MetadataFn (optional)
 //   ORCA_PLUGIN_ABI_VERSION : uint32_t (optional)
 ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms,
-                      char **out_json, size_t *out_len);
+                      const char *params_json, char **out_json,
+                      size_t *out_len);
 ORCA_API void ORCA_Free(void *p);
 ORCA_API int ORCA_Metadata(char *buf, size_t buf_len, size_t *needed_out);
 ORCA_API const uint32_t ORCA_PLUGIN_ABI_VERSION;
