@@ -29,10 +29,10 @@ type GRPCConfig struct {
 }
 
 type ExecConfig struct {
-	ABI       *ABIConfig        `yaml:"abi,omitempty"`
-	GRPC      *GRPCConfig       `yaml:"grpc,omitempty"`
-	Transport string            `yaml:"transport,omitempty"`
-	Params    map[string]string `yaml:"params,omitempty"`
+	ABI       *ABIConfig     `yaml:"abi,omitempty"`
+	GRPC      *GRPCConfig    `yaml:"grpc,omitempty"`
+	Transport string         `yaml:"transport,omitempty"`
+	Params    map[string]any `yaml:"params,omitempty"`
 }
 
 type CampaignStep struct {

@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -75,10 +76,10 @@ func (x *Target) GetPort() uint32 {
 }
 
 type RunRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Target        *Target                `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	TimeoutMs     uint32                 `protobuf:"varint,2,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
-	Params        map[string]string      `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Target        *Target                    `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	TimeoutMs     uint32                     `protobuf:"varint,2,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	Params        map[string]*structpb.Value `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -127,7 +128,7 @@ func (x *RunRequest) GetTimeoutMs() uint32 {
 	return 0
 }
 
-func (x *RunRequest) GetParams() map[string]string {
+func (x *RunRequest) GetParams() map[string]*structpb.Value {
 	if x != nil {
 		return x.Params
 	}
@@ -402,19 +403,19 @@ var File_proto_plugin_proto protoreflect.FileDescriptor
 
 const file_proto_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/plugin.proto\x12\x0eorca.plugin.v1\x1a\x1bgoogle/protobuf/empty.proto\"0\n" +
+	"\x12proto/plugin.proto\x12\x0eorca.plugin.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1bgoogle/protobuf/empty.proto\"0\n" +
 	"\x06Target\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\rR\x04port\"\xd6\x01\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\"\xee\x01\n" +
 	"\n" +
 	"RunRequest\x12.\n" +
 	"\x06target\x18\x01 \x01(\v2\x16.orca.plugin.v1.TargetR\x06target\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\x02 \x01(\rR\ttimeoutMs\x12>\n" +
-	"\x06params\x18\x03 \x03(\v2&.orca.plugin.v1.RunRequest.ParamsEntryR\x06params\x1a9\n" +
+	"\x06params\x18\x03 \x03(\v2&.orca.plugin.v1.RunRequest.ParamsEntryR\x06params\x1aQ\n" +
 	"\vParamsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbc\x02\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value:\x028\x01\"\xbc\x02\n" +
 	"\aFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x14\n" +
@@ -465,7 +466,8 @@ var file_proto_plugin_proto_goTypes = []any{
 	(*PluginMetadata)(nil), // 5: orca.plugin.v1.PluginMetadata
 	nil,                    // 6: orca.plugin.v1.RunRequest.ParamsEntry
 	nil,                    // 7: orca.plugin.v1.Finding.EvidenceEntry
-	(*emptypb.Empty)(nil),  // 8: google.protobuf.Empty
+	(*structpb.Value)(nil), // 8: google.protobuf.Value
+	(*emptypb.Empty)(nil),  // 9: google.protobuf.Empty
 }
 var file_proto_plugin_proto_depIdxs = []int32{
 	0, // 0: orca.plugin.v1.RunRequest.target:type_name -> orca.plugin.v1.Target
@@ -473,15 +475,16 @@ var file_proto_plugin_proto_depIdxs = []int32{
 	7, // 2: orca.plugin.v1.Finding.evidence:type_name -> orca.plugin.v1.Finding.EvidenceEntry
 	2, // 3: orca.plugin.v1.RunResponse.findings:type_name -> orca.plugin.v1.Finding
 	3, // 4: orca.plugin.v1.RunResponse.logs:type_name -> orca.plugin.v1.LogLine
-	1, // 5: orca.plugin.v1.OrcaPlugin.Run:input_type -> orca.plugin.v1.RunRequest
-	8, // 6: orca.plugin.v1.OrcaPlugin.Metadata:input_type -> google.protobuf.Empty
-	4, // 7: orca.plugin.v1.OrcaPlugin.Run:output_type -> orca.plugin.v1.RunResponse
-	5, // 8: orca.plugin.v1.OrcaPlugin.Metadata:output_type -> orca.plugin.v1.PluginMetadata
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	8, // 5: orca.plugin.v1.RunRequest.ParamsEntry.value:type_name -> google.protobuf.Value
+	1, // 6: orca.plugin.v1.OrcaPlugin.Run:input_type -> orca.plugin.v1.RunRequest
+	9, // 7: orca.plugin.v1.OrcaPlugin.Metadata:input_type -> google.protobuf.Empty
+	4, // 8: orca.plugin.v1.OrcaPlugin.Run:output_type -> orca.plugin.v1.RunResponse
+	5, // 9: orca.plugin.v1.OrcaPlugin.Metadata:output_type -> orca.plugin.v1.PluginMetadata
+	8, // [8:10] is the sub-list for method output_type
+	6, // [6:8] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_proto_plugin_proto_init() }

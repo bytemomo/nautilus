@@ -1,5 +1,6 @@
 use openssl::asn1::Asn1TimeRef;
 use openssl::nid::Nid;
+use openssl::ssl::SslStream;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
 use serde::Serialize;
@@ -70,10 +71,12 @@ pub extern "C" fn ORCA_Run(
     let mut min_rsa_bits: u32 = 2048;
     let mut allow_sha1: bool = false;
     let mut disallow_self_signed: bool = true;
+    let mut print_certificates_stdout: bool = true;
 
     // Parse JSON params (all optional)
     if !params_json.is_null() {
         if let Ok(pj) = unsafe { CStr::from_ptr(params_json) }.to_str() {
+            println!("{}", pj);
             if let Ok(v) = serde_json::from_str::<Value>(pj) {
                 if let Some(b) = v.get("tls_insecure").and_then(|x| x.as_bool()) {
                     tls_insecure = b;
@@ -89,6 +92,9 @@ pub extern "C" fn ORCA_Run(
                 }
                 if let Some(b) = v.get("disallow_self_signed").and_then(|x| x.as_bool()) {
                     disallow_self_signed = b;
+                }
+                if let Some(b) = v.get("print_certificates_stdout").and_then(|x| x.as_bool()) {
+                    print_certificates_stdout = b;
                 }
             }
         }
@@ -162,6 +168,10 @@ pub extern "C" fn ORCA_Run(
         Some(c) => c,
         None => return finish_with_log("No peer certificate", ts, out_json, out_len),
     };
+
+    if print_certificates_stdout {
+        print_certificate_info(&cert, &host_str, &ssl_stream);
+    }
 
     // ========= Checks =========
 
@@ -426,4 +436,55 @@ fn finish_with_log(msg: &str, ts: i64, out_json: *mut *mut c_char, out_len: *mut
         *out_len = len;
     }
     0
+}
+
+fn print_certificate_info(cert: &X509, host: &str, ssl_stream: &SslStream<TcpStream>) {
+    println!("===============================================");
+    println!("📜  Server Certificate for {}", host);
+    println!("===============================================");
+
+    // Print PEM block
+    if let Ok(pem) = cert.to_pem() {
+        println!("{}", String::from_utf8_lossy(&pem));
+    } else {
+        println!("(failed to export PEM)");
+    }
+
+    println!("--- Parsed details ---");
+    println!("Subject: {:?}", cert.subject_name());
+    println!("Issuer:  {:?}", cert.issuer_name());
+
+    println!("Not Before: {}", cert.not_before().to_string());
+    println!("Not After:  {}", cert.not_after().to_string());
+
+    if let Ok(pk) = cert.public_key() {
+        println!("Public Key Algorithm: {:?}", pk.id());
+        println!("Key Length: {} bits", pk.bits());
+    }
+
+    if let Some(sans) = cert.subject_alt_names() {
+        println!("Subject Alternative Names:");
+        for gn in sans {
+            if let Some(d) = gn.dnsname() {
+                println!("  DNS: {}", d);
+            }
+            if let Some(ip) = gn.ipaddress() {
+                println!("  IP: {:?}", ip);
+            }
+        }
+    }
+
+    // Optional: print full chain if present
+    if let Some(chain) = ssl_stream.ssl().peer_cert_chain() {
+        println!();
+        println!("=== Certificate Chain ({} certs) ===", chain.len());
+        for (i, c) in chain.iter().enumerate() {
+            println!("--- Cert {} ---", i + 1);
+            if let Ok(pem) = c.to_pem() {
+                println!("{}", String::from_utf8_lossy(&pem));
+            }
+        }
+    }
+
+    println!("===============================================");
 }

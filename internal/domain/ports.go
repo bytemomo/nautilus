@@ -7,7 +7,7 @@ import (
 
 type PluginExecutor interface {
 	Supports(transport string) bool
-	Run(ctx context.Context, params map[string]string, t HostPort, timeout time.Duration) (RunResult, error)
+	Run(ctx context.Context, params map[string]any, t HostPort, timeout time.Duration) (RunResult, error)
 }
 
 type ResultRepo interface {

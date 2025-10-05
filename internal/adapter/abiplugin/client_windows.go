@@ -23,7 +23,7 @@ func (c *Client) Supports(transport string) bool {
 	return strings.EqualFold(transport, "abi")
 }
 
-func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
 
 	libPath := abiConfig.LibraryPath + ".dll"

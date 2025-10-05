@@ -36,3 +36,4 @@ steps:
               allow_sha1: false
               require_server_auth: true
               disallow_self_signed: true
+              print_certificates_stdout: true

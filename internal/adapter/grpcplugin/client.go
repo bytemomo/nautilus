@@ -11,6 +11,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type Client struct{}
@@ -21,7 +22,7 @@ func (c *Client) Supports(transport string) bool {
 	return strings.EqualFold(transport, "grpc")
 }
 
-func (c *Client) Run(ctx context.Context, params map[string]string, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	grpcConfig := ctx.Value("grpc").(*domain.GRPCConfig)
 
 	endpoint := grpcConfig.Server
@@ -36,10 +37,21 @@ func (c *Client) Run(ctx context.Context, params map[string]string, t domain.Hos
 	defer conn.Close()
 
 	timeoutMs := uint32(timeout.Milliseconds())
+
+	paramsVals := make(map[string]*structpb.Value, len(params))
+	for k, v := range params {
+		pv, err := structpb.NewValue(v)
+		if err != nil {
+			panic(err)
+		}
+		paramsVals[k] = pv
+	}
+
 	cl := plugpb.NewOrcaPluginClient(conn)
 	resp, err := cl.Run(ctx, &plugpb.RunRequest{
 		Target:    &plugpb.Target{Host: t.Host, Port: uint32(t.Port)},
-		TimeoutMs: timeoutMs, Params: params,
+		TimeoutMs: timeoutMs,
+		Params:    paramsVals,
 	})
 	if err != nil {
 		return domain.RunResult{}, fmt.Errorf("plugin run: %w", err)

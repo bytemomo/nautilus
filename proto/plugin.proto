@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package orca.plugin.v1;
 
+import "google/protobuf/struct.proto";
+
 option go_package = ".;plugpb";
 
 // ------------------------------
@@ -16,7 +18,7 @@ message Target {
 message RunRequest {
   Target target = 1;
   uint32 timeout_ms = 2;
-  map<string, string> params = 3;
+  map<string, google.protobuf.Value> params = 3;
 }
 
 message Finding {
