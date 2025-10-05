@@ -6,17 +6,14 @@ package abiplugin
 #cgo LDFLAGS: -ldl
 #include <dlfcn.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <stddef.h>
+#include "../../../pkg/plugabi/orca_plugin_abi.h"
 
-typedef int (*ORCA_RunFn)(const char* host, uint32_t port, uint32_t timeout_ms, char** out_json, size_t* out_len);
-typedef void (*ORCA_FreeFn)(void* p);
+static void* my_dlopen(const char* p)              { return dlopen(p, RTLD_NOW); }
+static void* my_dlsym(void* h, const char* s)      { return dlsym(h, s); }
+static int   my_dlclose(void* h)                   { return dlclose(h); }
+static const char* my_dlerror()                    { return dlerror(); }
 
-static void* my_dlopen(const char* p) { return dlopen(p, RTLD_NOW); }
-static void* my_dlsym(void* h, const char* s) { return dlsym(h, s); }
-static const char* my_dlerror() { return dlerror(); }
-
-// bridge: call C function pointers from Go
+// Thin bridge wrappers so Go can call function pointers.
 static inline int call_ORCA_Run(ORCA_RunFn f,
                                 const char* host,
                                 uint32_t port,
@@ -24,12 +21,11 @@ static inline int call_ORCA_Run(ORCA_RunFn f,
                                 const char* params_json,
                                 char** out_json,
                                 size_t* out_len) {
-    return f(host, port, timeout_ms, out_json, out_len);
+    return f(host, port, timeout_ms, params_json, out_json, out_len);
 }
 
-static inline void call_ORCA_Free(ORCA_FreeFn f, void* p) {
-    f(p);
-}
+static inline void call_ORCA_Free(ORCA_FreeFn f, void* p) { f(p); }
+
 */
 import "C"
 
