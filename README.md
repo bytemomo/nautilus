@@ -4,11 +4,11 @@ Im making a network assessment tool called ORCA. The idea is this, its an orches
 
 #### 🔐 TLS / Crypto Plugins
 
-- **Certificate Expiry Check**
+- ~~Certificate Expiry Check~~
   Parse server cert, report if it’s expired or expiring soon.
 - **Weak Cipher Detection**
   Attempt handshake with known weak ciphers (RC4, 3DES).
-- **Self-signed / Untrusted Cert Check**
+- ~~Self-signed / Untrusted Cert Check~~
   Verify if the cert is self-signed or missing CA.
 - **Certificate Hostname Mismatch**
   Check CN/SAN vs target hostname.
@@ -51,7 +51,7 @@ Im making a network assessment tool called ORCA. The idea is this, its an orches
 
 #### 🛰️ IoT / Embedded Weakness Plugins
 
-- **Default Password Audit**
+- **Default Password Audit** (Partial)
   Try logging into HTTP/FTP/Telnet/SSH with vendor defaults.
 - **Open Debug Interface Detection**
   Probe for exposed JTAG-over-Ethernet, or debug protocols.

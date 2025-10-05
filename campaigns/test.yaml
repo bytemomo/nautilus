@@ -20,11 +20,19 @@ steps:
               library: "./plugins/telnet_default_creds/build/telnet_default_creds"
               symbol: "ORCA_Run"
 
-    - plugin_id: "cert_expiry_check"
+    - plugin_id: "cert_inspection"
       required_tags: ["supports:tls", "protocol:tcp"]
       max_duration_s: 15
       exec:
           transport: abi
           abi:
-              library: "./plugins/cert_expiry_check/build/cert_expiry_check"
+              library: "./plugins/cert_inspect/target/release/libcert_inspect"
               symbol: "ORCA_Run"
+          params:
+              warn_days: 21
+              match_hostname: true
+              require_san: true
+              min_rsa_bits: 2048
+              allow_sha1: false
+              require_server_auth: true
+              disallow_self_signed: true

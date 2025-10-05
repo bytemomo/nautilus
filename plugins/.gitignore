@@ -3,8 +3,14 @@
 !.gitignore
 !CMakeLists.txt
 !.Justfile
+
 !*.c
+
+!*.rs
+!Cargo.lock
+!Cargo.toml
 
 !/**/
 
 build/
+target/
