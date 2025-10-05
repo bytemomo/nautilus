@@ -8,9 +8,9 @@ func (e ExecConfig) Validate() error {
 
 	switch {
 	case hasABI && hasGRPC:
-		return fmt.Errorf("exec: abi and grpc are mutually exclusive; set only one")
+		return fmt.Errorf("exec config: abi and grpc are mutually exclusive; set only one")
 	case !hasABI && !hasGRPC:
-		return fmt.Errorf("exec: one of abi or grpc must be set")
+		return fmt.Errorf("exec config: one of abi or grpc must be set")
 	}
 
 	if e.ABI != nil {

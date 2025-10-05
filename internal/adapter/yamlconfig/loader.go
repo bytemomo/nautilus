@@ -16,5 +16,11 @@ func LoadCampaign(path string) (*domain.Campaign, error) {
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		return nil, err
 	}
+
+	for _, step := range c.Steps {
+		if err := step.Exec.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	return &c, nil
 }
