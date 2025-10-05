@@ -13,15 +13,18 @@ import (
 )
 
 type ScannerUC struct {
-	EnableUDP      bool          // add -sU (UDP scan). Slower; default false.
-	ServiceDetect  bool          // -sV (service/version detection). Recommended true.
-	VersionLight   bool          // --version-light
-	MinRate        int           // --min-rate <pkts/s>
-	Timing         nmap.Timing   // e.g., nmap.TimingAggressive
-	CommandTimeout time.Duration // overall timeout for the scan
+	EnableUDP     bool
+	ServiceDetect bool
+	VersionLight  bool
+	VersionAll    bool
+	MinRate       int
+	// Timing string
+	CommandTimeout    time.Duration
+	SkipHostDiscovery bool
+	OpenOnly          bool
+	Ports             []string
 }
 
-// Execute scans the provided CIDRs and returns per-open-port targets with derived tags.
 func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.ClassifiedTarget, error) {
 	targets := sanitizeCIDRs(cidrs)
 	if len(targets) == 0 {
@@ -30,8 +33,19 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 
 	opts := []nmap.Option{
 		nmap.WithTargets(targets...),
-		// nmap.WithSYNScan(),            // -sS (falls back to -sT if not privileged)
-		nmap.WithDisabledDNSResolution(), // -n
+		nmap.WithDisabledDNSResolution(),
+	}
+
+	if len(s.Ports) != 0 {
+		opts = append(opts, nmap.WithPorts(strings.Join(s.Ports, ",")))
+	}
+
+	if s.OpenOnly {
+		opts = append(opts, nmap.WithOpenOnly()) // --open
+	}
+
+	if s.SkipHostDiscovery {
+		opts = append(opts, nmap.WithSkipHostDiscovery()) // -Pn
 	}
 
 	if s.EnableUDP {
@@ -40,17 +54,15 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 
 	if s.ServiceDetect {
 		opts = append(opts, nmap.WithServiceInfo()) // -sV
-		if s.VersionLight {
+		if s.VersionAll {
+			opts = append(opts, nmap.WithVersionAll()) // --version-all
+		} else if s.VersionLight {
 			opts = append(opts, nmap.WithVersionLight()) // --version-light
 		}
 	}
 
 	if s.MinRate > 0 {
 		opts = append(opts, nmap.WithMinRate(s.MinRate))
-	}
-
-	if s.Timing != 0 {
-		opts = append(opts, nmap.WithTimingTemplate(s.Timing))
 	}
 
 	// Optional overall deadline for the process.
@@ -64,33 +76,39 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 	if err != nil {
 		return nil, fmt.Errorf("create nmap scanner: %w", err)
 	}
-
 	result, _, err := scanner.Run()
 	if err != nil {
 		return nil, fmt.Errorf("run nmap: %w", err)
 	}
 
-	// Produce ClassifiedTarget list from open ports and derived tags.
 	var out []domain.ClassifiedTarget
+	seen := make(map[string]struct{})
+
 	for _, h := range result.Hosts {
 		host := pickHostAddress(h)
 		if host == "" {
 			continue
 		}
+
 		for _, p := range h.Ports {
-			state := strings.ToLower(p.State.State) // e.g., "open"
+
+			state := strings.ToLower(p.State.State)
 			if !strings.HasPrefix(state, "open") {
 				continue
 			}
+
 			t := domain.HostPort{Host: host, Port: uint16(p.ID)}
-			tags := deriveTagsFromService(t, p.Protocol, p.Service.Name, p.Service.Tunnel)
-			out = append(out, domain.ClassifiedTarget{Target: t, Tags: tags})
+			tags := deriveTagsFromService(t, p.Protocol, p.Service.Name, p.Service.Tunnel, p.Service.Product)
+
+			ct := domain.ClassifiedTarget{Target: t, Tags: tags}
+			out = append(out, ct)
+			seen[key(t)] = struct{}{}
 		}
 	}
 	return out, nil
 }
 
-/* ---------------- helpers ---------------- */
+// ---------------- helpers ----------------
 
 func sanitizeCIDRs(in []string) []string {
 	seen := map[string]struct{}{}
@@ -110,7 +128,6 @@ func sanitizeCIDRs(in []string) []string {
 }
 
 func pickHostAddress(h nmap.Host) string {
-	// Prefer IPv4
 	for _, a := range h.Addresses {
 		if a.AddrType == "ipv4" {
 			return a.Addr
@@ -127,7 +144,7 @@ func pickHostAddress(h nmap.Host) string {
 	return ""
 }
 
-func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel string) []domain.Tag {
+func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel, product string) []domain.Tag {
 	tagset := map[domain.Tag]struct{}{}
 
 	// Transport/protocol baseline
@@ -138,8 +155,10 @@ func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel string) []d
 		tagset[domain.Tag("protocol:tcp")] = struct{}{}
 	}
 
-	// TLS detection
 	svcLower := strings.ToLower(svcName)
+	prodLower := strings.ToLower(product)
+
+	// TLS detection
 	if tunnel == "ssl" || strings.HasPrefix(svcLower, "ssl/") ||
 		t.Port == 443 || t.Port == 8883 || t.Port == 5684 {
 		tagset[domain.Tag("supports:tls")] = struct{}{}
@@ -147,7 +166,7 @@ func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel string) []d
 
 	// Service→protocol tags
 	switch {
-	case containsSvc(svcLower, "mqtt"):
+	case containsSvc(svcLower, "mqtt") || strings.Contains(prodLower, "mosquitto") || strings.Contains(prodLower, "mqtt"):
 		tagset[domain.Tag("protocol:mqtt")] = struct{}{}
 	case containsSvc(svcLower, "coap"):
 		tagset[domain.Tag("protocol:coap")] = struct{}{}

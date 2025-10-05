@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type HostPort struct {
 	Host string
 	Port uint16
@@ -16,6 +18,7 @@ type Campaign struct {
 	ID      string         `yaml:"id"`
 	Name    string         `yaml:"name"`
 	Version string         `yaml:"version"`
+	Scanner *ScannerConfig `yaml:"scanner,omitempty"`
 	Steps   []CampaignStep `yaml:"steps"`
 }
 
@@ -33,6 +36,22 @@ type ExecConfig struct {
 	GRPC      *GRPCConfig    `yaml:"grpc,omitempty"`
 	Transport string         `yaml:"transport,omitempty"`
 	Params    map[string]any `yaml:"params,omitempty"`
+}
+
+type ScannerConfig struct {
+	SkipHostDiscovery bool `yaml:"skip_host_discovery,omitempty"` // -Pn
+
+	EnableUDP bool     `yaml:"enable_udp,omitempty"`
+	Ports     []string `yaml:"ports,omitempty"`
+	OpenOnly  bool     `yaml:"open_only,omitempty"`
+
+	ServiceDetect bool `yaml:"service_detect,omitempty"`
+	VersionAll    bool `yaml:"version_all,omitempty"`
+	VersionLight  bool `yaml:"version_light,omitempty"`
+
+	MinRate int           `yaml:"min_rate,omitempty"`
+	Timing  string        `yaml:"timing,omitempty"`
+	Timeout time.Duration `yaml:"timeout,omitempty"`
 }
 
 type CampaignStep struct {
