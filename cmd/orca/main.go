@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bytemomo/orca/internal/adapter/abiplugin"
+	"bytemomo/orca/internal/adapter/cliplugin"
 	"bytemomo/orca/internal/adapter/grpcplugin"
 	"bytemomo/orca/internal/adapter/jsonreport"
 	"bytemomo/orca/internal/adapter/yamlconfig"
@@ -75,6 +76,7 @@ func main() {
 	executors := []domain.PluginExecutor{
 		grpcplugin.New(),
 		abiplugin.New(),
+		cliplugin.New(),
 	}
 
 	runner := usecase.RunnerUC{
