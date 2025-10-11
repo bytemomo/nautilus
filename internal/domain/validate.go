@@ -15,16 +15,12 @@ func (e ExecConfig) Validate() error {
 		if e.ABI.LibraryPath == "" {
 			return fmt.Errorf("exec.abi.library is required")
 		}
-		if e.ABI.Symbol == "" {
-			// allow empty -> default in runner
-		}
 	}
 	if e.GRPC != nil {
 		if e.GRPC.Server == "" {
 			return fmt.Errorf("exec.grpc.server is required")
 		}
 	}
-
 	if e.CLI != nil {
 		if e.CLI.Path == "" {
 			return fmt.Errorf("exec.abi.library is required")

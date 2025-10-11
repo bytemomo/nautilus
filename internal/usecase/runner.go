@@ -3,9 +3,12 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"bytemomo/orca/internal/domain"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type RunnerUC struct {
@@ -15,6 +18,11 @@ type RunnerUC struct {
 }
 
 func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
+	log.WithFields(log.Fields{
+		"campaign": campaign.ID,
+		"targets":  len(classified),
+	}).Info("Starting campaign execution")
+
 	sem := make(chan struct{}, max(1, uc.Config.MaxTargets))
 	out := make(chan domain.RunResult, len(classified))
 
@@ -24,7 +32,12 @@ func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classi
 		go func() {
 			defer func() { <-sem }()
 			res := uc.runForTarget(ctx, campaign, ct)
-			_ = uc.Store.Save(res.Target, res) // best-effort; bubble up if you prefer
+			if err := uc.Store.Save(res.Target, res); err != nil {
+				log.WithFields(log.Fields{
+					"target": res.Target.Host + ":" + strconv.Itoa(int(res.Target.Port)),
+					"error":  err,
+				}).Error("Failed to save result")
+			}
 			out <- res
 		}()
 	}
@@ -33,6 +46,8 @@ func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classi
 	for i := 0; i < len(classified); i++ {
 		all = append(all, <-out)
 	}
+
+	log.WithField("campaign", campaign.ID).Info("Campaign execution finished")
 	return all, nil
 }
 
@@ -40,10 +55,24 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 	result := domain.RunResult{Target: ct.Target}
 	plan := filterStepsByTags(camp.Steps, ct.Tags)
 
+	log.WithFields(log.Fields{
+		"target": ct.Target.Host + ":" + strconv.Itoa(int(ct.Target.Port)),
+		"tags":   ct.Tags,
+		"plan":   stepIDs(plan),
+	}).Info("Running for target")
+
 	for _, step := range plan {
+		l := log.WithFields(log.Fields{
+			"target":    ct.Target.Host + ":" + strconv.Itoa(int(ct.Target.Port)),
+			"plugin":    step.PluginID,
+			"transport": step.Exec.Transport,
+		})
+
 		exec := uc.findExecutor(step.Exec.Transport)
 		if exec == nil {
-			result.Logs = append(result.Logs, fmt.Sprintf("no executor for transport %q", step.Exec.Transport))
+			msg := fmt.Sprintf("no executor for transport %q", step.Exec.Transport)
+			l.Warn(msg)
+			result.Logs = append(result.Logs, msg)
 			continue
 		}
 
@@ -51,6 +80,7 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 		if step.MaxDurationS > 0 {
 			timeout = time.Duration(step.MaxDurationS) * time.Second
 		}
+		l.WithField("timeout", timeout).Info("Executing step")
 
 		cctx, cancel := context.WithTimeout(ctx, timeout)
 		if step.Exec.ABI != nil {
@@ -65,9 +95,15 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 		cancel()
 
 		if err != nil {
-			result.Logs = append(result.Logs, fmt.Sprintf("run %s(%s): %v", step.PluginID, step.Exec.Transport, err))
+			msg := fmt.Sprintf("run %s(%s): %v", step.PluginID, step.Exec.Transport, err)
+			l.WithError(err).Error("Step execution failed")
+			result.Logs = append(result.Logs, msg)
 			continue
 		}
+		l.WithFields(log.Fields{
+			"findings": len(rr.Findings),
+			"logs":     len(rr.Logs),
+		}).Info("Step execution complete")
 		result.Findings = append(result.Findings, rr.Findings...)
 		result.Logs = append(result.Logs, rr.Logs...)
 	}
@@ -107,4 +143,12 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func stepIDs(steps []domain.CampaignStep) []string {
+	ids := make([]string, len(steps))
+	for i, s := range steps {
+		ids[i] = s.PluginID
+	}
+	return ids
 }

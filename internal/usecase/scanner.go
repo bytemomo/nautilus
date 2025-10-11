@@ -10,15 +10,16 @@ import (
 	"bytemomo/orca/internal/domain"
 
 	nmap "github.com/Ullaakut/nmap/v3"
+	log "github.com/sirupsen/logrus"
 )
 
 type ScannerUC struct {
-	EnableUDP     bool
-	ServiceDetect bool
-	VersionLight  bool
-	VersionAll    bool
-	MinRate       int
-	// Timing string
+	EnableUDP         bool
+	ServiceDetect     bool
+	VersionLight      bool
+	VersionAll        bool
+	MinRate           int
+	Timing            string
 	CommandTimeout    time.Duration
 	SkipHostDiscovery bool
 	OpenOnly          bool
@@ -30,6 +31,11 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no valid CIDRs provided")
 	}
+
+	log.WithFields(log.Fields{
+		"targets": targets,
+		"ports":   s.Ports,
+	}).Info("Starting nmap scan")
 
 	opts := []nmap.Option{
 		nmap.WithTargets(targets...),
@@ -65,6 +71,23 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 		opts = append(opts, nmap.WithMinRate(s.MinRate))
 	}
 
+	switch s.Timing {
+	case "T0": // slowest
+		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingSlowest))
+	case "T1": // sneaky
+		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingSneaky))
+	case "T2": // sneaky
+		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingPolite))
+	case "T3": // sneaky
+		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingNormal))
+	case "T4": // sneaky
+		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingAggressive))
+	case "T5": // sneaky
+		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingFastest))
+	default:
+		log.Errorf("Wrong timing for scanner: %s", s.Timing)
+	}
+
 	// Optional overall deadline for the process.
 	if s.CommandTimeout > 0 {
 		var cancel context.CancelFunc
@@ -72,14 +95,28 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 		defer cancel()
 	}
 
+	log.WithField("options", fmt.Sprintf("%v", opts)).Debug("Creating nmap scanner")
 	scanner, err := nmap.NewScanner(ctx, opts...)
 	if err != nil {
+		log.WithError(err).Error("Failed to create nmap scanner")
 		return nil, fmt.Errorf("create nmap scanner: %w", err)
 	}
-	result, _, err := scanner.Run()
+
+	log.Info("Executing nmap scan")
+	result, warnings, err := scanner.Run()
 	if err != nil {
+		log.WithError(err).Error("Nmap scan failed")
 		return nil, fmt.Errorf("run nmap: %w", err)
 	}
+	if warnings != nil && len(*warnings) > 0 {
+		log.WithField("warnings", *warnings).Warn("Nmap scan produced warnings")
+	}
+
+	log.WithFields(log.Fields{
+		"hosts":   len(result.Hosts),
+		"runtime": result.Stats.Finished.TimeStr,
+		"summary": result.Stats.Finished.Summary,
+	}).Info("Nmap scan complete")
 
 	var out []domain.ClassifiedTarget
 	seen := make(map[string]struct{})
@@ -100,11 +137,19 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 			t := domain.HostPort{Host: host, Port: uint16(p.ID)}
 			tags := deriveTagsFromService(t, p.Protocol, p.Service.Name, p.Service.Tunnel, p.Service.Product)
 
+			log.WithFields(log.Fields{
+				"host": host,
+				"port": p.ID,
+				"svc":  p.Service.Name,
+				"tags": tags,
+			}).Debug("Classified target")
+
 			ct := domain.ClassifiedTarget{Target: t, Tags: tags}
 			out = append(out, ct)
 			seen[key(t)] = struct{}{}
 		}
 	}
+	log.WithField("count", len(out)).Info("Finished classifying targets")
 	return out, nil
 }
 
