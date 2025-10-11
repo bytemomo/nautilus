@@ -3,9 +3,11 @@
 import sys
 import json
 from boofuzz import *
+import io
 
-IFACE = "lo" # NOTE: Default on localhost interface
-PCAP_DIR = "./captures"
+OUTDIR = "./boofuzz-results"
+PCAP_DIR = f"{OUTDIR}/captures"
+LOG_FILEPATH = f"{OUTDIR}/fuzz.log"
 
 def mqtt_varlen_encoder(value):
     """
@@ -30,7 +32,7 @@ def mqtt_varlen_encoder(value):
         if n == 0:
             break
 
-    # at most 4 bytes 
+    # at most 4 bytes
     if len(out) > 4:
         raise ValueError("MQTT varint produced >4 bytes, which is invalid.")
     return bytes(out)
@@ -71,8 +73,6 @@ def build_mqtt_packet(name: str, control_header: int, variable_header_fields=Non
                 elements.append(String(name=fname, default_value=fval, fuzzable=fuzzable))
             elif ftype == "raw":
                 elements.append(Bytes(name=fname, default_value=fval, fuzzable=fuzzable))
-            # elif ftype == "list":
-            #     elements.append(Bytes(name=fname, values=fval, fuzzable=fuzzable))
         return elements
 
     # Fixed Header
@@ -124,12 +124,19 @@ def main():
     #     host=host, port=port,
     # )
 
+
     session = Session(
         target=Target(
             connection=TCPSocketConnection(host, port),
+            sleep_time=0.05,
             monitors=[
                 # TODO: add Process monitor -> sees crashes
-            ] 
+            ],
+            fuzz_loggers=[
+                FuzzLoggerText(file_handle=io.TextIOWrapper(open(LOG_FILEPATH, "wb+"), encoding="utf-8")),
+                # FuzzLoggerText(),
+            ],
+
         ),
     )
 
@@ -141,22 +148,7 @@ def main():
         session.connect(CONNECT)
 
         # NOTE: Equal to 1 == simple fuzzing
-        session.fuzz(max_depth=1) 
-        out = {
-            "status": "ok",
-            "target": {"host": host, "port": port},
-            "requests_defined": list(reqs.keys()),
-            "coherence": {
-                "flags_strategy": "fuzzed with constraints",
-                "publish_variants": ["QoS0", "QoS1", "QoS2"],
-                "fixed_flags_packets": ["SUBSCRIBE","UNSUBSCRIBE","PUBREL", "others fixed to 0"],
-            },
-            "fuzz_summary": {
-                "total_mutations": session.num_mutations,
-                "send_failures": len(session.last_send_failures),
-            },
-        }
-        print(json.dumps(out, indent=2))
+        session.fuzz(max_depth=1)
     except Exception as e:
         print(json.dumps({
             "status": "error",

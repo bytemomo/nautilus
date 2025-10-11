@@ -22,6 +22,19 @@ type Campaign struct {
 	Steps   []CampaignStep `yaml:"steps"`
 }
 
+type CLIConfig struct {
+	Path string `yaml:"path"`
+	// Mode string `yaml:"mode"`
+
+	// TODO: Reverse tunneling?
+	// SshReverseTunneling bool   `yaml:"rev_tunnel"`
+	// TargetTunnel        string `yaml:"target_tunnel"`
+	// LoginUser           string `yaml:"login_user"`
+	// KeyPath             string `yaml:"key_path"`
+
+	// TODO: Run on another host/dockerized
+}
+
 type ABIConfig struct {
 	LibraryPath string `yaml:"library"`
 	Symbol      string `yaml:"symbol"`
@@ -34,6 +47,7 @@ type GRPCConfig struct {
 type ExecConfig struct {
 	ABI       *ABIConfig     `yaml:"abi,omitempty"`
 	GRPC      *GRPCConfig    `yaml:"grpc,omitempty"`
+	CLI       *CLIConfig     `yaml:"cli,omitempty"`
 	Transport string         `yaml:"transport,omitempty"`
 	Params    map[string]any `yaml:"params,omitempty"`
 }

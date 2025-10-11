@@ -57,6 +57,8 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 			cctx = context.WithValue(cctx, "abi", step.Exec.ABI)
 		} else if step.Exec.GRPC != nil {
 			cctx = context.WithValue(cctx, "grpc", step.Exec.GRPC)
+		} else if step.Exec.CLI != nil {
+			cctx = context.WithValue(cctx, "cli", step.Exec.CLI)
 		}
 
 		rr, err := exec.Run(cctx, step.Exec.Params, ct.Target, timeout)

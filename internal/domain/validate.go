@@ -5,12 +5,10 @@ import "fmt"
 func (e ExecConfig) Validate() error {
 	hasABI := e.ABI != nil
 	hasGRPC := e.GRPC != nil
+	hasCLI := e.CLI != nil
 
-	switch {
-	case hasABI && hasGRPC:
-		return fmt.Errorf("exec config: abi and grpc are mutually exclusive; set only one")
-	case !hasABI && !hasGRPC:
-		return fmt.Errorf("exec config: one of abi or grpc must be set")
+	if !(hasABI || hasCLI || hasGRPC) {
+		return fmt.Errorf("exec config: one of abi, grpc or cli must be set")
 	}
 
 	if e.ABI != nil {
@@ -26,5 +24,12 @@ func (e ExecConfig) Validate() error {
 			return fmt.Errorf("exec.grpc.server is required")
 		}
 	}
+
+	if e.CLI != nil {
+		if e.CLI.Path == "" {
+			return fmt.Errorf("exec.abi.library is required")
+		}
+	}
+
 	return nil
 }
