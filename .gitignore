@@ -11,6 +11,9 @@
 !campaigns/
 !campaigns/*.yaml
 
+!campaigns/trees/
+!campaigns/trees/*.yaml
+
 !results/
 !results/.gitkeep
 

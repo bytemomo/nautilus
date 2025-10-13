@@ -15,11 +15,12 @@ type ClassifiedTarget struct {
 }
 
 type Campaign struct {
-	ID      string         `yaml:"id"`
-	Name    string         `yaml:"name"`
-	Version string         `yaml:"version"`
-	Scanner *ScannerConfig `yaml:"scanner,omitempty"`
-	Steps   []CampaignStep `yaml:"steps"`
+	ID                 string         `yaml:"id"`
+	Name               string         `yaml:"name"`
+	Version            string         `yaml:"version"`
+	Scanner            *ScannerConfig `yaml:"scanner,omitempty"`
+	Steps              []CampaignStep `yaml:"steps"`
+	AttackTreesDefPath string         `yaml:"attack_trees_def_path,omitempty"`
 }
 
 type CLIConfig struct {
@@ -78,6 +79,7 @@ type CampaignStep struct {
 type Finding struct {
 	ID          string         `json:"id"`
 	PluginID    string         `json:"plugin_id"`
+	Success     bool           `json:"success"`
 	Title       string         `json:"title"`
 	Severity    string         `json:"severity"`
 	Description string         `json:"description"`

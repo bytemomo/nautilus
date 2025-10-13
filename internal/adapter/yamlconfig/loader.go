@@ -24,3 +24,15 @@ func LoadCampaign(path string) (*domain.Campaign, error) {
 	}
 	return &c, nil
 }
+
+func LoadAttackTrees(path string) ([]*domain.AttackNode, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var trees []*domain.AttackNode
+	if err := yaml.Unmarshal(b, &trees); err != nil {
+		return nil, err
+	}
+	return trees, nil
+}

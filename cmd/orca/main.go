@@ -15,6 +15,8 @@ import (
 	"bytemomo/orca/internal/adapter/yamlconfig"
 	"bytemomo/orca/internal/domain"
 	"bytemomo/orca/internal/usecase"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -103,6 +105,29 @@ func main() {
 	}
 
 	fmt.Println("Report written to:", path)
+
+	if camp.AttackTreesDefPath == "" {
+		log.Info("Attack tree definition file not specified!")
+	}
+
+	trees, err := yamlconfig.LoadAttackTrees(camp.AttackTreesDefPath)
+	if err != nil {
+		log.Errorf("Could not load attack trees path: %s", err)
+		return
+	}
+
+	if len(trees) == 0 {
+		log.Info("No attack tree specified!")
+	}
+
+	for _, result := range all {
+		for _, tree := range trees {
+			if tree.Evaluate(result.Findings) {
+				log.Infof("For target [%s:%d] attack tree is evaluated as true: %s", result.Target.Host, result.Target.Port, tree.Name)
+				tree.PrintTree(fmt.Sprintf("Target: %s:%d", result.Target.Host, result.Target.Port))
+			}
+		}
+	}
 }
 
 func splitCSV(s string) []string {
