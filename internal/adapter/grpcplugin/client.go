@@ -70,7 +70,7 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 		findings = append(findings, domain.Finding{
 			ID: f.GetId(), PluginID: f.GetPluginId(), Title: f.GetTitle(), Severity: f.GetSeverity(),
 			Description: f.GetDescription(), Evidence: ev, Tags: tags, Timestamp: f.GetTimestamp(),
-			Target: t,
+			Target: t, Success: f.Success,
 		})
 	}
 	var logs []string

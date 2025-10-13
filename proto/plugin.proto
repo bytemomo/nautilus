@@ -25,14 +25,15 @@ message Finding {
   string id = 1;
   string plugin_id = 2;
 
-  string title = 3;
-  string severity = 4;      // e.g., "info","low","medium","high","critical"
-  string description = 5;
+  bool success = 3;
+  string title = 4;
+  string severity = 5;      // e.g., "info","low","medium","high","critical"
+  string description = 6;
 
-  map<string, string> evidence = 6;
-  repeated string tags = 7;
+  map<string, string> evidence = 7;
+  repeated string tags = 8;
 
-  int64 timestamp = 8;
+  int64 timestamp = 9;
 }
 
 message LogLine {

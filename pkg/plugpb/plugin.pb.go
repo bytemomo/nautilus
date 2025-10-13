@@ -139,12 +139,13 @@ type Finding struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	PluginId      string                 `protobuf:"bytes,2,opt,name=plugin_id,json=pluginId,proto3" json:"plugin_id,omitempty"`
-	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
-	Severity      string                 `protobuf:"bytes,4,opt,name=severity,proto3" json:"severity,omitempty"` // e.g., "info","low","medium","high","critical"
-	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
-	Evidence      map[string]string      `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Tags          []string               `protobuf:"bytes,7,rep,name=tags,proto3" json:"tags,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,8,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Success       bool                   `protobuf:"varint,3,opt,name=success,proto3" json:"success,omitempty"`
+	Title         string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
+	Severity      string                 `protobuf:"bytes,5,opt,name=severity,proto3" json:"severity,omitempty"` // e.g., "info","low","medium","high","critical"
+	Description   string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
+	Evidence      map[string]string      `protobuf:"bytes,7,rep,name=evidence,proto3" json:"evidence,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Tags          []string               `protobuf:"bytes,8,rep,name=tags,proto3" json:"tags,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -191,6 +192,13 @@ func (x *Finding) GetPluginId() string {
 		return x.PluginId
 	}
 	return ""
+}
+
+func (x *Finding) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
 }
 
 func (x *Finding) GetTitle() string {
@@ -415,16 +423,17 @@ const file_proto_plugin_proto_rawDesc = "" +
 	"\x06params\x18\x03 \x03(\v2&.orca.plugin.v1.RunRequest.ParamsEntryR\x06params\x1aQ\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
-	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value:\x028\x01\"\xbc\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value:\x028\x01\"\xd6\x02\n" +
 	"\aFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
-	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x14\n" +
-	"\x05title\x18\x03 \x01(\tR\x05title\x12\x1a\n" +
-	"\bseverity\x18\x04 \x01(\tR\bseverity\x12 \n" +
-	"\vdescription\x18\x05 \x01(\tR\vdescription\x12A\n" +
-	"\bevidence\x18\x06 \x03(\v2%.orca.plugin.v1.Finding.EvidenceEntryR\bevidence\x12\x12\n" +
-	"\x04tags\x18\a \x03(\tR\x04tags\x12\x1c\n" +
-	"\ttimestamp\x18\b \x01(\x03R\ttimestamp\x1a;\n" +
+	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x18\n" +
+	"\asuccess\x18\x03 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05title\x18\x04 \x01(\tR\x05title\x12\x1a\n" +
+	"\bseverity\x18\x05 \x01(\tR\bseverity\x12 \n" +
+	"\vdescription\x18\x06 \x01(\tR\vdescription\x12A\n" +
+	"\bevidence\x18\a \x03(\v2%.orca.plugin.v1.Finding.EvidenceEntryR\bevidence\x12\x12\n" +
+	"\x04tags\x18\b \x03(\tR\x04tags\x12\x1c\n" +
+	"\ttimestamp\x18\t \x01(\x03R\ttimestamp\x1a;\n" +
 	"\rEvidenceEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"-\n" +
