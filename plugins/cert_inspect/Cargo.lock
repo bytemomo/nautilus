@@ -24,6 +24,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "openssl",
+ "openssl-sys",
  "serde",
  "serde_json",
 ]

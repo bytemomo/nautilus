@@ -27,7 +27,6 @@ scanner:
 
 attack_trees_def_path: "./campaigns/trees/mqtt.yaml"
 
-# Steps to execute against targets
 steps:
     - plugin_id: "tls_version_check"
       required_tags: ["supports:tls", "protocol:tcp"]
@@ -63,22 +62,22 @@ steps:
       exec:
           transport: abi
           abi:
-              library: "./plugins/cert_inspect/target/release/cert_inspect"
+              library: "./plugins/cert_inspect/target/release/libcert_inspect"
               symbol: "ORCA_Run"
           params:
+              tls_insecure: true
               warn_days: 21
-              match_hostname: true
-              require_san: true
-              min_rsa_bits: 2048
+              min_rsa_bits: 4096
               allow_sha1: false
-              require_server_auth: true
               disallow_self_signed: true
               print_certificates_stdout: true
+              match_hostname: true
+              require_san: true
 
-    - plugin_id: "mqtt_boofuzz"
-      required_tags: ["protocol:mqtt"]
-      max_duration_s: 120
-      exec:
-          transport: cli
-          cli:
-              path: "./plugins/fuzzing/mqtt/boofuzz_poc.py"
+    # - plugin_id: "mqtt_boofuzz"
+    #   required_tags: ["protocol:mqtt"]
+    #   max_duration_s: 120
+    #   exec:
+    #       transport: cli
+    #       cli:
+    #           path: "./plugins/fuzzing/mqtt/boofuzz_poc.py"

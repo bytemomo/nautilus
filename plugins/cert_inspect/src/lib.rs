@@ -73,11 +73,8 @@ pub extern "C" fn ORCA_Free(p: *mut c_void) {
     }
     unsafe {
         let result = Box::from_raw(p as *mut ORCA_RunResult);
-
-        // Free strings and arrays within the main struct
         let _ = CString::from_raw(result.target.host as *mut c_char);
 
-        // Free findings
         let findings = Vec::from_raw_parts(
             result.findings,
             result.findings_count,
@@ -91,7 +88,6 @@ pub extern "C" fn ORCA_Free(p: *mut c_void) {
             let _ = CString::from_raw(f.description as *mut c_char);
             let _ = CString::from_raw(f.target.host as *mut c_char);
 
-            // Free evidence
             let evidence =
                 Vec::from_raw_parts(f.evidence.items, f.evidence.count, f.evidence.count);
             for kv in evidence {
@@ -99,7 +95,6 @@ pub extern "C" fn ORCA_Free(p: *mut c_void) {
                 let _ = CString::from_raw(kv.value as *mut c_char);
             }
 
-            // Free tags
             let tags = Vec::from_raw_parts(
                 f.tags.strings as *mut *mut c_char,
                 f.tags.count,
@@ -110,7 +105,6 @@ pub extern "C" fn ORCA_Free(p: *mut c_void) {
             }
         }
 
-        // Free logs
         let logs = Vec::from_raw_parts(
             result.logs.strings as *mut *mut c_char,
             result.logs.count,
@@ -140,14 +134,17 @@ pub extern "C" fn ORCA_Run(
         .into_owned();
     let target = format!("{}:{}", host_str, port);
 
-    // Default parameters
+    // Define all parameters with their defaults
     let mut tls_insecure = true;
     let mut warn_days: i64 = 21;
     let mut min_rsa_bits: u32 = 2048;
     let mut allow_sha1 = false;
     let mut disallow_self_signed = true;
+    let mut match_hostname = true;
+    let mut require_san = true;
+    let mut require_server_auth = false;
 
-    // Parse JSON params if provided
+    // Parse all parameters from the provided JSON string
     if !params_json.is_null() {
         if let Ok(pj) = unsafe { CStr::from_ptr(params_json) }.to_str() {
             if let Ok(v) = serde_json::from_str::<Value>(pj) {
@@ -171,72 +168,33 @@ pub extern "C" fn ORCA_Run(
                     .get("disallow_self_signed")
                     .and_then(|x| x.as_bool())
                     .unwrap_or(disallow_self_signed);
+                match_hostname = v
+                    .get("match_hostname")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(match_hostname);
+                require_san = v
+                    .get("require_san")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(require_san);
+                require_server_auth = v
+                    .get("require_server_auth")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(require_server_auth);
             }
         }
     }
 
     let mut findings = Vec::new();
-    let mut logs = vec![
-        CString::new(format!("Connecting to {}", target)).unwrap(),
-        CString::new(format!("tls_insecure={}", tls_insecure)).unwrap(),
-    ];
+    let mut logs = vec![CString::new(format!("Cert inspect started for {}", target)).unwrap()];
 
-    let mut builder = match SslConnector::builder(SslMethod::tls()) {
-        Ok(b) => b,
-        Err(e) => {
-            return finish_with_error(
-                &format!("SSL init failed: {}", e),
-                host_str.as_str(),
-                port,
-                out_result,
-            )
-        }
+    // Connect and retrieve the certificate
+    let cert = match connect_and_get_cert(&target, &host_str, tls_insecure) {
+        Ok(c) => c,
+        Err(e) => return finish_with_error(&e, &host_str, port, out_result),
     };
+    logs.push(CString::new("Successfully retrieved peer certificate.").unwrap());
 
-    if tls_insecure {
-        builder.set_verify(SslVerifyMode::NONE);
-    } else {
-        builder.set_verify(SslVerifyMode::PEER);
-    }
-    let connector = builder.build();
-
-    let stream = match TcpStream::connect(&target) {
-        Ok(s) => s,
-        Err(e) => {
-            return finish_with_error(
-                &format!("TCP connect failed: {}", e),
-                host_str.as_str(),
-                port,
-                out_result,
-            )
-        }
-    };
-
-    let ssl_stream = match connector.connect(&host_str, stream) {
-        Ok(s) => s,
-        Err(e) => {
-            return finish_with_error(
-                &format!("TLS handshake failed: {}", e),
-                host_str.as_str(),
-                port,
-                out_result,
-            )
-        }
-    };
-
-    let cert = match ssl_stream.ssl().peer_certificate() {
-        Some(c) => c,
-        None => {
-            return finish_with_error(
-                "No peer certificate found",
-                host_str.as_str(),
-                port,
-                out_result,
-            )
-        }
-    };
-
-    // ========= Certificate Checks =========
+    // --- Execute All Certificate Checks ---
 
     if let Some(days_left) = days_from_now(cert.not_after()) {
         if days_left < 0 {
@@ -245,12 +203,11 @@ pub extern "C" fn ORCA_Run(
                 "CERT-EXPIRED",
                 "Certificate expired",
                 "high",
-                "Leaf certificate is expired",
-                vec![("days_left", &days_left.to_string())],
-                &["tls", "cert"],
+                "The certificate's 'notAfter' date is in the past.",
+                vec![("days_expired", &(-days_left).to_string())],
                 ts,
                 &host_str,
-                port as u16,
+                port,
             );
         } else if days_left <= warn_days {
             add_finding(
@@ -258,12 +215,11 @@ pub extern "C" fn ORCA_Run(
                 "CERT-EXPIRING",
                 "Certificate expiring soon",
                 "medium",
-                "Leaf certificate expires soon",
+                "The certificate will expire in the configured warning period.",
                 vec![("days_left", &days_left.to_string())],
-                &["tls", "cert"],
                 ts,
                 &host_str,
-                port as u16,
+                port,
             );
         }
     }
@@ -274,12 +230,11 @@ pub extern "C" fn ORCA_Run(
             "CERT-SELFSIGNED",
             "Self-signed certificate",
             "medium",
-            "Certificate appears to be self-signed",
+            "The certificate's issuer is the same as its subject, indicating it is self-signed.",
             vec![],
-            &["tls", "cert"],
             ts,
             &host_str,
-            port as u16,
+            port,
         );
     }
 
@@ -289,12 +244,11 @@ pub extern "C" fn ORCA_Run(
             "CERT-SHA1",
             "Weak signature algorithm (SHA-1)",
             "medium",
-            "Certificate is signed with the insecure SHA-1 algorithm",
+            "The certificate is signed with the deprecated SHA-1 algorithm.",
             vec![],
-            &["tls", "cert"],
             ts,
             &host_str,
-            port as u16,
+            port,
         );
     }
 
@@ -305,40 +259,33 @@ pub extern "C" fn ORCA_Run(
                 "CERT-WEAKKEY",
                 "Weak public key",
                 "medium",
-                "Public key size is below the recommended threshold",
+                "The public key size is below the configured threshold.",
                 vec![
                     ("bits", &pk.bits().to_string()),
                     ("minimum", &min_rsa_bits.to_string()),
                 ],
-                &["tls", "cert"],
                 ts,
                 &host_str,
-                port as u16,
+                port,
             );
         }
     }
 
-    if !hostname_matches(&cert, &host_str) {
-        add_finding(
-            &mut findings,
-            "CERT-HOSTNAME",
-            "Hostname mismatch",
-            "high",
-            "Certificate is not valid for the target hostname",
-            vec![("hostname", &host_str)],
-            &["tls", "cert"],
-            ts,
-            &host_str,
-            port as u16,
-        );
+    if match_hostname && !hostname_matches(&cert, &host_str) {
+        add_finding(&mut findings, "CERT-HOSTNAME", "Hostname mismatch", "high", "The certificate's Common Name or Subject Alternative Names do not match the target host.", vec![("target_host", &host_str)], ts, &host_str, port);
     }
 
-    logs.push(CString::new("Successfully analyzed peer certificate.").unwrap());
+    if require_san && cert.subject_alt_names().is_none() {
+        add_finding(&mut findings, "CERT-NOSAN", "Missing Subject Alternative Name", "medium", "The certificate lacks a SAN extension, which is required by modern browsers and clients.", vec![], ts, &host_str, port);
+    }
 
-    // ======== Finalize and Return Struct ========
+    if require_server_auth {
+        println!("[ERROR] cert_inspect plugin: require_server_auth flag not yet supported!");
+    }
+
+    // --- Finalize and Return Result Struct ---
     let findings_count = findings.len();
     let logs_count = logs.len();
-
     let result = Box::new(ORCA_RunResult {
         target: ORCA_HostPort {
             host: CString::new(host_str).unwrap().into_raw(),
@@ -366,6 +313,23 @@ pub extern "C" fn ORCA_Run(
 /* Helper Functions                                                 */
 /* ================================================================ */
 
+fn connect_and_get_cert(target: &str, host: &str, tls_insecure: bool) -> Result<X509, String> {
+    let mut builder =
+        SslConnector::builder(SslMethod::tls()).map_err(|e| format!("SSL init failed: {}", e))?;
+    if tls_insecure {
+        builder.set_verify(SslVerifyMode::NONE);
+    }
+    let connector = builder.build();
+    let stream = TcpStream::connect(target).map_err(|e| format!("TCP connect failed: {}", e))?;
+    let ssl_stream = connector
+        .connect(host, stream)
+        .map_err(|e| format!("TLS handshake failed: {}", e))?;
+    ssl_stream
+        .ssl()
+        .peer_certificate()
+        .ok_or_else(|| "No peer certificate found".to_string())
+}
+
 fn add_finding(
     findings: &mut Vec<ORCA_Finding>,
     id: &str,
@@ -373,10 +337,9 @@ fn add_finding(
     severity: &str,
     description: &str,
     evidence_pairs: Vec<(&str, &str)>,
-    tags_slice: &[&str],
     ts: i64,
     host: &str,
-    port: u16,
+    port: c_uint,
 ) {
     let evidence_vec: Vec<ORCA_KeyValue> = evidence_pairs
         .into_iter()
@@ -385,12 +348,10 @@ fn add_finding(
             value: CString::new(v).unwrap().into_raw(),
         })
         .collect();
-
-    let tags_vec: Vec<*const c_char> = tags_slice
+    let tags_vec: Vec<*const c_char> = vec!["tls", "cert"]
         .iter()
         .map(|t| CString::new(*t).unwrap().into_raw() as *const c_char)
         .collect();
-
     let evidence_count = evidence_vec.len();
     let tags_count = tags_vec.len();
 
@@ -412,7 +373,7 @@ fn add_finding(
         timestamp: ts,
         target: ORCA_HostPort {
             host: CString::new(host).unwrap().into_raw(),
-            port,
+            port: port as u16,
         },
     });
 }
@@ -423,10 +384,8 @@ fn finish_with_error(
     port: c_uint,
     out_result: *mut *mut ORCA_RunResult,
 ) -> c_int {
-    let log = CString::new(msg).unwrap().into_raw() as *const c_char;
-    let logs_vec = vec![log];
+    let logs_vec = vec![CString::new(msg).unwrap().into_raw() as *const c_char];
     let logs_count = logs_vec.len();
-
     let result = Box::new(ORCA_RunResult {
         target: ORCA_HostPort {
             host: CString::new(host).unwrap().into_raw(),
@@ -451,23 +410,25 @@ fn vec_to_raw_parts<T>(mut v: Vec<T>) -> *mut T {
     ptr
 }
 
-// Certificate analysis helpers (unchanged from original logic)
 fn now_ts() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
 }
+
 fn days_from_now(t: &Asn1TimeRef) -> Option<i64> {
     let now = openssl::asn1::Asn1Time::days_from_now(0).ok()?;
     t.diff(&now).ok().map(|d| d.days as i64)
 }
+
 fn is_self_signed(cert: &X509) -> bool {
     cert.verify(&cert.public_key().unwrap()).unwrap_or(false)
 }
+
 fn is_sigalg_sha1(cert: &X509) -> bool {
     let nid = cert.signature_algorithm().object().nid();
-    nid == Nid::SHA1WITHRSAENCRYPTION || nid == Nid::DSAWITHSHA1 || nid == Nid::ECDSA_WITH_SHA1
+    nid == Nid::SHA1WITHRSAENCRYPTION || nid == Nid::DSAWITHSHA1
 }
 fn hostname_matches(cert: &X509, host: &str) -> bool {
     if let Some(sans) = cert.subject_alt_names() {
