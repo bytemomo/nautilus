@@ -1,36 +1,34 @@
 - name: "Unauthorized Access Attempt"
   type: AND
   children:
-      - name: "Exploit Vulnerability"
-        type: LEAF
       - name: "Bypass Authentication"
         type: OR
         children:
             - name: "Guess Password"
               type: LEAF
-              plugin_ids: ["pw-guess-v1"]
-              plugin_mode: any
+              finding_ids: ["pw-guess-v1"]
+              finding_mode: any
 
             - name: "Token Reuse"
               type: LEAF
-              plugin_ids: ["token-checker-a", "token-checker-b"]
-              plugin_mode: any
+              finding_ids: ["token-checker-a", "token-checker-b"]
+              finding_mode: any
 
             - name: "Chain of Plugins"
               type: LEAF
-              plugin_ids: ["p1", "p2", "p3"]
-              plugin_mode: threshold
-              plugin_threshold: 2
+              finding_ids: ["p1", "p2", "p3"]
+              finding_mode: threshold
+              finding_threshold: 2
 
-- name: "Priviledge Escalation"
-  type: OR
+- name: "Data Exflirtation"
+  type: AND
   children:
-      - name: "Exploit Kernel Vulnerability"
+      - name: "Obtain MQTT valid Session"
         type: LEAF
-        plugin_ids: ["kernel-exploit"]
-        plugin_mode: any
+        finding_ids: ["MQTT-ANON"] # TODO: Other possible findings
+        finding_mode: any
 
-      - name: "Abuse Sudo Rights"
+      - name: "Broker Permissive PUBSUB"
         type: LEAF
-        plugin_ids: ["sudo-misconfig"]
-        plugin_mode: any
+        finding_ids: ["MQTT-PUBSUB"]
+        finding_mode: any

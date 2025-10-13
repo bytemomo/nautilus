@@ -6,12 +6,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type NodeType uint8
+type NodeType string
 
 const (
-	LEAF NodeType = iota
-	AND
-	OR
+	LEAF NodeType = "LEAF"
+	AND  NodeType = "AND"
+	OR   NodeType = "OR"
 )
 
 type PluginMode string
@@ -29,9 +29,9 @@ type AttackNode struct {
 	Success  bool
 
 	// NOTE: Only used on LEAF nodes
-	PluginIDs       []string   `yaml:"plugin_ids"`
-	PluginMode      PluginMode `yaml:"plugin_mode"`
-	PluginThreshold int        `yaml:"plugin_threshold,omitempty"`
+	FindingIDs       []string   `yaml:"finding_ids"`
+	FindingMode      PluginMode `yaml:"finding_mode"`
+	FindingThreshold int        `yaml:"finding_threshold,omitempty"`
 }
 
 func (t *AttackNode) Evaluate(findings []Finding) bool {
@@ -65,13 +65,12 @@ func (t *AttackNode) Evaluate(findings []Finding) bool {
 }
 
 func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
-	switch t.PluginMode {
+	switch t.FindingMode {
 	case PluginModeAny:
 		{
-
-			for _, pid := range t.PluginIDs {
+			for _, fid := range t.FindingIDs {
 				for _, finding := range findings {
-					if pid == finding.PluginID && finding.Success {
+					if fid == finding.ID && !finding.Success {
 						t.Success = true
 						return true
 					}
@@ -81,9 +80,9 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 		}
 	case PluginModeAll:
 		{
-			for _, pid := range t.PluginIDs {
+			for _, fid := range t.FindingIDs {
 				for _, finding := range findings {
-					if pid == finding.PluginID && !finding.Success {
+					if fid == finding.ID && !finding.Success {
 						return false
 					}
 				}
@@ -94,11 +93,11 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 	case PluginModeThreshold:
 		{
 			count := 0
-			for _, pid := range t.PluginIDs {
+			for _, pid := range t.FindingIDs {
 				for _, finding := range findings {
-					if pid == finding.PluginID && !finding.Success {
+					if pid == finding.ID && !finding.Success {
 						count += 1
-						if count >= t.PluginThreshold {
+						if count >= t.FindingThreshold {
 							t.Success = true
 							return true
 						}
@@ -108,7 +107,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 			return false
 		}
 	default:
-		log.Errorf("Invalid plugin mode in attack tree's settings (available types are: any, all, threshold): %s\n", pluginModeToString(t.PluginMode))
+		log.Errorf("Invalid plugin mode in attack tree's settings (available types are: any, all, threshold): %s\n", pluginModeToString(t.FindingMode))
 		return false
 	}
 }
@@ -118,7 +117,7 @@ func (t *AttackNode) PrintTree(prefix string) {
 	if t.Type == LEAF {
 		status = fmt.Sprintf(" Success: %v", t.Success)
 	}
-	fmt.Printf("%s- %s [%s]%s\n", prefix, t.Name, nodeTypeToString(t.Type), status)
+	fmt.Printf("%s - %s [%s]%s\n", prefix, t.Name, nodeTypeToString(t.Type), status)
 
 	for _, child := range t.Children {
 		child.PrintTree(prefix + "  ")
