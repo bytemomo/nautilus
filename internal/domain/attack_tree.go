@@ -70,7 +70,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 		{
 			for _, fid := range t.FindingIDs {
 				for _, finding := range findings {
-					if fid == finding.ID && !finding.Success {
+					if fid == finding.ID && finding.Success {
 						t.Success = true
 						return true
 					}
@@ -95,7 +95,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 			count := 0
 			for _, pid := range t.FindingIDs {
 				for _, finding := range findings {
-					if pid == finding.ID && !finding.Success {
+					if pid == finding.ID && finding.Success {
 						count += 1
 						if count >= t.FindingThreshold {
 							t.Success = true

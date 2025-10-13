@@ -15,8 +15,8 @@ static const char* my_dlerror()                    { return dlerror(); }
 
 // Thin bridge wrappers so Go can call function pointers.
 static inline int call_ORCA_Run(ORCA_RunFn f, const char* host, uint32_t port, uint32_t timeout_ms,
-                                const char* params_json, char** out_json, size_t* out_len) {
-    return f(host, port, timeout_ms, params_json, out_json, out_len);
+                                const char* params_json, ORCA_RunResult** out_result) {
+    return f(host, port, timeout_ms, params_json, out_result);
 }
 
 static inline void call_ORCA_Free(ORCA_FreeFn f, void* p) { f(p); }
@@ -63,6 +63,7 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 	if handle == nil {
 		return domain.RunResult{}, fmt.Errorf("dlopen(%s) failed: %s", libPath, C.GoString(C.my_dlerror()))
 	}
+	defer C.my_dlclose(handle)
 
 	// resolve run symbol
 	csym := C.CString(symbol)
@@ -95,64 +96,75 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 	cParams := C.CString(string(paramsBytes))
 	defer C.free(unsafe.Pointer(cParams))
 
-	var outBuf *C.char
-	var outLen C.size_t
+	var outResult *C.ORCA_RunResult
 
 	// call into plugin
-	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, cParams, &outBuf, &outLen)
+	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, cParams, &outResult)
 	if int(ret) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
 	}
 
-	if outBuf == nil || outLen == 0 {
-		return domain.RunResult{}, errors.New("plugin returned empty buffer")
+	if outResult == nil {
+		return domain.RunResult{}, errors.New("plugin returned empty result")
 	}
-	defer C.call_ORCA_Free(freeFn, unsafe.Pointer(outBuf))
+	defer C.call_ORCA_Free(freeFn, unsafe.Pointer(outResult))
 
-	// copy buffer then decode
-	buf := C.GoBytes(unsafe.Pointer(outBuf), C.int(outLen))
-	return decodeJSONResult(buf, t)
+	// copy and decode
+	return decodeRunResult(outResult)
 }
 
-// decodeJSONResult is shared logic (duplicated to avoid build tag import hassles)
-func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) {
-	var wire struct {
-		Findings []struct {
-			ID, PluginID, Title, Severity, Description string
-			Evidence                                   map[string]string
-			Tags                                       []string
-			Timestamp                                  int64
-		} `json:"findings"`
-		Logs []struct {
-			TS   int64
-			Line string
-		} `json:"logs"`
-	}
-
-	if err := json.Unmarshal(data, &wire); err != nil {
-		return domain.RunResult{}, fmt.Errorf("decode plugin JSON: %w", err)
-	}
-
+// decodeRunResult is shared logic (duplicated to avoid build tag import hassles)
+func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 	var res domain.RunResult
-	res.Target = t
-	for _, f := range wire.Findings {
-		ev := map[string]any{}
-		for k, v := range f.Evidence {
-			ev[k] = v
+	res.Target.Host = C.GoString(cResult.target.host)
+	res.Target.Port = uint16(cResult.target.port)
+
+	// logs
+	if cResult.logs.count > 0 {
+		logSlice := unsafe.Slice(cResult.logs.strings, cResult.logs.count)
+		for _, s := range logSlice {
+			res.Logs = append(res.Logs, C.GoString(s))
 		}
-		var tags []domain.Tag
-		for _, s := range f.Tags {
-			tags = append(tags, domain.Tag(s))
-		}
-		res.Findings = append(res.Findings, domain.Finding{
-			ID: f.ID, PluginID: f.PluginID, Title: f.Title, Severity: f.Severity,
-			Description: f.Description, Evidence: ev, Tags: tags, Timestamp: f.Timestamp,
-			Target: t,
-		})
 	}
 
-	for _, l := range wire.Logs {
-		res.Logs = append(res.Logs, l.Line)
+	// findings
+	if cResult.findings_count > 0 {
+		findingSlice := unsafe.Slice(cResult.findings, cResult.findings_count)
+		for _, cFinding := range findingSlice {
+			ev := make(map[string]any)
+			if cFinding.evidence.count > 0 {
+				evidenceSlice := unsafe.Slice(cFinding.evidence.items, cFinding.evidence.count)
+				for _, kv := range evidenceSlice {
+					ev[C.GoString(kv.key)] = C.GoString(kv.value)
+				}
+			}
+
+			var tags []domain.Tag
+			if cFinding.tags.count > 0 {
+				tagSlice := unsafe.Slice(cFinding.tags.strings, cFinding.tags.count)
+				for _, s := range tagSlice {
+					tags = append(tags, domain.Tag(C.GoString(s)))
+				}
+			}
+
+			findingTarget := domain.HostPort{
+				Host: C.GoString(cFinding.target.host),
+				Port: uint16(cFinding.target.port),
+			}
+
+			res.Findings = append(res.Findings, domain.Finding{
+				ID:          C.GoString(cFinding.id),
+				PluginID:    C.GoString(cFinding.plugin_id),
+				Success:     bool(cFinding.success),
+				Title:       C.GoString(cFinding.title),
+				Severity:    C.GoString(cFinding.severity),
+				Description: C.GoString(cFinding.description),
+				Evidence:    ev,
+				Tags:        tags,
+				Timestamp:   int64(cFinding.timestamp),
+				Target:      findingTarget,
+			})
+		}
 	}
 
 	return res, nil

@@ -2,13 +2,32 @@
 
 package abiplugin
 
+/*
+#include <windows.h>
+#include <stdlib.h>
+#include "../../../pkg/plugabi/orca_plugin_abi.h"
+
+static HMODULE my_LoadLibrary(const char* p) { return LoadLibraryA(p); }
+static FARPROC my_GetProcAddress(HMODULE h, const char* s) { return GetProcAddress(h, s); }
+static BOOL my_FreeLibrary(HMODULE h) { return FreeLibrary(h); }
+
+// Thin bridge wrappers so Go can call function pointers.
+static inline int call_ORCA_Run(ORCA_RunFn f, const char* host, uint32_t port, uint32_t timeout_ms,
+                                const char* params_json, ORCA_RunResult** out_result) {
+    return f(host, port, timeout_ms, params_json, out_result);
+}
+
+static inline void call_ORCA_Free(ORCA_FreeFn f, void* p) { f(p); }
+
+*/
+import "C"
+
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -30,114 +49,120 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}
-
 	symbol := abiConfig.Symbol
 	if symbol == "" {
 		symbol = "ORCA_Run"
 	}
 
-	dll, err := syscall.LoadDLL(libPath)
-	if err != nil {
-		return domain.RunResult{}, fmt.Errorf("LoadLibrary(%s): %w", libPath, err)
+	clib := C.CString(libPath)
+	defer C.free(unsafe.Pointer(clib))
+
+	handle := C.my_LoadLibrary(clib)
+	if handle == nil {
+		return domain.RunResult{}, fmt.Errorf("LoadLibrary(%s) failed", libPath)
+	}
+	defer C.my_FreeLibrary(handle)
+
+	// resolve run symbol
+	csym := C.CString(symbol)
+	defer C.free(unsafe.Pointer(csym))
+
+	runPtr := C.my_GetProcAddress(handle, csym)
+	if runPtr == nil {
+		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s) failed", symbol)
+	}
+	run := (C.ORCA_RunFn)(runPtr)
+
+	// resolve free symbol
+	freeSym := C.CString("ORCA_Free")
+	defer C.free(unsafe.Pointer(freeSym))
+
+	freePtr := C.my_GetProcAddress(handle, freeSym)
+	if freePtr == nil {
+		return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free) failed")
+	}
+	freeFn := (C.ORCA_FreeFn)(freePtr)
+
+	// prepare args
+	hostC := C.CString(t.Host)
+	defer C.free(unsafe.Pointer(hostC))
+
+	portC := C.uint32_t(t.Port)
+	timeoutMs := C.uint32_t(timeout.Milliseconds())
+
+	paramsBytes, _ := json.Marshal(params)
+	cParams := C.CString(string(paramsBytes))
+	defer C.free(unsafe.Pointer(cParams))
+
+	var outResult *C.ORCA_RunResult
+
+	// call into plugin
+	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, cParams, &outResult)
+	if int(ret) != 0 {
+		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
 	}
 
-	runProc, err := dll.FindProc(symbol)
-	if err != nil {
-		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s): %w", symbol, err)
+	if outResult == nil {
+		return domain.RunResult{}, errors.New("plugin returned empty result")
 	}
+	defer C.call_ORCA_Free(freeFn, unsafe.Pointer(outResult))
 
-	freeProc, err := dll.FindProc("ORCA_Free")
-	if err != nil {
-		return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free): %w", err)
-	}
-
-	hostPtr, err := syscall.BytePtrFromString(t.Host)
-	if err != nil {
-		return domain.RunResult{}, err
-	}
-
-	paramsBytes, err := json.Marshal(params)
-	if err != nil {
-		return domain.RunResult{}, fmt.Errorf("encode params json: %w", err)
-	}
-
-	paramsPtr, err := syscall.BytePtrFromString(string(paramsBytes))
-	if err != nil {
-		return domain.RunResult{}, fmt.Errorf("encode params json: %w", err)
-	}
-
-	var outPtr uintptr
-	var outLen uintptr
-	timeoutMs := uintptr(timeout.Milliseconds())
-	r1, _, callErr := runProc.Call(
-		uintptr(unsafe.Pointer(hostPtr)),
-		uintptr(uint32(t.Port)),
-		timeoutMs,
-		uintptr(unsafe.Pointer(paramsPtr)),
-		uintptr(unsafe.Pointer(&outPtr)),
-		uintptr(unsafe.Pointer(&outLen)),
-	)
-
-	if callErr != syscall.Errno(0) {
-		return domain.RunResult{}, fmt.Errorf("ORCA_Run call error: %v", callErr)
-	}
-
-	if int(r1) != 0 {
-		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(r1))
-	}
-
-	if outPtr == 0 || outLen == 0 {
-		return domain.RunResult{}, errors.New("plugin returned empty buffer")
-	}
-
-	// Copy then free
-	data := unsafe.Slice((*byte)(unsafe.Pointer(outPtr)), int(outLen))
-	buf := make([]byte, len(data))
-	copy(buf, data)
-	_, _, _ = freeProc.Call(outPtr)
-
-	return decodeJSONResult(buf, t)
+	// copy and decode
+	return decodeRunResult(outResult)
 }
 
-// decodeJSONResult is shared logic (duplicated to avoid build tag import hassles)
-func decodeJSONResult(data []byte, t domain.HostPort) (domain.RunResult, error) {
-	var wire struct {
-		Findings []struct {
-			ID, PluginID, Title, Severity, Description string
-			Evidence                                   map[string]string
-			Tags                                       []string
-			Timestamp                                  int64
-		} `json:"findings"`
-		Logs []struct {
-			TS   int64
-			Line string
-		} `json:"logs"`
-	}
-
-	if err := json.Unmarshal(data, &wire); err != nil {
-		return domain.RunResult{}, fmt.Errorf("decode plugin JSON: %w", err)
-	}
-
+// decodeRunResult is shared logic (duplicated to avoid build tag import hassles)
+func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 	var res domain.RunResult
-	res.Target = t
-	for _, f := range wire.Findings {
-		ev := map[string]any{}
-		for k, v := range f.Evidence {
-			ev[k] = v
+	res.Target.Host = C.GoString(cResult.target.host)
+	res.Target.Port = uint16(cResult.target.port)
+
+	// logs
+	if cResult.logs.count > 0 {
+		logSlice := unsafe.Slice(cResult.logs.strings, cResult.logs.count)
+		for _, s := range logSlice {
+			res.Logs = append(res.Logs, C.GoString(s))
 		}
-		var tags []domain.Tag
-		for _, s := range f.Tags {
-			tags = append(tags, domain.Tag(s))
-		}
-		res.Findings = append(res.Findings, domain.Finding{
-			ID: f.ID, PluginID: f.PluginID, Title: f.Title, Severity: f.Severity,
-			Description: f.Description, Evidence: ev, Tags: tags, Timestamp: f.Timestamp,
-			Target: t,
-		})
 	}
 
-	for _, l := range wire.Logs {
-		res.Logs = append(res.Logs, l.Line)
+	// findings
+	if cResult.findings_count > 0 {
+		findingSlice := unsafe.Slice(cResult.findings, cResult.findings_count)
+		for _, cFinding := range findingSlice {
+			ev := make(map[string]any)
+			if cFinding.evidence.count > 0 {
+				evidenceSlice := unsafe.Slice(cFinding.evidence.items, cFinding.evidence.count)
+				for _, kv := range evidenceSlice {
+					ev[C.GoString(kv.key)] = C.GoString(kv.value)
+				}
+			}
+
+			var tags []domain.Tag
+			if cFinding.tags.count > 0 {
+				tagSlice := unsafe.Slice(cFinding.tags.strings, cFinding.tags.count)
+				for _, s := range tagSlice {
+					tags = append(tags, domain.Tag(C.GoString(s)))
+				}
+			}
+
+			findingTarget := domain.HostPort{
+				Host: C.GoString(cFinding.target.host),
+				Port: uint16(cFinding.target.port),
+			}
+
+			res.Findings = append(res.Findings, domain.Finding{
+				ID:          C.GoString(cFinding.id),
+				PluginID:    C.GoString(cFinding.plugin_id),
+				Success:     bool(cFinding.success),
+				Title:       C.GoString(cFinding.title),
+				Severity:    C.GoString(cFinding.severity),
+				Description: C.GoString(cFinding.description),
+				Evidence:    ev,
+				Tags:        tags,
+				Timestamp:   int64(cFinding.timestamp),
+				Target:      findingTarget,
+			})
+		}
 	}
 
 	return res, nil

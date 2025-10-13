@@ -1,32 +1,7 @@
-// ----- Public ABI -----
-#include <stddef.h>
+#define ORCA_PLUGIN_BUILD
+#define BUILDING_TLS_VERSION_CHECK
+#include "../../pkg/plugabi/orca_plugin_abi.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// ORCA_API: visibility/export across compilers
-#if defined(_WIN32)
-#if defined(BUILDING_TLS_VERSION_CHECK)
-#define ORCA_API __declspec(dllexport)
-#else
-#define ORCA_API __declspec(dllimport)
-#endif
-#elif defined(__GNUC__) && __GNUC__ >= 4
-#define ORCA_API __attribute__((visibility("default")))
-#else
-#define ORCA_API
-#endif
-
-ORCA_API int ORCA_Run(const char *host, unsigned int port, unsigned int timeout_ms, const char *params_json, char **out_json, size_t *out_len);
-ORCA_API void ORCA_Free(void *p);
-
-#ifdef __cplusplus
-}
-#endif
-
-// ----- Implementation (C or C++) -----
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +16,14 @@ ORCA_API void ORCA_Free(void *p);
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
-// Some environments may lack TLS1_3_VERSION; make it optional
+/* ------------------------------------------------------------------ */
+/* ABI Version Export                                                 */
+/* ------------------------------------------------------------------ */
+ORCA_API const uint32_t ORCA_PLUGIN_ABI_VERSION = ORCA_ABI_VERSION;
+
+/* ------------------------------------------------------------------ */
+/* OpenSSL Version Compatibility                                      */
+/* ------------------------------------------------------------------ */
 #ifndef TLS1_VERSION
 #define TLS1_VERSION 0
 #endif
@@ -55,28 +37,43 @@ ORCA_API void ORCA_Free(void *p);
 #define TLS1_3_VERSION 0
 #endif
 
-static char *dup_json(const char *s) {
-    size_t n = strlen(s);
-    char *p = (char *)malloc(n + 1);
-    if (p)
-        memcpy(p, s, n + 1);
+/* ------------------------------------------------------------------ */
+/* Utility Functions for ABI Structs                                  */
+/* ------------------------------------------------------------------ */
+
+static char *mystrdup(const char *s) {
+    if (!s)
+        return NULL;
+    size_t len = strlen(s) + 1;
+    char *p = (char *)malloc(len);
+    if (p) {
+        memcpy(p, s, len);
+    }
     return p;
 }
 
-static int try_tls_version(const char *host, unsigned short port, int version, unsigned int timeout_ms) {
-    if (version == 0)
-        return -1; // “not available” on this OpenSSL
+static void add_log(ORCA_RunResult *result, const char *log_line) {
+    result->logs.count++;
+    result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
+    result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
+}
 
-    char portstr[16];
-    snprintf(portstr, sizeof(portstr), "%hu", port);
+/* ------------------------------------------------------------------ */
+/* TLS Check Logic                                                    */
+/* ------------------------------------------------------------------ */
 
-    SSL_CTX *ctx = SSL_CTX_new(TLS_method());
+static int try_tls_version(const char *host, uint16_t port, int version) {
+    if (version == 0) {
+        return -1; // Indicates the version is not available in this OpenSSL build
+    }
+
+    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx)
         return 0;
 
-    // lock min/max to a single protocol
-    SSL_CTX_set_min_proto_version(ctx, (uint16_t)version);
-    SSL_CTX_set_max_proto_version(ctx, (uint16_t)version);
+    // Set the specific TLS protocol version to test
+    SSL_CTX_set_min_proto_version(ctx, version);
+    SSL_CTX_set_max_proto_version(ctx, version);
 
     BIO *bio = BIO_new_ssl_connect(ctx);
     if (!bio) {
@@ -85,19 +82,18 @@ static int try_tls_version(const char *host, unsigned short port, int version, u
     }
 
     char target[256];
-    snprintf(target, sizeof(target), "%s:%s", host, portstr);
+    snprintf(target, sizeof(target), "%s:%u", host, port);
     BIO_set_conn_hostname(bio, target);
 
     SSL *ssl = NULL;
     BIO_get_ssl(bio, &ssl);
     if (ssl) {
-        // SNI (harmless if host is an IP)
+        // Set SNI, which is crucial for many modern servers
         SSL_set_tlsext_host_name(ssl, host);
     }
 
-    (void)timeout_ms; // left as future work if you want a strict connect timeout
-
-    int ok = (BIO_do_connect(bio) == 1) && ssl && (SSL_do_handshake(ssl) == 1);
+    // Attempt to connect and perform handshake
+    int ok = (BIO_do_connect(bio) > 0);
 
     BIO_free_all(bio);
     SSL_CTX_free(ctx);
@@ -105,84 +101,122 @@ static int try_tls_version(const char *host, unsigned short port, int version, u
 }
 
 static const char *status_str(int v) {
-    return v < 0 ? "n/a" : (v ? "ok" : "fail");
+    return v < 0 ? "not_available" : (v ? "supported" : "not_supported");
 }
 
-// --- Exported ABI ---
-ORCA_API int ORCA_Run(const char *host, unsigned int port, unsigned int timeout_ms, const char *params_json, char **out_json, size_t *out_len) {
+/* ------------------------------------------------------------------ */
+/* Plugin Entry Point                                                 */
+/* ------------------------------------------------------------------ */
+
+ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, ORCA_RunResult **out_result) {
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
 
-    (void)timeout_ms;
-
-    // OpenSSL 1.1.0+ auto-initializes; older versions use legacy init safely.
+    // OpenSSL initialization (for versions < 1.1.0)
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSL_library_init();
     SSL_load_error_strings();
-    OpenSSL_add_ssl_algorithms();
 #endif
 
-    const int vers[4] = {TLS1_VERSION, TLS1_1_VERSION, TLS1_2_VERSION, TLS1_3_VERSION};
-    int ok[4];
+    // 1. Allocate and initialize the main result structure
+    ORCA_RunResult *result = (ORCA_RunResult *)calloc(1, sizeof(ORCA_RunResult));
+    if (!result)
+        return -1;
+
+    result->target.host = mystrdup(host);
+    result->target.port = (uint16_t)port;
+
+    // 2. Perform TLS version checks
+    const int versions_to_check[] = {TLS1_VERSION, TLS1_1_VERSION, TLS1_2_VERSION, TLS1_3_VERSION};
+    const char *version_names[] = {"TLS 1.0", "TLS 1.1", "TLS 1.2", "TLS 1.3"};
+    const char *version_keys[] = {"tls1.0", "tls1.1", "tls1.2", "tls1.3"};
+    int results[4];
 
     for (int i = 0; i < 4; ++i) {
-        ok[i] = try_tls_version(host, (unsigned short)port, vers[i], timeout_ms);
+        results[i] = try_tls_version(host, (uint16_t)port, versions_to_check[i]);
+        char log_buf[128];
+        snprintf(log_buf, sizeof(log_buf), "Check %s: %s", version_names[i], status_str(results[i]));
+        add_log(result, log_buf);
     }
 
-    time_t now = time(NULL);
-    char buf[2048];
+    // 3. Create a single finding to report all results
+    result->findings_count = 1;
+    result->findings = (ORCA_Finding *)calloc(1, sizeof(ORCA_Finding));
+    ORCA_Finding *f = &result->findings[0];
 
-    // Emit compact JSON, marking “n/a” where a protocol macro wasn’t available
-    int n = snprintf(buf, sizeof(buf),
-                     "{"
-                     "\"findings\":[{"
-                     "\"id\":\"TLS-VERSIONS\","
-                     "\"plugin_id\":\"tls_version_check\","
-                     "\"title\":\"TLS versions supported\","
-                     "\"severity\":\"info\","
-                     "\"description\":\"Versions the server accepted.\","
-                     "\"evidence\":{"
-                     "\"host\":\"%s\",\"port\":\"%u\","
-                     "\"tls10\":\"%s\",\"tls11\":\"%s\",\"tls12\":\"%s\",\"tls13\":\"%s\""
-                     "},"
-                     "\"tags\":[\"supports:tls\"],"
-                     "\"timestamp\":%lld"
-                     "}],"
-                     "\"logs\":["
-                     "{\"ts\":%lld,\"line\":\"TLS 1.0 %s\"},"
-                     "{\"ts\":%lld,\"line\":\"TLS 1.1 %s\"},"
-                     "{\"ts\":%lld,\"line\":\"TLS 1.2 %s\"},"
-                     "{\"ts\":%lld,\"line\":\"TLS 1.3 %s\"}"
-                     "]"
-                     "}",
-                     host, port, status_str(ok[0]), status_str(ok[1]), status_str(ok[2]), status_str(ok[3]), (long long)now, (long long)now, status_str(ok[0]),
-                     (long long)now, status_str(ok[1]), (long long)now, status_str(ok[2]), (long long)now, status_str(ok[3]));
-    if (n <= 0) {
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return 1;
+    f->id = mystrdup("TLS-SUPPORT-OVERVIEW");
+    f->plugin_id = mystrdup("tls_version_check");
+    f->success = true;
+    f->title = mystrdup("TLS Protocol Support Summary");
+    f->severity = mystrdup("info");
+    f->description = mystrdup("A summary of the TLS protocol versions supported by the target server.");
+    f->timestamp = time(NULL);
+    f->target.host = mystrdup(host);
+    f->target.port = (uint16_t)port;
+
+    // 4. Populate evidence with the results of each check
+    f->evidence.count = 4;
+    f->evidence.items = (ORCA_KeyValue *)malloc(4 * sizeof(ORCA_KeyValue));
+    for (int i = 0; i < 4; ++i) {
+        f->evidence.items[i].key = mystrdup(version_keys[i]);
+        f->evidence.items[i].value = mystrdup(status_str(results[i]));
     }
 
-    char *json = dup_json(buf);
-    if (!json) {
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return 2;
-    }
-    *out_json = json;
-    *out_len = strlen(json);
+    // 5. Add relevant tags
+    f->tags.count = 2;
+    f->tags.strings = (const char **)malloc(2 * sizeof(char *));
+    f->tags.strings[0] = mystrdup("tls");
+    f->tags.strings[1] = mystrdup("ssl");
+
+    // 6. Finalize and return
+    *out_result = result;
 
 #ifdef _WIN32
     WSACleanup();
 #endif
-    return 0;
+    return 0; // Success
 }
 
+/* ------------------------------------------------------------------ */
+/* Memory Deallocator                                                 */
+/* ------------------------------------------------------------------ */
+
 ORCA_API void ORCA_Free(void *p) {
-    if (p)
-        free(p);
+    if (!p)
+        return;
+
+    ORCA_RunResult *result = (ORCA_RunResult *)p;
+
+    free((void *)result->target.host);
+
+    for (size_t i = 0; i < result->findings_count; i++) {
+        ORCA_Finding *f = &result->findings[i];
+        free((void *)f->id);
+        free((void *)f->plugin_id);
+        free((void *)f->title);
+        free((void *)f->severity);
+        free((void *)f->description);
+        free((void *)f->target.host);
+
+        for (size_t j = 0; j < f->evidence.count; j++) {
+            free((void *)f->evidence.items[j].key);
+            free((void *)f->evidence.items[j].value);
+        }
+        free(f->evidence.items);
+
+        for (size_t j = 0; j < f->tags.count; j++) {
+            free((void *)f->tags.strings[j]);
+        }
+        free((void *)f->tags.strings);
+    }
+    free(result->findings);
+
+    for (size_t i = 0; i < result->logs.count; i++) {
+        free((void *)result->logs.strings[i]);
+    }
+    free((void *)result->logs.strings);
+
+    free(result);
 }

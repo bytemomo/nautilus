@@ -105,7 +105,9 @@ func main() {
 	}
 
 	fmt.Println("Report written to:", path)
+	fmt.Println(all)
 
+	// Attack trees
 	if camp.AttackTreesDefPath == "" {
 		log.Info("Attack tree definition file not specified!")
 	}

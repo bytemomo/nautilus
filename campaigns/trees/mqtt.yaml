@@ -30,5 +30,5 @@
 
       - name: "Broker Permissive PUBSUB"
         type: LEAF
-        finding_ids: ["MQTT-PUBSUB"]
+        finding_ids: ["MQTT-PUBSUB-ANON"]
         finding_mode: any
