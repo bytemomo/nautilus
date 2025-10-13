@@ -105,7 +105,6 @@ func main() {
 	}
 
 	fmt.Println("Report written to:", path)
-	fmt.Println(all)
 
 	// Attack trees
 	if camp.AttackTreesDefPath == "" {
