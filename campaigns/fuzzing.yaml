@@ -1,0 +1,34 @@
+id: "iot-fuzzing"
+name: "Fuzzing campaign used to automatically fuzz protocol"
+version: "1.0.0"
+scanner:
+    # only report open ports
+    open_only: true
+    # -Pn
+    skip_host_discovery: false
+    # To have a faster execution
+    enable_udp: false
+
+    # -sV (will slow a bit down)
+    # Setting this to false will hinder the scanning and the services fingerprinting
+    # makeing the tool less powerfull on the tests it can do. But it will be significantly
+    # faster.
+    #
+    # Then the fast vs light version can be choosen depending on what has to be done.
+    service_detect: true
+    version_all: false
+    version_light: true
+
+    min_rate: 100
+    timeout: 30m
+    timing: T3
+    ports:
+        - "1883,8883,8083,8084,80,443,8000,8080,8443,8888,502,4840,554,8554,5672,5671,21,22,23,25,110,143,3128,3306,5432,6379,9002,9003"
+steps:
+    - plugin_id: "mqtt_boofuzz"
+      required_tags: ["protocol:mqtt"]
+      max_duration_s: 120
+      exec:
+          transport: cli
+          cli:
+              path: "./plugins/fuzzing/mqtt/boofuzz_poc.py"

@@ -73,11 +73,3 @@ steps:
               print_certificates_stdout: true
               match_hostname: true
               require_san: true
-
-    # - plugin_id: "mqtt_boofuzz"
-    #   required_tags: ["protocol:mqtt"]
-    #   max_duration_s: 120
-    #   exec:
-    #       transport: cli
-    #       cli:
-    #           path: "./plugins/fuzzing/mqtt/boofuzz_poc.py"
