@@ -19,6 +19,11 @@ type RunnerUC struct {
 
 func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
 	log.WithFields(log.Fields{
+		"GlobalTimeout":      uc.Config.GlobalTimeout,
+		"MaxParallelTargets": uc.Config.MaxTargets,
+	}).Info("Running campaign with following runner parameters")
+
+	log.WithFields(log.Fields{
 		"campaign": campaign.ID,
 		"targets":  len(classified),
 	}).Info("Starting campaign execution")

@@ -31,6 +31,11 @@ description: |
     production environment. Even if the campaign does find any vulnerability the trafic generated
     could creates many allerts and flood the network making it more unstable.
 
+runner:
+    # 3h circa
+    global_timeout: 10800s
+    max_parallel_targets: 2
+
 scanner:
     open_only: true
     skip_host_discovery: false

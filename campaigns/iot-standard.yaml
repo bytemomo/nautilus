@@ -32,6 +32,10 @@ description: |
     NOTE: NEVER use this campaign in a production environment as it will try some real known
     attacks that could lead to crashes in servers and production environment.
 
+runner:
+    global_timeout: 60s
+    max_parallel_targets: 16
+
 scanner:
     # only report open ports
     open_only: true

@@ -24,8 +24,6 @@ func main() {
 		campaignPath = flag.String("campaign", "", "Path to campaign YAML (required)")
 		cidrsArg     = flag.String("cidrs", "", "Comma-separated CIDRs to scan (required)")
 		outDir       = flag.String("out", "./results", "Output directory")
-		timeoutSec   = flag.Int("timeout", 20, "Per-plugin timeout seconds")
-		targetsPar   = flag.Int("targets-par", 16, "Parallel targets for plugin execution")
 		help         = flag.Bool("help", false, "Print program usage")
 	)
 	flag.Parse()
@@ -85,10 +83,7 @@ func main() {
 	runner := usecase.RunnerUC{
 		Executors: executors,
 		Store:     reporter,
-		Config: domain.RunnerConfig{
-			GlobalTimeout: time.Duration(*timeoutSec) * time.Second,
-			MaxTargets:    *targetsPar,
-		},
+		Config:    camp.Runner,
 	}
 
 	all, err := runner.Execute(ctx, *camp, classified)
