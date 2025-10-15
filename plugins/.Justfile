@@ -26,11 +26,19 @@ build-all-unix:
 	[[ -d "$root" ]] || root="."
 	for d in "$root"/*; do
 		[[ -d "$d" ]] || continue
-		[[ -f "$d/CMakeLists.txt" ]] || continue
-		echo "==> Configuring $d"
-		cmake -S "$d" -B "$d/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
-		echo "==> Building $d"
-		cmake --build "$d/build" --config {{CONFIG}}
+		if [[ -f "$d/CMakeLists.txt" ]]; then
+			echo "==> Configuring $d"
+			cmake -S "$d" -B "$d/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
+			echo "==> Building $d"
+			cmake --build "$d/build" --config {{CONFIG}}
+		elif [[ -f "$d/Cargo.toml" ]]; then
+			echo "==> Building $d"
+			pushd $d
+			cargo build --release
+			popd
+		else
+			continue
+		fi
 	done
 
 build-one-unix name:
@@ -38,11 +46,19 @@ build-one-unix name:
 	set -euo pipefail
 	dir="plugins/{{name}}"
 	[[ -d "$dir" ]] || dir="./{{name}}"
-	[[ -f "$dir/CMakeLists.txt" ]] || { echo "No CMakeLists.txt in $dir" >&2; exit 1; }
-	echo "==> Configuring $dir"
-	cmake -S "$dir" -B "$dir/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
-	echo "==> Building $dir"
-	cmake --build "$dir/build" --config {{CONFIG}}
+
+	if [[ -f "$d/CMakeLists.txt" ]]; then
+		echo "==> Configuring $d"
+		cmake -S "$d" -B "$d/build" -G {{GEN}} -DCMAKE_BUILD_TYPE={{CONFIG}}
+		echo "==> Building $d"
+		cmake --build "$d/build" --config {{CONFIG}}
+	elif [[ -f "$d/Cargo.toml" ]]; then
+		echo "==> Building $d"
+		cargo build --release
+	else
+		echo "No build method found (cargo / cmake) !"
+		exit 1
+	fi
 
 clean-all-unix:
 	#!/usr/bin/env bash
@@ -50,9 +66,13 @@ clean-all-unix:
 	root="plugins"
 	[[ -d "$root" ]] || root="."
 	for d in "$root"/*; do
-		[[ -d "$d/build" ]] || continue
-		echo "==> Removing $d/build"
-		rm -rf "$d/build"
+		if [[ -d "$d/build" ]]; then
+			echo "==> Removing $d/build"
+			rm -rf "$d/build"
+		elif [[ -d "$d/target" ]]; then
+			echo "==> Removing $d/target"
+			rm -rf "$d/target"
+		fi
 	done
 
 # ---------- Windows implementations (PowerShell) ----------
