@@ -112,7 +112,8 @@ def build_publish_qos0_request():
 def build_publish_qos1_request():
     variable_header = [
         {"type": "string", "name": "TopicName", "value": "fuzz/qos1"},
-        {"type": "word", "name": "PacketIdentifier", "value": 11}
+        {"type": "word", "name": "PacketIdentifier", "value": 11},
+        {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
     payload = [
         {"type": "raw", "name": "Message", "value": b"QoS 1 Test"}
@@ -138,7 +139,8 @@ def build_pubrel_request():
 # --- Subscription and Other Packets ---
 def build_subscribe_request():
     variable_header = [
-        {"type": "word", "name": "PacketIdentifier", "value": 1}
+        {"type": "word", "name": "PacketIdentifier", "value": 0},
+        {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
     payload = [
         {"type": "string", "name": "TopicFilter", "value": "fuzz/#"},
@@ -148,7 +150,8 @@ def build_subscribe_request():
 
 def build_unsubscribe_request():
     variable_header = [
-        {"type": "word", "name": "PacketIdentifier", "value": 2}
+        {"type": "word", "name": "PacketIdentifier", "value": 0},
+        {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
     payload = [
         {"type": "string", "name": "TopicFilter", "value": "fuzz/#"}
@@ -200,26 +203,28 @@ def main():
     # session.connect(connect_lwt_req)
 
     # Define valid transitions from a simple connected state.
-    # session.connect(connect_req, subscribe_req)
+    session.connect(connect_req, subscribe_req)
+    session.connect(connect_req, unsubscribe_req)
     session.connect(connect_req, publish_qos0_req)
 
     # # Need callback to handle reqs
-    # session.connect(connect_req, publish_qos1_req, callback=None) # TODO: Handle PUBACK
-    # session.connect(connect_req, ping_req)
+    session.connect(connect_req, publish_qos1_req, callback=None) # TODO: Check PUBACK ?
+    session.connect(connect_req, ping_req, callback=None) # TODO: Check PINGRESP ?
 
     # # QoS2
     # session.connect(connect_req, publish_qos2_req, callback=None) # TODO: Handle PUBREC
     # session.connect(publish_qos2_req, pubrel_req, callback=None) # TODO: Handle PUBCOMP
 
     # # After subscribing, you can publish or unsubscribe.
-    # session.connect(subscribe_req, unsubscribe_req)
-    # session.connect(subscribe_req, disconnect_req)
+    session.connect(subscribe_req, unsubscribe_req)
+    session.connect(subscribe_req, disconnect_req)
 
-    # session.connect(ping_req, disconnect_req)
+    session.connect(unsubscribe_req, disconnect_req)
     session.connect(publish_qos0_req, disconnect_req)
-    # session.connect(publish_qos1_req, disconnect_req)
+    session.connect(ping_req, disconnect_req)
+
+    session.connect(publish_qos1_req, disconnect_req)
     # session.connect(publish_qos2_req, disconnect_req)
-    # session.connect(unsubscribe_req, disconnect_req)
 
     with open('somefile.png', 'wb') as file:
         file.write(session.render_graph_graphviz().create_png())
