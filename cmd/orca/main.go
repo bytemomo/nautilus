@@ -26,11 +26,11 @@ func main() {
 		outDir       = flag.String("out", "./results", "Output directory")
 		timeoutSec   = flag.Int("timeout", 20, "Per-plugin timeout seconds")
 		targetsPar   = flag.Int("targets-par", 16, "Parallel targets for plugin execution")
+		help         = flag.Bool("help", false, "Print program usage")
 	)
 	flag.Parse()
 
-	if *campaignPath == "" || *cidrsArg == "" {
-		fmt.Fprintln(os.Stderr, "ERROR: --campaign and --cidrs are required")
+	if *campaignPath == "" || *cidrsArg == "" || *help {
 		flag.Usage()
 		os.Exit(2)
 	}
