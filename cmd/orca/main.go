@@ -46,7 +46,8 @@ func main() {
 		must(fmt.Errorf("no CIDRs parsed"))
 	}
 
-	reporter := jsonreport.New(*outDir)
+	resultDir := fmt.Sprintf("%s/%s/%d", *outDir, camp.ID, time.Now().Unix())
+	reporter := jsonreport.New(resultDir)
 
 	// Scanner
 	scannerConfig := camp.Scanner

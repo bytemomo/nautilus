@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 	"unsafe"
@@ -47,7 +48,17 @@ func (c *Client) Supports(transport string) bool {
 func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
 
-	libPath := abiConfig.LibraryPath + ".so"
+	var extension string
+	switch runtime.GOOS {
+	case "darwin":
+		extension = ".dylib"
+	case "linux":
+		extension = ".so"
+	default:
+		return domain.RunResult{}, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	libPath := abiConfig.LibraryPath + extension
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}

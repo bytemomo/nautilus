@@ -1,0 +1,54 @@
+id: "iot-fuzzing"
+version: "1.0.0"
+
+name: "IoT Fuzzing Assessment"
+description: |
+    README
+    ======
+
+    This campaign is used to automatically find fuzzable services in the network and then
+    fuzz them with fine tuned plugins for the said protocols, for now the supported protocols
+    are:
+        - MQTT
+        - EtherCAT
+        - RTSP
+
+    The campaign can require a lot of time to execute and also could find anything usefull.
+    Each plugin handles alone the connection, fuzzing process and results savings. This mean
+    that depending on the plugin the results could be saved with different formats.
+
+    If possible, as you will see specified in the params of each plugin, it would be nice to
+    give the plugins access to the process that they are fuzzing.
+
+    This is beacause a white box approach (code path analysis, and output analysis) could give
+    more informations than a black box approach (that uses only a network response based approach).
+
+    As this campaign concetrate in finding implementation bugs in the servers that uses this protocol
+    it does not have an attack trees file.
+
+    NOTE: NEVER use this campaign in a production environment as it will try to find unknown
+    vulnerabilites in the protocols servers, this could lead to crashes and a downtime in the
+    production environment. Even if the campaign does find any vulnerability the trafic generated
+    could creates many allerts and flood the network making it more unstable.
+
+scanner:
+    open_only: true
+    skip_host_discovery: false
+    enable_udp: false
+    service_detect: true
+    version_all: false
+    version_light: true
+    min_rate: 100
+    timeout: 30m
+    timing: T3
+    ports:
+        - "1883,8883,8083,8084,80,443,8000,8080,8443,8888,502,4840,554,8554,5672,5671,21,22,23,25,110,143,3128,3306,5432,6379,9002,9003"
+
+steps:
+    - plugin_id: "mqtt_boofuzz"
+      required_tags: ["protocol:mqtt"]
+      max_duration_s: 120
+      exec:
+          transport: cli
+          cli:
+              path: "./plugins/fuzzing/mqtt/boofuzz_poc.py"
