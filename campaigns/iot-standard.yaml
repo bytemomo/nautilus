@@ -32,28 +32,47 @@ description: |
     NOTE: NEVER use this campaign in a production environment as it will try some real known
     attacks that could lead to crashes in servers and production environment.
 
+    FILE SYNTAX
+    ============
+
+    `id`, `name` and `version` are not essential to the run, they are used to describe the campaign.
+
+    runner: contains every option to set the EXECUTION phase of the ORCA. This phase handles the life cycle of the
+        execution of each plugin.
+
+        - global_timeout: timeout for plugins, if the plugin does not specify its own or this one is bigger
+            then the global one is used.
+        - max_parallel_targets: number of parallel step that can be executed, the ORCA executable will parallelize
+            steps on different targets (i.e. two steps on the same `host:port` will NEVER be executed on parallel).
+
+
+    scanner: Configuration options for ORCA’s **SCANNER** phase, which discovers and classifies targets.
+        ORCA uses `nmap` under the hood, and many settings mirror `nmap` behavior.
+
+        - open_only: Report only open ports.
+        - skip_host_discovery: Skip the host discovery step (do not attempt to find live hosts).
+        - enable_udp: Also scan UDP ports.
+        - service_detect: Enable service/version detection and fingerprinting. Setting this to `false` disables
+            service detection, which reduces classification accuracy. When enabled, it supports two mutually
+            exclusive modes: `version_all` or `version_light`.
+        - min_rate: Enforce a minimum probes-per-second rate for the scan (useful to control throughput).
+        - timeout: Maximum time to wait for probes or host responses before considering them timed out.
+        - timing: Controls scan aggressiveness (how quickly probes are sent, parallelism, and retry/backoff behavior).
+            Values map to nmap timing templates: `paranoid = T0`, `sneaky = T1`, `polite = T2`, `normal = T3` (default),
+            `aggressive = T4`, `insane = T5`.
+        - ports: List of ports to target. If empty, the scanner will use the standard port set.
+
 runner:
     global_timeout: 60s
     max_parallel_targets: 16
 
 scanner:
-    # only report open ports
     open_only: true
-    # -Pn
     skip_host_discovery: false
-    # To have a faster execution
     enable_udp: false
-
-    # -sV (will slow a bit down)
-    # Setting this to false will hinder the scanning and the services fingerprinting
-    # makeing the tool less powerfull on the tests it can do. But it will be significantly
-    # faster.
-    #
-    # Then the fast vs light version can be choosen depending on what has to be done.
     service_detect: true
     version_all: false
     version_light: true
-
     min_rate: 100
     timeout: 30m
     timing: T3
