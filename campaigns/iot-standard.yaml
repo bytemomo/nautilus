@@ -88,7 +88,7 @@ steps:
       exec:
           transport: abi
           abi:
-              library: "./plugins/tls_version_check/build/tls_version_check"
+              library: "./plugins/kraken/abi/tls_version_check/build/tls_version_check"
               symbol: "ORCA_Run"
 
     - plugin_id: "default_password_audit"
@@ -97,7 +97,7 @@ steps:
       exec:
           transport: abi
           abi:
-              library: "./plugins/telnet_default_creds/build/telnet_default_creds"
+              library: "./plugins/kraken/abi/telnet_default_creds/build/telnet_default_creds"
               symbol: "ORCA_Run"
 
     - plugin_id: "mqtt_auth_check"
@@ -105,7 +105,7 @@ steps:
       exec:
           transport: abi
           abi:
-              library: "./plugins/mqtt_auth_check/build/mqtt_auth_check"
+              library: "./plugins/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
               symbol: "ORCA_Run"
           params:
               creds_file: "./credentialdbs/creds.txt"
@@ -116,7 +116,7 @@ steps:
       exec:
           transport: abi
           abi:
-              library: "./plugins/cert_inspect/target/release/libcert_inspect"
+              library: "./plugins/kraken/abi/cert_inspect/target/release/libcert_inspect"
               symbol: "ORCA_Run"
           params:
               tls_insecure: true

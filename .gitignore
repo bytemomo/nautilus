@@ -7,32 +7,24 @@
 
 !go.mod
 !go.sum
+!go.work
 
 !campaigns/
 !campaigns/*.yaml
-
 !campaigns/trees/
 !campaigns/trees/*.yaml
-
-!results/
-!results/.gitkeep
-
-!proto/
-!proto/plugin.proto
 
 !plugins/
 !plugins/**
 
-!cmd/
-!cmd/**
+!kraken/
+!kraken/main.go
+!kraken/internal/
+!kraken/internal/**
 
-!internal/
-!internal/**
-
-!pkg/
-
-!pkg/plugabi/
-!pkg/plugabi/orca_plugin_abi.h
-
-!pkg/plugpb/
-!pkg/plugpb/generate.go
+!kraken/pkg/
+!kraken/pkg/plugabi/
+!kraken/pkg/plugabi/orca_plugin_abi.h
+!kraken/pkg/plugpb/
+!kraken/pkg/plugpb/generate.go
+!kraken/pkg/plugpb/plugin.proto
