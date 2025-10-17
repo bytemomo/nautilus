@@ -32,3 +32,8 @@
 
 # Siren
 !siren/
+!siren/*
+
+# Trident
+!trident/
+!trident/*
