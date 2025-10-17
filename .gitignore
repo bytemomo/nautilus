@@ -36,4 +36,4 @@
 
 # Trident
 !trident/
-!trident/*
+!trident/**
