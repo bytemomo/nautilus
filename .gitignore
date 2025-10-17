@@ -17,6 +17,7 @@
 !plugins/
 !plugins/**
 
+# Kraken
 !kraken/
 !kraken/main.go
 !kraken/internal/
@@ -28,3 +29,6 @@
 !kraken/pkg/plugpb/
 !kraken/pkg/plugpb/generate.go
 !kraken/pkg/plugpb/plugin.proto
+
+# Siren
+!siren/
