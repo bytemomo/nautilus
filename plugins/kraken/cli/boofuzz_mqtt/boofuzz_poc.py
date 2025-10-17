@@ -1,10 +1,11 @@
-#!/Users/cosimo.giraldi/repos/orca/.venv/bin/python3
+#!/Users/cosimo.giraldi/repos/nautilus/.venv/bin/python3
 
 import sys
 import json
 from boofuzz import *
 import io
 import os
+import argparse
 
 
 OUTDIR = "./boofuzz-results"
@@ -73,6 +74,7 @@ def build_connect_with_auth_request():
         {"type": "byte", "name": "ProtocolLevel", "value": 5, "fuzzable": False},
         {"type": "byte", "name": "ConnectFlags", "value": 0xC2},
         {"type": "word", "name": "KeepAlive", "value": 60},
+        {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
 
     payload = [
@@ -87,8 +89,8 @@ def build_connect_with_lwt_request():
         {"type": "string", "name": "ProtocolName", "value": "MQTT", "fuzzable": False},
         {"type": "byte", "name": "ProtocolLevel", "value": 5, "fuzzable": False},
         {"type": "byte", "name": "ConnectFlags", "value": 0x2E},
-        {"type": "word", "name": "KeepAlive", "value": 60}
-
+        {"type": "word", "name": "KeepAlive", "value": 60},
+        {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
     payload = [
         {"type": "string", "name": "ClientID", "value": "fuzz_lwt_client"},
@@ -167,12 +169,54 @@ def build_disconnect_request():
     ]
     return build_mqtt_packet("MQTT_DISCONNECT", 0xE0, variable_header)
 
-def main():
-    if len(sys.argv) < 3 and not len(sys.argv) > 1:
-        print(json.dumps({"error": "Usage: python3 mqtt_fuzzer.py <HOST> <PORT>"}))
-        rev[1], int(sys.argv[2])
 
-    host, port = sys.argv[1], int(sys.argv[2])
+# UTILS ------------------------------
+
+def parse_dynamic_args(dynamic_args):
+    """
+    Parses arbitrary flags like --key value from a list of arguments.
+    Returns a dictionary.
+    """
+    parsed = {}
+    i = 0
+    while i < len(dynamic_args):
+        if dynamic_args[i].startswith('--'):
+            key = dynamic_args[i][2:]
+            # Make sure there is a value after the key
+            if i + 1 < len(dynamic_args) and not dynamic_args[i+1].startswith('--'):
+                value = dynamic_args[i+1]
+                i += 2
+            else:
+                value = True  # flag without a value (boolean style)
+                i += 1
+            parsed[key] = value
+        else:
+            print(f"Warning: Unexpected argument {dynamic_args[i]}")
+            i += 1
+    return parsed
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', required=True)
+    parser.add_argument('--port', required=True)
+    args, remainder = parser.parse_known_args()
+
+    if '--' in remainder:
+        sep_index = remainder.index('--')
+        extra_args = remainder[sep_index + 1:]
+    else:
+        extra_args = []
+
+    dynamic_params = parse_dynamic_args(extra_args)
+
+    print("Host:", args.host)
+    print("Port:", args.port)
+    print("Dynamic Params:", dynamic_params)
+    return args.host, int(args.port), dynamic_params
+
+
+def main():
+    host, port, dynamic_args = parse_args()
 
     session = Session(
         target=Target(connection=TCPSocketConnection(host, port)),
@@ -197,15 +241,21 @@ def main():
 
     # The fuzzer can start with any of the connection types.
     session.connect(connect_req)
-    # sessionaa.connect(connect_auth_req)
-
-    # NOTE: Do i really need them ?
-    # session.connect(connect_lwt_req)
+    session.connect(connect_auth_req)
+    session.connect(connect_lwt_req)
 
     # Define valid transitions from a simple connected state.
     session.connect(connect_req, subscribe_req)
     session.connect(connect_req, unsubscribe_req)
     session.connect(connect_req, publish_qos0_req)
+
+    session.connect(connect_auth_req, subscribe_req)
+    session.connect(connect_auth_req, unsubscribe_req)
+    session.connect(connect_auth_req, publish_qos0_req)
+
+    session.connect(connect_lwt_req, subscribe_req)
+    session.connect(connect_lwt_req, unsubscribe_req)
+    session.connect(connect_lwt_req, publish_qos0_req)
 
     # # Need callback to handle reqs
     session.connect(connect_req, publish_qos1_req, callback=None) # TODO: Check PUBACK ?

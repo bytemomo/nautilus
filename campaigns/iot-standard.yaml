@@ -67,12 +67,13 @@ runner:
     max_parallel_targets: 16
 
 scanner:
+    iface: "en6"
     open_only: true
     skip_host_discovery: false
     enable_udp: false
-    service_detect: true
-    version_all: false
-    version_light: true
+    service_detect:
+        enabled: true
+        version: "ALL" # ALL | LIGHT
     min_rate: 100
     timeout: 30m
     timing: T3

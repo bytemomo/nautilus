@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"bytemomo/kraken/internal/domain"
 
@@ -14,16 +13,7 @@ import (
 )
 
 type ScannerUC struct {
-	EnableUDP         bool
-	ServiceDetect     bool
-	VersionLight      bool
-	VersionAll        bool
-	MinRate           int
-	Timing            string
-	CommandTimeout    time.Duration
-	SkipHostDiscovery bool
-	OpenOnly          bool
-	Ports             []string
+	Config domain.ScannerConfig
 }
 
 func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.ClassifiedTarget, error) {
@@ -34,7 +24,7 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 
 	log.WithFields(log.Fields{
 		"targets": targets,
-		"ports":   s.Ports,
+		"ports":   s.Config.Ports,
 	}).Info("Starting nmap scan")
 
 	opts := []nmap.Option{
@@ -42,36 +32,44 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 		nmap.WithDisabledDNSResolution(),
 	}
 
-	if len(s.Ports) != 0 {
-		opts = append(opts, nmap.WithPorts(strings.Join(s.Ports, ",")))
+	if s.Config.Interface != "" {
+		opts = append(opts, nmap.WithInterface(s.Config.Interface))
 	}
 
-	if s.OpenOnly {
+	if len(s.Config.Ports) != 0 {
+		opts = append(opts, nmap.WithPorts(strings.Join(s.Config.Ports, ",")))
+	}
+
+	if s.Config.OpenOnly {
 		opts = append(opts, nmap.WithOpenOnly()) // --open
 	}
 
-	if s.SkipHostDiscovery {
+	if s.Config.SkipHostDiscovery {
 		opts = append(opts, nmap.WithSkipHostDiscovery()) // -Pn
 	}
 
-	if s.EnableUDP {
+	if s.Config.EnableUDP {
 		opts = append(opts, nmap.WithUDPScan()) // -sU
 	}
 
-	if s.ServiceDetect {
+	if s.Config.ServiceDetect.Enabled {
 		opts = append(opts, nmap.WithServiceInfo()) // -sV
-		if s.VersionAll {
-			opts = append(opts, nmap.WithVersionAll()) // --version-all
-		} else if s.VersionLight {
-			opts = append(opts, nmap.WithVersionLight()) // --version-light
+
+		switch s.Config.ServiceDetect.Version {
+		case domain.VersionAll:
+			opts = append(opts, nmap.WithVersionAll())
+		case domain.VersionLight:
+			opts = append(opts, nmap.WithVersionLight())
+		default:
+			log.Errorf("Invalid specified version for service detection")
 		}
 	}
 
-	if s.MinRate > 0 {
-		opts = append(opts, nmap.WithMinRate(s.MinRate))
+	if s.Config.MinRate > 0 {
+		opts = append(opts, nmap.WithMinRate(s.Config.MinRate))
 	}
 
-	switch s.Timing {
+	switch s.Config.Timing {
 	case "T0": // slowest
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingSlowest))
 	case "T1": // sneaky
@@ -85,13 +83,13 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 	case "T5": // sneaky
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingFastest))
 	default:
-		log.Errorf("Wrong timing for scanner: %s", s.Timing)
+		log.Errorf("Wrong timing for scanner: %s", s.Config.Timing)
 	}
 
-	// Optional overall deadline for the process.
-	if s.CommandTimeout > 0 {
+	// Optional overall deadline for the process.Config.
+	if s.Config.Timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, s.CommandTimeout)
+		ctx, cancel = context.WithTimeout(ctx, s.Config.Timeout)
 		defer cancel()
 	}
 

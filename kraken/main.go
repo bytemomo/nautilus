@@ -54,16 +54,7 @@ func main() {
 	}
 
 	scanner := usecase.ScannerUC{
-		EnableUDP:         scannerConfig.EnableUDP,
-		ServiceDetect:     scannerConfig.ServiceDetect,
-		VersionLight:      scannerConfig.VersionLight,
-		VersionAll:        scannerConfig.VersionAll,
-		MinRate:           scannerConfig.MinRate,
-		Timing:            scannerConfig.Timing,
-		CommandTimeout:    scannerConfig.Timeout,
-		SkipHostDiscovery: scannerConfig.SkipHostDiscovery,
-		OpenOnly:          scannerConfig.OpenOnly,
-		Ports:             scannerConfig.Ports,
+		Config: *scannerConfig,
 	}
 
 	ctx := context.Background()

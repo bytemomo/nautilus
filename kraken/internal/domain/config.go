@@ -37,16 +37,28 @@ type RunnerConfig struct {
 	MaxTargets    int           `yaml:"max_parallel_targets,omitempty"`
 }
 
+type ServiceDetectType string
+
+const (
+	VersionAll   ServiceDetectType = "ALL"
+	VersionLight ServiceDetectType = "LIGHT"
+)
+
+type ServiceDetect struct {
+	Enabled bool              `yaml:"enabled,omitempty"`
+	Version ServiceDetectType `yaml:"version,omitempty"`
+}
+
 type ScannerConfig struct {
+	Interface string `yaml:"iface,omitempty"`
+
 	SkipHostDiscovery bool `yaml:"skip_host_discovery,omitempty"` // -Pn
 
 	EnableUDP bool     `yaml:"enable_udp,omitempty"`
 	Ports     []string `yaml:"ports,omitempty"`
 	OpenOnly  bool     `yaml:"open_only,omitempty"`
 
-	ServiceDetect bool `yaml:"service_detect,omitempty"`
-	VersionAll    bool `yaml:"version_all,omitempty"`
-	VersionLight  bool `yaml:"version_light,omitempty"`
+	ServiceDetect ServiceDetect `yaml:"service_detect,omitempty"`
 
 	MinRate int           `yaml:"min_rate,omitempty"`
 	Timing  string        `yaml:"timing,omitempty"`
