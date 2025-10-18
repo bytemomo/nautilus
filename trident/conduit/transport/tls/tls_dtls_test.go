@@ -122,7 +122,7 @@ func TestTLS_DTLS_Parallel(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); TestTLS_Stream_Echo(t) }()
-	// go func() { defer wg.Done(); TestDTLS_Datagram_Echo(t) }()
+	go func() { defer wg.Done(); TestDTLS_Datagram_Echo(t) }()
 	wg.Wait()
 }
 

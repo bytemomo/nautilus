@@ -183,7 +183,7 @@ func TestUDP_PersistentLoop(t *testing.T) {
 	dstAP, _ := netip.ParseAddrPort(addr)
 
 	for i := 0; i < iters; i++ {
-		payload := []byte(fmt.Sprintf("udp-msg-%06d", i))
+		payload := fmt.Appendf([]byte{}, "udp-msg-%06d", i)
 		tb := &loopBuf{b: append([]byte(nil), payload...)} // copy for safety
 
 		msg := &cond.DatagramMsg{Data: tb}
