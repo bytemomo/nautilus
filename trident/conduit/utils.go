@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 )
 
@@ -67,3 +68,48 @@ func ToNetip(a net.Addr) netip.Addr {
 	}
 	return netip.Addr{}
 }
+
+// =====================================================================================
+// Minimal pooled Buffer implementation (delete if you already have one in cond)
+// =====================================================================================
+
+type pooledBuf struct {
+	b   []byte
+	cap int
+}
+
+var bufPool = sync.Pool{
+	New: func() any { return &pooledBuf{b: make([]byte, 32*1024), cap: 32 * 1024} },
+}
+
+func GetBuf(min int) *pooledBuf {
+	p := bufPool.Get().(*pooledBuf)
+	if cap(p.b) < min {
+		p.b = make([]byte, min)
+		p.cap = min
+	} else {
+		p.b = p.b[:min]
+	}
+	return p
+}
+
+func (p *pooledBuf) Bytes() []byte { return p.b }
+
+func (p *pooledBuf) Grow(n int) []byte {
+	if cap(p.b) < n {
+		p.b = make([]byte, n)
+		p.cap = n
+	} else {
+		p.b = p.b[:n]
+	}
+	return p.b
+}
+
+func (p *pooledBuf) ShrinkTo(n int) { p.b = p.b[:n] }
+
+func (p *pooledBuf) Release() {
+	p.b = p.b[:0]
+	bufPool.Put(p)
+}
+
+var _ Buffer = (*pooledBuf)(nil)

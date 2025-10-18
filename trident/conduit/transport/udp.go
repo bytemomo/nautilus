@@ -5,15 +5,21 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 )
 
+// =====================================================================================
+// UDP Conduit
+// =====================================================================================
+
 type UdpConduit struct {
 	addr string
+
 	mu   sync.Mutex
-	pc   net.PacketConn
-	peer net.Addr
+	c    *net.UDPConn
+	peer netip.AddrPort
 }
 
 type udpDatagram UdpConduit
@@ -23,7 +29,7 @@ func UDP(addr string) cond.Conduit[cond.Datagram] { return &UdpConduit{addr: add
 func (u *UdpConduit) Dial(ctx context.Context) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.pc != nil {
+	if u.c != nil {
 		return nil
 	}
 	raddr, err := net.ResolveUDPAddr("udp", u.addr)
@@ -34,120 +40,248 @@ func (u *UdpConduit) Dial(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	u.pc = c
-	u.peer = raddr
+	u.c = c
+	u.peer = udpAddrToAddrPort(raddr)
 	return nil
 }
 
 func (u *UdpConduit) Close() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.pc != nil {
-		_ = u.pc.Close()
-		u.pc = nil
-		u.peer = nil
+	if u.c != nil {
+		_ = u.c.Close()
+		u.c = nil
+		u.peer = netip.AddrPort{}
 	}
 	return nil
 }
+
 func (u *UdpConduit) Kind() cond.Kind { return cond.KindDatagram }
 func (u *UdpConduit) Stack() []string { return []string{"udp"} }
 
-func (u *UdpConduit) AsView() cond.View[cond.Datagram] {
-	return cond.View[cond.Datagram]{View: (*udpDatagram)(u)}
-}
+func (u *UdpConduit) Underlying() cond.Datagram { return (*udpDatagram)(u) }
 
-func (u *udpDatagram) pkt() (net.PacketConn, error) {
-	if u.pc == nil {
-		return nil, errors.New("udp: not ready")
+// =====================================================================================
+// udpDatagram implements cond.Datagram
+// =====================================================================================
+
+func (u *udpDatagram) pkt() (*net.UDPConn, error) {
+	if u.c == nil {
+		return nil, errors.New("udp: not connected/bound")
 	}
-	return u.pc, nil
+	return u.c, nil
 }
 
-func (u *udpDatagram) ReadFrom(ctx context.Context, p []byte) (int, net.Addr, cond.Metadata, error) {
-	pc, err := u.pkt()
+func (u *udpDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.DatagramMsg, error) {
+	c, err := u.pkt()
 	if err != nil {
-		return 0, nil, cond.Metadata{}, err
+		return nil, err
 	}
+
+	size := 64 * 1024
+	if opts != nil && opts.MaxBytes > 0 {
+		size = opts.MaxBytes
+	}
+
+	buf := cond.GetBuf(size)
+	b := buf.Bytes()
+
 	start := time.Now()
-	var n int
-	var addr net.Addr
+	cancel := armPCDeadline(ctx, c, true)
+
+	n := 0
+	var src netip.AddrPort
 	var rerr error
-	done := make(chan struct{})
 
-	if c, ok := pc.(*net.UDPConn); ok {
-		go func() {
-			bufN := 0
-			bufErr := error(nil)
-			bufN, bufErr = c.Read(p)
-			n, rerr = bufN, bufErr
-			addr = u.peer
-			close(done)
-		}()
+	type readerAddrPort interface {
+		ReadFromUDPAddrPort(b []byte) (int, netip.AddrPort, error)
+	}
+
+	if rap, ok := any(c).(readerAddrPort); ok {
+		n, src, rerr = rap.ReadFromUDPAddrPort(b)
 	} else {
-		go func() { n, addr, rerr = pc.ReadFrom(p); close(done) }()
+		n1, a, e := c.ReadFromUDP(b)
+		n, rerr = n1, e
+		if a != nil {
+			src = udpAddrToAddrPort(a)
+		}
+	}
+	cancel()
+
+	if n > 0 {
+		buf.ShrinkTo(n)
+	} else {
+		buf.Release()
 	}
 
-	select {
-	case <-ctx.Done():
-		_ = pc.SetReadDeadline(time.Now().Add(-time.Second))
-		<-done
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "udp", Local: pc.LocalAddr().String(), Remote: cond.AddrString(addr)}
-		return n, addr, md, ctx.Err()
-	case <-done:
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "udp", Local: pc.LocalAddr().String(), Remote: cond.AddrString(addr)}
-		return n, addr, md, rerr
+	local := udpAddrToAddrPortFromAddr(c.LocalAddr())
+	if u.peer.IsValid() && !src.IsValid() {
+		src = u.peer
 	}
+
+	md := cond.Metadata{
+		Start: start,
+		End:   time.Now(),
+		Proto: 17, // UDP
+		Ext: map[string]any{
+			"layer":  "udp",
+			"local":  local.String(),
+			"remote": src.String(),
+		},
+	}
+
+	if n <= 0 {
+		return &cond.DatagramMsg{Data: nil, Src: src, Dst: local, MD: md}, rerr
+	}
+
+	return &cond.DatagramMsg{Data: buf, Src: src, Dst: local, MD: md}, rerr
 }
 
-func (u *udpDatagram) WriteTo(ctx context.Context, p []byte, addr net.Addr) (int, cond.Metadata, error) {
-	pc, err := u.pkt()
+func (u *udpDatagram) RecvBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.RecvOptions) (int, error) {
+	count := 0
+	var err error
+	for i := range msgs {
+		msgs[i], err = u.Recv(ctx, opts)
+		if err != nil {
+			if count > 0 {
+				return count, nil
+			}
+			return 0, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (u *udpDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.SendOptions) (int, cond.Metadata, error) {
+	c, err := u.pkt()
 	if err != nil {
 		return 0, cond.Metadata{}, err
 	}
-	if addr == nil {
-		addr = u.peer
-	}
-	start := time.Now()
-	var n int
-	var werr error
-	done := make(chan struct{})
 
-	if c, ok := pc.(*net.UDPConn); ok {
-		useWrite := u.peer != nil && (addr == nil || cond.AddrString(addr) == cond.AddrString(u.peer))
-		if useWrite {
-			go func() { n, werr = c.Write(p); close(done) }()
-		} else {
-			go func() { n, werr = c.WriteTo(p, addr); close(done) }()
-		}
+	var payload []byte
+	if msg != nil && msg.Data != nil {
+		payload = msg.Data.Bytes()
 	} else {
-		go func() { n, werr = pc.WriteTo(p, addr); close(done) }()
+		payload = nil
 	}
 
-	select {
-	case <-ctx.Done():
-		_ = pc.SetWriteDeadline(time.Now().Add(-time.Second))
-		<-done
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "udp", Local: pc.LocalAddr().String(), Remote: cond.AddrString(addr)}
-		return n, md, ctx.Err()
-	case <-done:
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "udp", Local: pc.LocalAddr().String(), Remote: cond.AddrString(addr)}
-		return n, md, werr
+	dst := msg.Dst
+	if !dst.IsValid() {
+		dst = u.peer
 	}
+	if !dst.IsValid() {
+		return 0, cond.Metadata{}, errors.New("udp: destination not specified and socket is unconnected")
+	}
+
+	start := time.Now()
+	cancel := armPCDeadline(ctx, c, false)
+
+	n, werr := writeToUDP(c, payload, dst, u.peer.IsValid())
+	cancel()
+
+	local := udpAddrToAddrPortFromAddr(c.LocalAddr())
+	md := cond.Metadata{
+		Start: start,
+		End:   time.Now(),
+		Proto: 17, // UDP
+		Ext: map[string]any{
+			"layer":  "udp",
+			"local":  local.String(),
+			"remote": dst.String(),
+		},
+	}
+	return n, md, werr
+}
+
+func (u *udpDatagram) SendBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.SendOptions) (int, error) {
+	c, err := u.pkt()
+	if err != nil {
+		return 0, err
+	}
+	sent := 0
+	for _, m := range msgs {
+		_, _, e := u.Send(ctx, m, opts)
+		if e != nil {
+			if sent > 0 {
+				return sent, nil
+			}
+			return 0, e
+		}
+		sent++
+	}
+	_ = c
+	return sent, nil
 }
 
 func (u *udpDatagram) SetDeadline(t time.Time) error {
-	pc, err := u.pkt()
+	c, err := u.pkt()
 	if err != nil {
 		return err
 	}
-	return pc.SetDeadline(t)
+	return c.SetDeadline(t)
 }
-func (u *udpDatagram) LocalAddr() net.Addr {
-	pc, _ := u.pkt()
-	if pc == nil {
-		return nil
+
+func (u *udpDatagram) LocalAddr() netip.AddrPort {
+	c, _ := u.pkt()
+	if c == nil {
+		return netip.AddrPort{}
 	}
-	return pc.LocalAddr()
+	return udpAddrToAddrPortFromAddr(c.LocalAddr())
 }
-func (u *udpDatagram) RemoteAddr() net.Addr       { return u.peer }
-func (u *udpDatagram) PacketConn() net.PacketConn { return u.pc }
+
+func (u *udpDatagram) RemoteAddr() netip.AddrPort { return u.peer }
+
+// =====================================================================================
+// Helpers
+// =====================================================================================
+
+func udpAddrToAddrPort(a *net.UDPAddr) netip.AddrPort {
+	if a == nil {
+		return netip.AddrPort{}
+	}
+	ip, ok := netip.AddrFromSlice(a.IP)
+	if !ok {
+		return netip.AddrPort{}
+	}
+	if a.Zone != "" && ip.Is6() {
+		ip = ip.WithZone(a.Zone)
+	}
+	return netip.AddrPortFrom(ip, uint16(a.Port))
+}
+
+func udpAddrToAddrPortFromAddr(a net.Addr) netip.AddrPort {
+	ua, _ := a.(*net.UDPAddr)
+	return udpAddrToAddrPort(ua)
+}
+
+func writeToUDP(c *net.UDPConn, payload []byte, dst netip.AddrPort, connected bool) (int, error) {
+	if connected {
+		return c.Write(payload)
+	}
+
+	type writerAddrPort interface {
+		WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (int, error)
+	}
+
+	if wap, ok := any(c).(writerAddrPort); ok {
+		return wap.WriteToUDPAddrPort(payload, dst)
+	}
+
+	ua := &net.UDPAddr{IP: dst.Addr().AsSlice(), Port: int(dst.Port()), Zone: dst.Addr().Zone()}
+	return c.WriteToUDP(payload, ua)
+}
+
+func armPCDeadline(ctx context.Context, pc net.PacketConn, isRead bool) (cancel func()) {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return func() {}
+	}
+
+	if isRead {
+		_ = pc.SetReadDeadline(dl)
+		return func() { _ = pc.SetReadDeadline(time.Time{}) }
+	}
+	_ = pc.SetWriteDeadline(dl)
+	return func() { _ = pc.SetWriteDeadline(time.Time{}) }
+}

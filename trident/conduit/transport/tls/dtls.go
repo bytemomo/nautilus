@@ -1,52 +1,53 @@
 package tls
 
 import (
+	cond "bytemomo/trident/conduit"
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
-	cond "bytemomo/trident/conduit"
-
-	"github.com/pion/dtls"
+	"github.com/pion/dtls/v3"
 )
 
+// =====================================================================================
+// DTLS Client Conduit
+// =====================================================================================
+
 type DtlsClient struct {
-	inner cond.Conduit[cond.Datagram]
-	cfg   *dtls.Config
-	mu    sync.Mutex
-	conn  *dtls.Conn
+	addr string
+	cfg  *dtls.Config
+
+	mu   sync.Mutex
+	conn *dtls.Conn
 }
 
 type dtlsDatagram DtlsClient
 
-func NewDtlsClient(inner cond.Conduit[cond.Datagram], cfg *dtls.Config) cond.Conduit[cond.Datagram] {
-	return &DtlsClient{inner: inner, cfg: cfg}
+func NewDtlsClient(addr string, cfg *dtls.Config) cond.Conduit[cond.Datagram] {
+	return &DtlsClient{addr: addr, cfg: cfg}
 }
 
 func (d *DtlsClient) Dial(ctx context.Context) error {
-	if err := d.inner.Dial(ctx); err != nil {
-		return err
-	}
-
-	dg := d.inner.AsView()
-	pc, ok := packetToPacketConn(dg.View)
-	if !ok {
-		return errors.New("dtls: inner cannot expose net.PacketConn")
-	}
-
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.conn != nil {
 		return nil
 	}
-	c, err := dtls.Client(pc, d.cfg)
+
+	raddr, err := net.ResolveUDPAddr("udp", d.addr)
 	if err != nil {
 		return err
 	}
-	d.conn = c
 
+	c, err := dtls.Dial("udp", raddr, d.cfg)
+	if err != nil {
+		return err
+	}
+
+	d.conn = c
 	return nil
 }
 
@@ -57,13 +58,20 @@ func (d *DtlsClient) Close() error {
 		_ = d.conn.Close()
 		d.conn = nil
 	}
-	return d.inner.Close()
+	return nil
 }
+
 func (d *DtlsClient) Kind() cond.Kind { return cond.KindDatagram }
-func (d *DtlsClient) Stack() []string { return append([]string{"dtls"}, d.inner.Stack()...) }
-func (d *DtlsClient) AsView() cond.View[cond.Datagram] {
-	return cond.View[cond.Datagram]{View: (*dtlsDatagram)(d)}
+
+func (d *DtlsClient) Stack() []string {
+	return []string{"dtls", "udp"}
 }
+
+func (d *DtlsClient) Underlying() cond.Datagram { return (*dtlsDatagram)(d) }
+
+// =====================================================================================
+// dtlsDatagram implements cond.Datagram over *dtls.Conn
+// =====================================================================================
 
 func (d *dtlsDatagram) c() (*dtls.Conn, error) {
 	if d.conn == nil {
@@ -72,48 +80,129 @@ func (d *dtlsDatagram) c() (*dtls.Conn, error) {
 	return d.conn, nil
 }
 
-func (d *dtlsDatagram) ReadFrom(ctx context.Context, p []byte) (int, net.Addr, cond.Metadata, error) {
-	c, err := d.c()
-	if err != nil {
-		return 0, nil, cond.Metadata{}, err
+func armDeadline(ctx context.Context, c net.Conn, isRead bool) (cancel func()) {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return func() {}
 	}
-	start := time.Now()
-	var n int
-	var rerr error
-	done := make(chan struct{})
-	go func() { n, rerr = c.Read(p); close(done) }()
-	select {
-	case <-ctx.Done():
-		_ = c.SetReadDeadline(time.Now().Add(-time.Second))
-		<-done
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "dtls", Local: c.LocalAddr().String(), Remote: c.RemoteAddr().String()}
-		return n, c.RemoteAddr(), md, ctx.Err()
-	case <-done:
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "dtls", Local: c.LocalAddr().String(), Remote: c.RemoteAddr().String()}
-		return n, c.RemoteAddr(), md, rerr
+
+	if isRead {
+		_ = c.SetReadDeadline(dl)
+		return func() { _ = c.SetReadDeadline(time.Time{}) }
 	}
+	_ = c.SetWriteDeadline(dl)
+	return func() { _ = c.SetWriteDeadline(time.Time{}) }
 }
 
-func (d *dtlsDatagram) WriteTo(ctx context.Context, p []byte, _ net.Addr) (int, cond.Metadata, error) {
+func (d *dtlsDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.DatagramMsg, error) {
+	c, err := d.c()
+	if err != nil {
+		return nil, err
+	}
+
+	// Buffer sizing
+	size := 64 * 1024
+	if opts != nil && opts.MaxBytes > 0 {
+		size = opts.MaxBytes
+	}
+	buf := cond.GetBuf(size)
+	b := buf.Bytes()
+
+	start := time.Now()
+	cancel := armDeadline(ctx, c, true)
+	n, rerr := c.Read(b)
+	cancel()
+
+	if n > 0 {
+		buf.ShrinkTo(n)
+	} else {
+		buf.Release()
+	}
+
+	local := addrToAddrPort(c.LocalAddr())
+	remote := addrToAddrPort(c.RemoteAddr())
+
+	md := cond.Metadata{
+		Start: start,
+		End:   time.Now(),
+		Proto: 17, // UDP (DTLS over UDP)
+		Ext: map[string]any{
+			"layer":  "dtls",
+			"local":  local.String(),
+			"remote": remote.String(),
+		},
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil && rerr == nil {
+		rerr = ctxErr
+	}
+
+	if n <= 0 {
+		return &cond.DatagramMsg{Data: nil, Src: remote, Dst: local, MD: md}, rerr
+	}
+	return &cond.DatagramMsg{Data: buf, Src: remote, Dst: local, MD: md}, rerr
+}
+
+func (d *dtlsDatagram) RecvBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.RecvOptions) (int, error) {
+	count := 0
+	var err error
+	for i := range msgs {
+		msgs[i], err = d.Recv(ctx, opts)
+		if err != nil {
+			if count > 0 {
+				return count, nil
+			}
+			return 0, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (d *dtlsDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.SendOptions) (int, cond.Metadata, error) {
 	c, err := d.c()
 	if err != nil {
 		return 0, cond.Metadata{}, err
 	}
-	start := time.Now()
-	var n int
-	var werr error
-	done := make(chan struct{})
-	go func() { n, werr = c.Write(p); close(done) }()
-	select {
-	case <-ctx.Done():
-		_ = c.SetWriteDeadline(time.Now().Add(-time.Second))
-		<-done
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "dtls", Local: c.LocalAddr().String(), Remote: c.RemoteAddr().String()}
-		return n, md, ctx.Err()
-	case <-done:
-		md := cond.Metadata{Start: start, End: time.Now(), Layer: "dtls", Local: c.LocalAddr().String(), Remote: c.RemoteAddr().String()}
-		return n, md, werr
+	var payload []byte
+	if msg != nil && msg.Data != nil {
+		payload = msg.Data.Bytes()
 	}
+
+	start := time.Now()
+	cancel := armDeadline(ctx, c, false)
+	n, werr := c.Write(payload)
+	cancel()
+
+	local := addrToAddrPort(c.LocalAddr())
+	remote := addrToAddrPort(c.RemoteAddr())
+
+	md := cond.Metadata{
+		Start: start,
+		End:   time.Now(),
+		Proto: 17, // UDP
+		Ext: map[string]any{
+			"layer":  "dtls",
+			"local":  local.String(),
+			"remote": remote.String(),
+		},
+	}
+	return n, md, werr
+}
+
+func (d *dtlsDatagram) SendBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.SendOptions) (int, error) {
+	sent := 0
+	for _, m := range msgs {
+		_, _, err := d.Send(ctx, m, opts)
+		if err != nil {
+			if sent > 0 {
+				return sent, nil
+			}
+			return 0, err
+		}
+		sent++
+	}
+	return sent, nil
 }
 
 func (d *dtlsDatagram) SetDeadline(t time.Time) error {
@@ -123,26 +212,51 @@ func (d *dtlsDatagram) SetDeadline(t time.Time) error {
 	}
 	return c.SetDeadline(t)
 }
-func (d *dtlsDatagram) LocalAddr() net.Addr {
+
+func (d *dtlsDatagram) LocalAddr() netip.AddrPort {
 	c, _ := d.c()
 	if c == nil {
-		return nil
+		return netip.AddrPort{}
 	}
-	return c.LocalAddr()
+	return addrToAddrPort(c.LocalAddr())
 }
-func (d *dtlsDatagram) RemoteAddr() net.Addr {
+
+func (d *dtlsDatagram) RemoteAddr() netip.AddrPort {
 	c, _ := d.c()
 	if c == nil {
-		return nil
+		return netip.AddrPort{}
 	}
-	return c.RemoteAddr()
+	return addrToAddrPort(c.RemoteAddr())
 }
 
-type packetConnProvider interface{ PacketConn() net.Conn }
 
-func packetToPacketConn(p cond.Datagram) (net.Conn, bool) {
-	if pp, ok := p.(packetConnProvider); ok {
-		return pp.PacketConn(), true
+
+// =====================================================================================
+// Helpers
+// =====================================================================================
+
+func addrToAddrPort(a net.Addr) netip.AddrPort {
+	ua, _ := a.(*net.UDPAddr)
+	if ua == nil {
+		return netip.AddrPort{}
 	}
-	return nil, false
+	ip, ok := netip.AddrFromSlice(ua.IP)
+	if !ok {
+		return netip.AddrPort{}
+	}
+	if ua.Zone != "" && ip.Is6() {
+		ip = ip.WithZone(ua.Zone)
+	}
+	return netip.AddrPortFrom(ip, uint16(ua.Port))
+}
+
+func addrPortToUDPAddr(p netip.AddrPort) *net.UDPAddr {
+	if !p.IsValid() {
+		return nil
+	}
+	return &net.UDPAddr{
+		IP:   p.Addr().AsSlice(),
+		Port: int(p.Port()),
+		Zone: p.Addr().Zone(),
+	}
 }
