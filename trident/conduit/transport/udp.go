@@ -73,7 +73,20 @@ func (u *udpDatagram) ReadFrom(ctx context.Context, p []byte) (int, net.Addr, co
 	var addr net.Addr
 	var rerr error
 	done := make(chan struct{})
-	go func() { n, addr, rerr = pc.ReadFrom(p); close(done) }()
+
+	if c, ok := pc.(*net.UDPConn); ok {
+		go func() {
+			bufN := 0
+			bufErr := error(nil)
+			bufN, bufErr = c.Read(p)
+			n, rerr = bufN, bufErr
+			addr = u.peer
+			close(done)
+		}()
+	} else {
+		go func() { n, addr, rerr = pc.ReadFrom(p); close(done) }()
+	}
+
 	select {
 	case <-ctx.Done():
 		_ = pc.SetReadDeadline(time.Now().Add(-time.Second))
@@ -98,7 +111,18 @@ func (u *udpDatagram) WriteTo(ctx context.Context, p []byte, addr net.Addr) (int
 	var n int
 	var werr error
 	done := make(chan struct{})
-	go func() { n, werr = pc.WriteTo(p, addr); close(done) }()
+
+	if c, ok := pc.(*net.UDPConn); ok {
+		useWrite := u.peer != nil && (addr == nil || cond.AddrString(addr) == cond.AddrString(u.peer))
+		if useWrite {
+			go func() { n, werr = c.Write(p); close(done) }()
+		} else {
+			go func() { n, werr = c.WriteTo(p, addr); close(done) }()
+		}
+	} else {
+		go func() { n, werr = pc.WriteTo(p, addr); close(done) }()
+	}
+
 	select {
 	case <-ctx.Done():
 		_ = pc.SetWriteDeadline(time.Now().Add(-time.Second))
