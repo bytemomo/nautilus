@@ -4,7 +4,6 @@ import "time"
 
 type CLIConfig struct {
 	Path string `yaml:"path"`
-	Args []string `yaml:"string"`
 	// Mode string `yaml:"mode"`
 
 	// TODO: Reverse tunneling?

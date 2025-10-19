@@ -22,9 +22,9 @@ type Campaign struct {
 	Version            string           `yaml:"version"`
 	Runner             RunnerConfig     `yaml:"runner"`
 	Scanner            *ScannerConfig   `yaml:"scanner,omitempty"`
-	Steps              []*module.Module `yaml:"steps"`           // Modules are loaded directly from YAML or registry
+	Steps              []*module.Module `yaml:"steps"`
 	AttackTreesDefPath string           `yaml:"attack_trees_def_path,omitempty"`
-	ModulesPath        string           `yaml:"modules_path,omitempty"` // path to directory containing module definitions
+	ModulesPath        string           `yaml:"modules_path,omitempty"`
 }
 
 type Finding struct {

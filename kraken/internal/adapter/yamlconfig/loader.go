@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"bytemomo/kraken/internal/domain"
-	"bytemomo/kraken/internal/module"
 	"os"
 	"path/filepath"
 
@@ -12,13 +11,12 @@ import (
 )
 
 // LoadCampaignWithModules loads a campaign with modules directly in steps
-func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, *module.Registry, error) {
-	registry := module.NewRegistry()
+func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, error) {
 
 	// Read campaign file
 	data, err := os.ReadFile(campaignPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Parse campaign structure to get modules_path first
@@ -26,7 +24,7 @@ func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, *module.Reg
 		ModulesPath string `yaml:"modules_path"`
 	}
 	if err := yaml.Unmarshal(data, &campaignMeta); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse campaign metadata: %w", err)
+		return nil, fmt.Errorf("failed to parse campaign metadata: %w", err)
 	}
 
 	// Load modules from registry if path specified
@@ -37,34 +35,30 @@ func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, *module.Reg
 			campaignDir := filepath.Dir(campaignPath)
 			modulesDir = filepath.Join(campaignDir, modulesDir)
 		}
-
-		if err := registry.LoadFromDirectory(modulesDir); err != nil {
-			return nil, nil, fmt.Errorf("failed to load modules: %w", err)
-		}
 	}
 
 	// Now parse the full campaign with modules resolved
 	var campaign domain.Campaign
 	if err := yaml.Unmarshal(data, &campaign); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse campaign: %w", err)
+		return nil,fmt.Errorf("failed to parse campaign: %w", err)
 	}
 
 	// Validate all modules
 	for i, mod := range campaign.Steps {
 		if mod == nil {
-			return nil, nil, fmt.Errorf("step %d is nil", i)
+			return nil, fmt.Errorf("step %d is nil", i)
 		}
 		if err := mod.Validate(); err != nil {
-			return nil, nil, fmt.Errorf("invalid module at step %d: %w", i, err)
+			return nil, fmt.Errorf("invalid module at step %d: %w", i, err)
 		}
 	}
 
-	return &campaign, registry, nil
+	return &campaign,  nil
 }
 
 // LoadCampaign loads a campaign without module resolution (legacy)
 func LoadCampaign(path string) (*domain.Campaign, error) {
-	campaign, _, err := LoadCampaignWithModules(path)
+	campaign,  err := LoadCampaignWithModules(path)
 	return campaign, err
 }
 

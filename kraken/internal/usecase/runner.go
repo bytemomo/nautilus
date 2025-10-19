@@ -13,7 +13,6 @@ import (
 
 type RunnerUC struct {
 	Executors      []domain.ModuleExecutor // Module-based executors (supports both V1 and V2)
-	ModuleRegistry *module.Registry        // Registry of available modules
 	Store          domain.ResultRepo
 	Config         domain.RunnerConfig
 }

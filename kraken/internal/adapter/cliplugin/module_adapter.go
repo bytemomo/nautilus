@@ -31,23 +31,12 @@ func (a *ModuleAdapter) Supports(m *module.Module) bool {
 
 // Run executes a CLI module
 func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	// Merge module params with runtime overrides
-	mergedParams := make(map[string]any)
-	for k, v := range m.ExecConfig.Params {
-		mergedParams[k] = v
-	}
-	for k, v := range params {
-		mergedParams[k] = v
-	}
-
 	// Create a context with CLI config embedded (legacy API requirement)
 	cliConfig := &domain.CLIConfig{
 		Path: m.ExecConfig.CLI.Path,
-		Args: m.ExecConfig.CLI.Args,
 	}
 
 	cliCtx := context.WithValue(ctx, "cli", cliConfig)
-
 	// Delegate to the legacy client
-	return a.client.Run(cliCtx, mergedParams, t, timeout)
+	return a.client.Run(cliCtx, params, t, timeout)
 }
