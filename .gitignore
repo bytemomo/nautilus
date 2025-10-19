@@ -14,8 +14,8 @@
 !campaigns/trees/
 !campaigns/trees/*.yaml
 
-!plugins/
-!plugins/**
+!modules/
+!modules/**
 
 # Kraken
 !kraken/
@@ -26,6 +26,7 @@
 !kraken/pkg/
 !kraken/pkg/plugabi/
 !kraken/pkg/plugabi/orca_plugin_abi.h
+!kraken/pkg/plugabi/orca_plugin_abi_v2.h
 !kraken/pkg/plugpb/
 !kraken/pkg/plugpb/generate.go
 !kraken/pkg/plugpb/plugin.proto

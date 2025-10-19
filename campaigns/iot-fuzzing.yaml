@@ -50,10 +50,15 @@ scanner:
         - "1883,8883,8083,8084,80,443,8000,8080,8443,8888,502,4840,554,8554,5672,5671,21,22,23,25,110,143,3128,3306,5432,6379,9002,9003"
 
 steps:
-    - plugin_id: "mqtt_boofuzz"
+    - id: "mqtt-boofuzz"
       required_tags: ["protocol:mqtt"]
-      max_duration_s: 120
+      max_duration: 120s
+      type: native
+      api: 0
       exec:
-          transport: cli
           cli:
               path: "./plugins/fuzzing/mqtt/boofuzz_poc.py"
+          conduit:
+              kind: 1
+              stack:
+                  - name: tcp

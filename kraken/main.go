@@ -64,11 +64,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Runner
-	executors := []domain.PluginExecutor{
-		grpcplugin.New(),
-		abiplugin.New(),
-		cliplugin.New(),
+	// Runner with module-based executors (supports both V1 and V2)
+	executors := []domain.ModuleExecutor{
+		abiplugin.NewModuleAdapter(), // ABI adapter supports both V1 and V2
+		cliplugin.NewModuleAdapter(),  // CLI adapter for V1 modules
+		grpcplugin.New(),              // gRPC adapter for V2 modules with conduit config
 	}
 
 	runner := usecase.RunnerUC{

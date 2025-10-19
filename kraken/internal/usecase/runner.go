@@ -4,17 +4,18 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/module"
 
 	log "github.com/sirupsen/logrus"
 )
 
 type RunnerUC struct {
-	Executors []domain.PluginExecutor // e.g., [grpcExec, abiExec]
-	Store     domain.ResultRepo
-	Config    domain.RunnerConfig
+	Executors      []domain.ModuleExecutor // Module-based executors (supports both V1 and V2)
+	ModuleRegistry *module.Registry        // Registry of available modules
+	Store          domain.ResultRepo
+	Config         domain.RunnerConfig
 }
 
 func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
@@ -66,79 +67,87 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 		"plan":   stepIDs(plan),
 	}).Info("Running for target")
 
-	for _, step := range plan {
-		l := log.WithFields(log.Fields{
-			"target":    ct.Target.Host + ":" + strconv.Itoa(int(ct.Target.Port)),
-			"plugin":    step.PluginID,
-			"transport": step.Exec.Transport,
-		})
-
-		exec := uc.findExecutor(step.Exec.Transport)
-		if exec == nil {
-			msg := fmt.Sprintf("no executor for transport %q", step.Exec.Transport)
-			l.Warn(msg)
-			result.Logs = append(result.Logs, msg)
-			continue
-		}
-
-		timeout := uc.Config.GlobalTimeout
-		if step.MaxDurationS > 0 {
-			timeout = time.Duration(step.MaxDurationS) * time.Second
-		}
-		l.WithField("timeout", timeout).Info("Executing step")
-
-		cctx, cancel := context.WithTimeout(ctx, timeout)
-		if step.Exec.ABI != nil {
-			cctx = context.WithValue(cctx, "abi", step.Exec.ABI)
-		} else if step.Exec.GRPC != nil {
-			cctx = context.WithValue(cctx, "grpc", step.Exec.GRPC)
-		} else if step.Exec.CLI != nil {
-			cctx = context.WithValue(cctx, "cli", step.Exec.CLI)
-		}
-
-		rr, err := exec.Run(cctx, step.Exec.Params, ct.Target, timeout)
-		cancel()
-
-		if err != nil {
-			msg := fmt.Sprintf("run %s(%s): %v", step.PluginID, step.Exec.Transport, err)
-			l.WithError(err).Error("Step execution failed")
-			result.Logs = append(result.Logs, msg)
-			continue
-		}
-		l.WithFields(log.Fields{
-			"findings": len(rr.Findings),
-			"logs":     len(rr.Logs),
-		}).Info("Step execution complete")
+	for _, mod := range plan {
+		rr := uc.runModuleStep(ctx, mod, ct.Target)
 		result.Findings = append(result.Findings, rr.Findings...)
 		result.Logs = append(result.Logs, rr.Logs...)
 	}
 	return result
 }
 
-func (uc RunnerUC) findExecutor(transport string) domain.PluginExecutor {
-	for _, ex := range uc.Executors {
-		if ex.Supports(transport) {
-			return ex
+func (uc RunnerUC) runModuleStep(ctx context.Context, mod *module.Module, target domain.HostPort) domain.RunResult {
+	result := domain.RunResult{Target: target}
+
+	l := log.WithFields(log.Fields{
+		"target": target.Host + ":" + strconv.Itoa(int(target.Port)),
+		"module": mod.ModuleID,
+	})
+
+	// Find executor that supports this module
+	var exec domain.ModuleExecutor
+	for _, e := range uc.Executors {
+		if e.Supports(mod) {
+			exec = e
+			break
 		}
 	}
-	return nil
+
+	if exec == nil {
+		msg := fmt.Sprintf("no executor found for module %q (type=%s, version=%d)", mod.ModuleID, mod.Type, mod.Version)
+		l.Warn(msg)
+		result.Logs = append(result.Logs, msg)
+		return result
+	}
+
+	// Determine timeout - use module's max duration
+	timeout := uc.Config.GlobalTimeout
+	if mod.MaxDuration > 0 {
+		timeout = mod.MaxDuration
+	}
+
+	l.WithField("timeout", timeout).Info("Executing module step")
+
+	// Execute the module
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	rr, err := exec.Run(cctx, mod, mod.ExecConfig.Params, target, timeout)
+	cancel()
+
+	if err != nil {
+		msg := fmt.Sprintf("run module %s: %v", mod.ModuleID, err)
+		l.WithError(err).Error("Module execution failed")
+		result.Logs = append(result.Logs, msg)
+		return result
+	}
+
+	l.WithFields(log.Fields{
+		"findings": len(rr.Findings),
+		"logs":     len(rr.Logs),
+	}).Info("Module execution complete")
+
+	result.Findings = rr.Findings
+	result.Logs = rr.Logs
+	return result
 }
 
-func filterStepsByTags(steps []domain.CampaignStep, tags []domain.Tag) []domain.CampaignStep {
+
+
+
+
+func filterStepsByTags(steps []*module.Module, tags []domain.Tag) []*module.Module {
 	tagset := map[domain.Tag]struct{}{}
 	for _, t := range tags {
 		tagset[t] = struct{}{}
 	}
 
-	var out []domain.CampaignStep
+	var out []*module.Module
 STEP:
-	for _, s := range steps {
-		for _, req := range s.RequiredTags {
+	for _, mod := range steps {
+		for _, req := range mod.RequiredTags {
 			if _, ok := tagset[domain.Tag(req)]; !ok {
 				continue STEP
 			}
 		}
-		out = append(out, s)
+		out = append(out, mod)
 	}
 	return out
 }
@@ -150,10 +159,10 @@ func max(a, b int) int {
 	return b
 }
 
-func stepIDs(steps []domain.CampaignStep) []string {
+func stepIDs(steps []*module.Module) []string {
 	ids := make([]string, len(steps))
-	for i, s := range steps {
-		ids[i] = s.PluginID
+	for i, mod := range steps {
+		ids[i] = mod.ModuleID
 	}
 	return ids
 }

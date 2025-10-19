@@ -1,79 +1,33 @@
 id: "iot-standard"
-version: "1.0.0"
+version: "2.0.0"
 
 name: "IoT Network Assessment"
 description: |
-    README
-    ======
+    IoT Network Assessment - Connection-Aware Modules
+    ==========================================
 
-    This plugin assess basic misconfigurations and possible known vulnerabilities in
-    the protocols server in ICS environment.
+    This campaign uses V2 modules that receive connected conduit handles
+    from the runner. The runner manages connection lifecycle (dial, TLS handshake, etc.)
+    and modules focus purely on protocol logic.
 
-    Each plugin will handle the connection and its execution on with its own logic,
-    as you can see there are different types of plugins and each plugin is more or less
-    complex.
-
-    Some example of plugins are:
-        - TLS version check: checks that the server only accept TLS >= 1.2,1.3
-        - Default passowrd audit: checks that, if open, that telnet does not accept
-            known passwords using a standard db.
-        - MQTT auth check: checks that a broker does not accept anonymous users.
-        - Cert inspection: checks that, if TLS is present, the used certificates are
-            not self-signed, if mTLS is enforced, and other requirements specified
-            with the params field.
-
-    This campaign also include an attack tree file, where there are attack trees defined.
-    Each attack tree is evaluated at the end of the campaign and its reported if the root
-    is evaluated as true (i.e. an attacker objective is accomplished).
-
-    This gives a better understanding of possible chain of attacks that could be used in the
-    network.
-
-    NOTE: NEVER use this campaign in a production environment as it will try some real known
-    attacks that could lead to crashes in servers and production environment.
-
-    FILE SYNTAX
-    ============
-
-    `id`, `name` and `version` are not essential to the run, they are used to describe the campaign.
-
-    runner: contains every option to set the EXECUTION phase of the ORCA. This phase handles the life cycle of the
-        execution of each plugin.
-
-        - global_timeout: timeout for plugins, if the plugin does not specify its own or this one is bigger
-            then the global one is used.
-        - max_parallel_targets: number of parallel step that can be executed, the ORCA executable will parallelize
-            steps on different targets (i.e. two steps on the same `host:port` will NEVER be executed on parallel).
-
-
-    scanner: Configuration options for ORCA’s **SCANNER** phase, which discovers and classifies targets.
-        ORCA uses `nmap` under the hood, and many settings mirror `nmap` behavior.
-
-        - open_only: Report only open ports.
-        - skip_host_discovery: Skip the host discovery step (do not attempt to find live hosts).
-        - enable_udp: Also scan UDP ports.
-        - service_detect: Enable service/version detection and fingerprinting. Setting this to `false` disables
-            service detection, which reduces classification accuracy. When enabled, it supports two mutually
-            exclusive modes: `version_all` or `version_light`.
-        - min_rate: Enforce a minimum probes-per-second rate for the scan (useful to control throughput).
-        - timeout: Maximum time to wait for probes or host responses before considering them timed out.
-        - timing: Controls scan aggressiveness (how quickly probes are sent, parallelism, and retry/backoff behavior).
-            Values map to nmap timing templates: `paranoid = T0`, `sneaky = T1`, `polite = T2`, `normal = T3` (default),
-            `aggressive = T4`, `insane = T5`.
-        - ports: List of ports to target. If empty, the scanner will use the standard port set.
+    Key differences from V1:
+    - Modules use api: 1 (V2)
+    - Module receives conduit handle (not host:port)
+    - Runner establishes connection based on conduit config
+    - Modules use I/O callbacks (send/recv) instead of raw sockets
+    - Simpler module code, better separation of concerns
 
 runner:
     global_timeout: 60s
     max_parallel_targets: 16
 
 scanner:
-    iface: "en6"
     open_only: true
     skip_host_discovery: false
     enable_udp: false
     service_detect:
         enabled: true
-        version: "ALL" # ALL | LIGHT
+        version: "ALL"
     min_rate: 100
     timeout: 30m
     timing: T3
@@ -83,41 +37,14 @@ scanner:
 attack_trees_def_path: "./campaigns/trees/iot.yaml"
 
 steps:
-    - plugin_id: "tls_version_check"
+    - id: "cert-inspect"
       required_tags: ["supports:tls", "protocol:tcp"]
-      max_duration_s: 20
+      max_duration: 15s
+      type: lib
+      api: 0
       exec:
-          transport: abi
           abi:
-              library: "./plugins/kraken/abi/tls_version_check/build/tls_version_check"
-              symbol: "ORCA_Run"
-
-    - plugin_id: "default_password_audit"
-      required_tags: ["protocol:tcp", "protocol:telnet"]
-      max_duration_s: 20
-      exec:
-          transport: abi
-          abi:
-              library: "./plugins/kraken/abi/telnet_default_creds/build/telnet_default_creds"
-              symbol: "ORCA_Run"
-
-    - plugin_id: "mqtt_auth_check"
-      required_tags: ["protocol:mqtt"]
-      exec:
-          transport: abi
-          abi:
-              library: "./plugins/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
-              symbol: "ORCA_Run"
-          params:
-              creds_file: "./credentialdbs/creds.txt"
-
-    - plugin_id: "cert_inspection"
-      required_tags: ["supports:tls", "protocol:tcp"]
-      max_duration_s: 15
-      exec:
-          transport: abi
-          abi:
-              library: "./plugins/kraken/abi/cert_inspect/target/release/libcert_inspect"
+              library_path: "./modules/kraken/abi/cert_inspect/target/release/libcert_inspect"
               symbol: "ORCA_Run"
           params:
               tls_insecure: true
@@ -128,3 +55,43 @@ steps:
               print_certificates_stdout: true
               match_hostname: true
               require_san: true
+
+    - id: "tls-version-check"
+      required_tags: ["supports:tls", "protocol:tcp"]
+      max_duration: 20s
+      type: lib
+      api: 0
+      exec:
+          abi:
+              library_path: "./modules/kraken/abi/tls_version_check/build/tls_version_check"
+              symbol: "ORCA_Run"
+
+    - id: "telnet-default-creds"
+      required_tags: ["protocol:tcp", "protocol:telnet"]
+      max_duration: 20s
+      type: lib
+      api: 1
+      exec:
+          abi:
+              library_path: "./modules/kraken/abi/telnel_default_creds/build/telnet_default_creds"
+              symbol: "ORCA_Run_V2"
+          conduit:
+              kind: 1
+              stack:
+                  - name: tcp
+
+    - id: "mqtt-auth-check"
+      required_tags: ["protocol:mqtt"]
+      max_duration: 15s
+      type: lib
+      api: 1
+      exec:
+          abi:
+              library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
+              symbol: "ORCA_Run_V2"
+          conduit:
+              kind: 1
+              stack:
+                  - name: tcp
+          params:
+              creds_file: "./credentialdbs/creds.txt"

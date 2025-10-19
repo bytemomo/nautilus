@@ -219,30 +219,11 @@ func (c *Client) runV2(handle unsafe.Pointer, symbol string, params map[string]a
 	}
 	freeFn := (C.ORCA_FreeV2Fn)(freePtr)
 
-
-	// Create connection handle and info
-	handleID := uintptr(v2HandleCounter)
-	connHandle := C.ORCA_ConnectionHandle(unsafe.Pointer(handleID))
+	// Create connection handle (placeholder - needs conduit integration)
+	connHandle := C.ORCA_ConnectionHandle(unsafe.Pointer(uintptr(v2HandleCounter)))
 	v2HandleCounter++
 
-	// Create connection info stub (TODO: populate from actual conduit)
-	info := (*C.ORCA_ConnectionInfo)(C.malloc(C.sizeof_ORCA_ConnectionInfo))
-	info._type = C.ORCA_CONN_TYPE_STREAM
-	remoteAddr := fmt.Sprintf("%s:%d", t.Host, t.Port)
-	info.remote_addr = C.CString(remoteAddr)
-	info.local_addr = C.CString("0.0.0.0:0")
-	info.stack_layers_count = 1
-	info.stack_layers = (**C.char)(C.malloc(C.sizeof_uintptr_t))
-	*info.stack_layers = C.CString("tcp")
-
-	// Register handle for callbacks
-	v2HandleMap[handleID] = &v2ConnectionHandle{
-		stream: nil, // TODO: pass actual conduit when integrated
-		info:   info,
-	}
-	defer delete(v2HandleMap, handleID)
-
-	// Setup connection ops with our Go callbacks
+	// Setup connection ops
 	var ops C.ORCA_ConnectionOps
 	ops.send = C.ORCA_SendFn(C.go_conduit_send)
 	ops.recv = C.ORCA_RecvFn(C.go_conduit_recv)
