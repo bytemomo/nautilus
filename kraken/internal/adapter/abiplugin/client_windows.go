@@ -42,11 +42,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
 	"bytemomo/kraken/internal/domain"
+	cnd "bytemomo/trident/conduit"
 )
 
 type Client struct{}
@@ -59,48 +62,174 @@ func (c *Client) Supports(transport string) bool {
 
 // V2 connection handle wrapper
 type v2ConnectionHandle struct {
-	stream interface{} // cond.Stream or cond.Datagram
-	info   *C.ORCA_ConnectionInfo
+	conduit interface{} // cnd.Stream or cnd.Datagram
+	info    *C.ORCA_ConnectionInfo
 }
 
-var v2HandleMap = make(map[uintptr]*v2ConnectionHandle)
-var v2HandleCounter uintptr = 1
+var (
+	v2HandleMap     = make(map[uintptr]*v2ConnectionHandle)
+	v2HandleCounter uintptr = 1
+	v2HandleMutex   sync.RWMutex
+)
 
 //export go_conduit_send
 func go_conduit_send(conn C.ORCA_ConnectionHandle, data *C.uint8_t, length C.size_t, timeout_ms C.uint32_t) C.int64_t {
+	v2HandleMutex.RLock()
 	handle, ok := v2HandleMap[uintptr(conn)]
+	v2HandleMutex.RUnlock()
+
 	if !ok {
 		return -1
 	}
 
-	// TODO: Implement actual send via conduit.Stream/Datagram
-	// This requires integration with the conduit system
-	_ = handle
-	return -1 // Not implemented yet
+	// Convert C data to Go slice
+	goData := C.GoBytes(unsafe.Pointer(data), C.int(length))
+
+	// Determine conduit type and perform send
+	switch c := handle.conduit.(type) {
+	case cnd.Stream:
+		ctx := context.Background()
+		if timeout_ms > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout_ms)*time.Millisecond)
+			defer cancel()
+		}
+
+		n, _, err := c.Send(ctx, goData, nil, &cnd.SendOptions{})
+		if err != nil {
+			return -1
+		}
+		return C.int64_t(n)
+
+	case cnd.Datagram:
+		ctx := context.Background()
+		if timeout_ms > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout_ms)*time.Millisecond)
+			defer cancel()
+		}
+
+		buf := cnd.GetBuf(len(goData))
+		copy(buf.Bytes(), goData)
+		msg := &cnd.DatagramMsg{
+			Data: buf,
+		}
+		n, _, err := c.Send(ctx, msg, &cnd.SendOptions{})
+		if err != nil {
+			return -1
+		}
+		return C.int64_t(n)
+
+	default:
+		return -1
+	}
 }
 
 //export go_conduit_recv
 func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_size C.size_t, timeout_ms C.uint32_t) C.int64_t {
+	v2HandleMutex.RLock()
 	handle, ok := v2HandleMap[uintptr(conn)]
+	v2HandleMutex.RUnlock()
+
 	if !ok {
 		return -1
 	}
 
-	// TODO: Implement actual recv via conduit.Stream/Datagram
-	_ = handle
-	return -1 // Not implemented yet
+	// Determine conduit type and perform recv
+	switch c := handle.conduit.(type) {
+	case cnd.Stream:
+		ctx := context.Background()
+		if timeout_ms > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout_ms)*time.Millisecond)
+			defer cancel()
+		}
+
+		maxBytes := int(buffer_size)
+		if maxBytes == 0 {
+			maxBytes = 4096
+		}
+
+		chunk, err := c.Recv(ctx, &cnd.RecvOptions{MaxBytes: maxBytes})
+		if err == io.EOF {
+			return 0 // EOF
+		} else if err != nil {
+			return -1
+		}
+
+		if chunk != nil && chunk.Data != nil {
+			data := chunk.Data.Bytes()
+			n := len(data)
+			if n > int(buffer_size) {
+				n = int(buffer_size)
+			}
+			// Copy to C buffer
+			for i := 0; i < n; i++ {
+				*(*C.uint8_t)(unsafe.Pointer(uintptr(unsafe.Pointer(buffer)) + uintptr(i))) = C.uint8_t(data[i])
+			}
+			chunk.Data.Release()
+			return C.int64_t(n)
+		}
+		return 0
+
+	case cnd.Datagram:
+		ctx := context.Background()
+		if timeout_ms > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout_ms)*time.Millisecond)
+			defer cancel()
+		}
+
+		maxBytes := int(buffer_size)
+		if maxBytes == 0 {
+			maxBytes = 4096
+		}
+
+		chunk, err := c.Recv(ctx, &cnd.RecvOptions{MaxBytes: maxBytes})
+		if err == io.EOF {
+			return 0
+		} else if err != nil {
+			return -1
+		}
+
+		if chunk != nil && chunk.Data != nil {
+			data := chunk.Data.Bytes()
+			n := len(data)
+			if n > int(buffer_size) {
+				n = int(buffer_size)
+			}
+			for i := 0; i < n; i++ {
+				*(*C.uint8_t)(unsafe.Pointer(uintptr(unsafe.Pointer(buffer)) + uintptr(i))) = C.uint8_t(data[i])
+			}
+			chunk.Data.Release()
+			return C.int64_t(n)
+		}
+		return 0
+
+	default:
+		return -1
+	}
 }
 
 //export go_conduit_get_info
 func go_conduit_get_info(conn C.ORCA_ConnectionHandle) *C.ORCA_ConnectionInfo {
+	v2HandleMutex.RLock()
 	handle, ok := v2HandleMap[uintptr(conn)]
+	v2HandleMutex.RUnlock()
+
 	if !ok {
 		return nil
 	}
 	return handle.info
 }
 
+// Run is the legacy method for backward compatibility (no conduit)
 func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	return c.RunWithConduit(ctx, params, t, timeout, nil)
+}
+
+// RunWithConduit executes a module with optional conduit support
+func (c *Client) RunWithConduit(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
 
 	libPath := abiConfig.LibraryPath + ".dll"
@@ -123,7 +252,7 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 
 	// Try V2 API first
 	if strings.HasSuffix(symbol, "_V2") || symbol == "ORCA_Run_V2" {
-		return c.runV2(handle, symbol, params, t, timeout)
+		return c.runV2(handle, symbol, params, t, timeout, conduit)
 	}
 
 	// Fall back to V1 API
@@ -179,7 +308,7 @@ func (c *Client) runV1(handle C.HMODULE, symbol string, params map[string]any, t
 	return decodeRunResult(outResult)
 }
 
-func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	// resolve run symbol
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
@@ -206,15 +335,91 @@ func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t
 	}
 	freeFn := (C.ORCA_FreeV2Fn)(freePtr)
 
-	// Create connection handle (placeholder - needs conduit integration)
-	connHandle := C.ORCA_ConnectionHandle(unsafe.Pointer(uintptr(v2HandleCounter)))
+	// Create connection handle and info
+	v2HandleMutex.Lock()
+	handleID := v2HandleCounter
 	v2HandleCounter++
+	connHandle := C.ORCA_ConnectionHandle(unsafe.Pointer(handleID))
 
-	// Setup connection ops
+	// Create connection info
+	info := (*C.ORCA_ConnectionInfo)(C.malloc(C.sizeof_ORCA_ConnectionInfo))
+	remoteAddr := fmt.Sprintf("%s:%d", t.Host, t.Port)
+	info.remote_addr = C.CString(remoteAddr)
+	info.local_addr = C.CString("0.0.0.0:0")
+
+	// Determine connection type and build stack layers based on conduit
+	var stackLayers []string
+	if conduit != nil {
+		switch c := conduit.(type) {
+		case cnd.Stream:
+			*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_STREAM
+			if c.LocalAddr() != nil {
+				C.free(unsafe.Pointer(info.local_addr))
+				info.local_addr = C.CString(c.LocalAddr().String())
+			}
+			if c.RemoteAddr() != nil {
+				C.free(unsafe.Pointer(info.remote_addr))
+				info.remote_addr = C.CString(c.RemoteAddr().String())
+			}
+			stackLayers = []string{"tcp"}
+
+		case cnd.Datagram:
+			*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_DATAGRAM
+			if c.LocalAddr().IsValid() {
+				C.free(unsafe.Pointer(info.local_addr))
+				info.local_addr = C.CString(c.LocalAddr().String())
+			}
+			if c.RemoteAddr().IsValid() {
+				C.free(unsafe.Pointer(info.remote_addr))
+				info.remote_addr = C.CString(c.RemoteAddr().String())
+			}
+			stackLayers = []string{"udp"}
+
+		default:
+			*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_STREAM
+			stackLayers = []string{"tcp"}
+		}
+	} else {
+		*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_STREAM
+		stackLayers = []string{"tcp"}
+	}
+
+	// Populate stack layers
+	info.stack_layers_count = C.size_t(len(stackLayers))
+	info.stack_layers = (**C.char)(C.malloc(C.size_t(len(stackLayers)) * C.size_t(unsafe.Sizeof(uintptr(0)))))
+	for i, layer := range stackLayers {
+		layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
+		*layerPtr = C.CString(layer)
+	}
+
+	// Register handle for callbacks
+	v2HandleMap[handleID] = &v2ConnectionHandle{
+		conduit: conduit,
+		info:    info,
+	}
+	v2HandleMutex.Unlock()
+
+	defer func() {
+		v2HandleMutex.Lock()
+		delete(v2HandleMap, handleID)
+		v2HandleMutex.Unlock()
+
+		// Free connection info
+		C.free(unsafe.Pointer(info.remote_addr))
+		C.free(unsafe.Pointer(info.local_addr))
+		for i := 0; i < len(stackLayers); i++ {
+			layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
+			C.free(unsafe.Pointer(*layerPtr))
+		}
+		C.free(unsafe.Pointer(info.stack_layers))
+		C.free(unsafe.Pointer(info))
+	}()
+
+	// Setup connection ops with our Go callbacks
 	var ops C.ORCA_ConnectionOps
-	// ops.send = C.ORCA_SendFn(C.go_conduit_send)
-	// ops.recv = C.ORCA_RecvFn(C.go_conduit_recv)
-	// ops.get_info = C.ORCA_GetConnectionInfoFn(C.go_conduit_get_info)
+	ops.send = C.ORCA_SendFn(C.go_conduit_send)
+	ops.recv = C.ORCA_RecvFn(C.go_conduit_recv)
+	ops.get_info = C.ORCA_GetConnectionInfoFn(C.go_conduit_get_info)
 
 	// Setup target
 	hostC := C.CString(t.Host)

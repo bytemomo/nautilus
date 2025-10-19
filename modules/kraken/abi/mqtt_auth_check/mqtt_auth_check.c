@@ -69,8 +69,48 @@ static int mqtt_build_connect(mqtt_packet_t *pkt, const char *client_id, const c
     return (int)pkt->len;
 }
 
+static int mqtt_build_subscribe(mqtt_packet_t *pkt, const char *topic) {
+    pkt->len = 0;
+    uint8_t *p = pkt->buf;
+    size_t topic_len = strlen(topic);
+    size_t rem_len = 2 + 2 + topic_len + 1;
+    *p++ = 0x82; // SUBSCRIBE
+    *p++ = (uint8_t)rem_len;
+    *p++ = 0;
+    *p++ = 1; // Packet ID
+    p += mqtt_encode_string(p, topic);
+    *p++ = 0; // QoS 0
+    pkt->len = p - pkt->buf;
+    return (int)pkt->len;
+}
+
+static int mqtt_build_publish(mqtt_packet_t *pkt, const char *topic, const char *msg) {
+    pkt->len = 0;
+    uint8_t *p = pkt->buf;
+    *p++ = 0x30; // PUBLISH, QoS 0
+    size_t topic_len = strlen(topic);
+    size_t msg_len = strlen(msg);
+    size_t rem_len = 2 + topic_len + msg_len;
+    size_t rem_temp = rem_len;
+    do {
+        uint8_t b = rem_temp % 128;
+        rem_temp /= 128;
+        if (rem_temp > 0)
+            b |= 128;
+        *p++ = b;
+    } while (rem_temp > 0);
+    p += mqtt_encode_string(p, topic);
+    memcpy(p, msg, msg_len);
+    pkt->len = (p + msg_len) - pkt->buf;
+    return (int)pkt->len;
+}
+
 static int mqtt_parse_connack(uint8_t *buf, size_t n) {
     return n >= 4 && buf[0] == 0x20 && buf[3] == 0x00;
+}
+
+static int mqtt_parse_suback(uint8_t *buf, size_t n) {
+    return n >= 3 && buf[0] == 0x90;
 }
 
 /* ------------------------------------------------------------------ */
@@ -103,28 +143,47 @@ static void add_finding(ORCA_RunResult *result, ORCA_Finding *finding) {
 /* ------------------------------------------------------------------ */
 /* JSON Helper                                                        */
 /* ------------------------------------------------------------------ */
-static char *json_extract_path(const char *json, const char *key) {
+static char *json_extract_string(const char *json, const char *key) {
     if (!json)
         return NULL;
-    static char path[512];
-    path[0] = 0;
-    const char *p = strstr(json, key);
+
+    char search[256];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    const char *p = strstr(json, search);
     if (!p)
         return NULL;
+
     p = strchr(p, ':');
     if (!p)
         return NULL;
     p++;
-    while (*p && (*p == ' ' || *p == '\"'))
+
+    // Skip whitespace and opening quote
+    while (*p && (*p == ' ' || *p == '\t' || *p == '\n'))
         p++;
-    char *q = path;
-    while (*p && *p != '\"' && *p != ' ' && *p != '}')
-        *q++ = *p++;
-    *q = 0;
-    return path;
+    if (*p != '\"')
+        return NULL;
+    p++;
+
+    // Find closing quote
+    const char *end = p;
+    while (*end && *end != '\"')
+        end++;
+
+    size_t len = end - p;
+    char *result = (char *)malloc(len + 1);
+    if (result) {
+        memcpy(result, p, len);
+        result[len] = '\0';
+    }
+    return result;
 }
 
-static int mqtt_check_conduit(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, const char *user, const char *pass, uint32_t timeout_ms) {
+/* ------------------------------------------------------------------ */
+/* MQTT Check Functions using V2 API                                  */
+/* ------------------------------------------------------------------ */
+
+static int mqtt_check_auth(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, const char *user, const char *pass, uint32_t timeout_ms) {
     mqtt_packet_t pkt;
     char cid[32];
     snprintf(cid, sizeof(cid), "ORCA_%u", (unsigned)rand());
@@ -135,22 +194,94 @@ static int mqtt_check_conduit(ORCA_ConnectionHandle conn, const ORCA_ConnectionO
     // Send CONNECT packet over conduit
     int64_t sent = ops->send(conn, pkt.buf, len, timeout_ms);
     if (sent <= 0) {
-        return 0; // Failed to send
+        return -1; // Failed to send
     }
 
     // Receive CONNACK response
-    uint8_t resp[8];
+    uint8_t resp[16];
     int64_t received = ops->recv(conn, resp, sizeof(resp), timeout_ms);
     if (received <= 0) {
-        return 0; // No response
+        return -1; // No response
     }
 
     // Check if CONNACK indicates success
-    return mqtt_parse_connack(resp, (size_t)received);
+    return mqtt_parse_connack(resp, (size_t)received) ? 1 : 0;
+}
+
+static int mqtt_check_pubsub(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, uint32_t timeout_ms) {
+    mqtt_packet_t pkt;
+    const char *topic = "orca/test/topic";
+
+    // Try SUBSCRIBE
+    int len = mqtt_build_subscribe(&pkt, topic);
+    int64_t sent = ops->send(conn, pkt.buf, len, timeout_ms);
+    if (sent <= 0) {
+        return 0;
+    }
+
+    // Check for SUBACK
+    uint8_t resp[16];
+    int64_t received = ops->recv(conn, resp, sizeof(resp), timeout_ms);
+    int sub_ok = (received > 0 && mqtt_parse_suback(resp, (size_t)received));
+
+    // Try PUBLISH
+    const char *msg = "hello from ORCA";
+    len = mqtt_build_publish(&pkt, topic, msg);
+    sent = ops->send(conn, pkt.buf, len, timeout_ms);
+
+    return sub_ok; // Return 1 if subscribe worked
 }
 
 /* ------------------------------------------------------------------ */
-/* Plugin Entry Point                                                 */
+/* Credential File Parser                                             */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    char **entries;
+    size_t count;
+} creds_list_t;
+
+static void free_creds_list(creds_list_t *list) {
+    if (!list)
+        return;
+    for (size_t i = 0; i < list->count; i++) {
+        free(list->entries[i]);
+    }
+    free(list->entries);
+    list->entries = NULL;
+    list->count = 0;
+}
+
+static creds_list_t load_creds_file(const char *path) {
+    creds_list_t list = {0};
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return list;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        // Remove trailing newline
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            line[--len] = '\0';
+        }
+
+        if (len == 0 || line[0] == '#') {
+            continue; // Skip empty lines and comments
+        }
+
+        list.count++;
+        list.entries = (char **)realloc(list.entries, list.count * sizeof(char *));
+        list.entries[list.count - 1] = mystrdup(line);
+    }
+
+    fclose(f);
+    return list;
+}
+
+/* ------------------------------------------------------------------ */
+/* Plugin Entry Point (V2 API)                                        */
 /* ------------------------------------------------------------------ */
 
 ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, const ORCA_HostPort *target, uint32_t timeout_ms, const char *params_json,
@@ -165,12 +296,12 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
     result->target.host = mystrdup(target->host);
     result->target.port = target->port;
 
-    add_log(result, "MQTT authentication assessment started (V2)");
+    add_log(result, "MQTT authentication assessment started (V2 with conduit)");
 
     // 2. Get connection info
     const ORCA_ConnectionInfo *info = ops->get_info(conn);
 
-    char log_buf[256];
+    char log_buf[512];
     snprintf(log_buf, sizeof(log_buf), "Connection type: %s", info->type == ORCA_CONN_TYPE_STREAM ? "stream" : "datagram");
     add_log(result, log_buf);
 
@@ -179,7 +310,9 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
     // 3. Test anonymous authentication
     add_log(result, "Testing anonymous MQTT authentication...");
 
-    if (mqtt_check_conduit(conn, ops, NULL, NULL, timeout_ms)) {
+    int anon_result = mqtt_check_auth(conn, ops, NULL, NULL, timeout_ms);
+
+    if (anon_result == 1) {
         ORCA_Finding f = {0};
         f.id = mystrdup("MQTT-ANON");
         f.plugin_id = mystrdup("mqtt-auth-check-v2");
@@ -199,16 +332,71 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
 
         add_finding(result, &f);
         add_log(result, "FINDING: Anonymous authentication is allowed!");
-    } else {
+
+        // 3b. Test publish/subscribe capabilities for anonymous
+        add_log(result, "Testing anonymous publish/subscribe...");
+        int pubsub_ok = mqtt_check_pubsub(conn, ops, timeout_ms);
+
+        if (pubsub_ok) {
+            ORCA_Finding f_pubsub = {0};
+            f_pubsub.id = mystrdup("MQTT-PUBSUB-ANON");
+            f_pubsub.plugin_id = mystrdup("mqtt-auth-check-v2");
+            f_pubsub.success = true;
+            f_pubsub.title = mystrdup("Unauthenticated publish/subscribe allowed");
+            f_pubsub.severity = mystrdup("critical");
+            f_pubsub.description = mystrdup("The MQTT broker allows unauthenticated clients to publish and/or subscribe to topics.");
+            f_pubsub.timestamp = ts;
+            f_pubsub.target.host = mystrdup(target->host);
+            f_pubsub.target.port = target->port;
+
+            f_pubsub.tags.count = 3;
+            f_pubsub.tags.strings = (const char **)malloc(3 * sizeof(char *));
+            f_pubsub.tags.strings[0] = mystrdup("mqtt");
+            f_pubsub.tags.strings[1] = mystrdup("pubsub");
+            f_pubsub.tags.strings[2] = mystrdup("unauthenticated");
+
+            add_finding(result, &f_pubsub);
+            add_log(result, "FINDING: Anonymous publish/subscribe is allowed!");
+        } else {
+            add_log(result, "Anonymous publish/subscribe is restricted (good)");
+        }
+
+    } else if (anon_result == 0) {
         add_log(result, "Anonymous authentication rejected (good)");
+    } else {
+        add_log(result, "Failed to test anonymous authentication (connection issue)");
     }
 
-    char *creds_path = json_extract_path(params_json, "creds_file");
+    // 4. Test credentials if file provided
+    char *creds_path = json_extract_string(params_json, "creds_file");
     if (creds_path && *creds_path) {
-        snprintf(log_buf, sizeof(log_buf), "Credential testing requested (file: %s) but not implemented in V2 single-connection model", creds_path);
+        snprintf(log_buf, sizeof(log_buf), "Credential testing from file: %s", creds_path);
         add_log(result, log_buf);
-        add_log(result, "Note: V2 receives a single connected conduit; credential brute-forcing requires multiple connections");
-        add_log(result, "Consider using V1 for credential testing, or implement connection pooling in the runner");
+
+        add_log(result, "WARNING: V2 API with single conduit - cannot test multiple credentials");
+        add_log(result, "Each credential test requires a fresh connection");
+        add_log(result, "Consider using a connection pool or runner-side credential iteration");
+
+        // Load credentials for reference
+        creds_list_t creds = load_creds_file(creds_path);
+        if (creds.count > 0) {
+            snprintf(log_buf, sizeof(log_buf), "Loaded %zu credential pairs (testing requires reconnection)", creds.count);
+            add_log(result, log_buf);
+
+            // Note: In a real implementation, you would need the runner to:
+            // 1. Dial a new conduit for each credential
+            // 2. Pass that new conduit to this function
+            // 3. Or implement a connection pool pattern
+            //
+            // For now, just log that credentials were found
+            add_log(result, "Credentials available for testing in future multi-connection implementation");
+        } else {
+            snprintf(log_buf, sizeof(log_buf), "No credentials loaded from %s", creds_path);
+            add_log(result, log_buf);
+        }
+
+        free_creds_list(&creds);
+        free(creds_path);
     }
 
     // 5. Finalize and return
