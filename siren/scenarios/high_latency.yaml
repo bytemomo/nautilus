@@ -1,0 +1,138 @@
+name: "High Latency Simulation"
+description: "Add artificial latency to connections to test client timeout handling and performance degradation"
+
+proxy:
+    listen: ":8080"
+    target: "server.example.com:80"
+    protocol: tcp
+    max_connections: 1000
+    connection_timeout: "60s"  # Increased to accommodate delays
+    buffer_size: 32768
+    enable_logging: true
+
+rules:
+    # Fixed 100ms delay
+    - name: "100ms Latency"
+      enabled: false
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "100ms"
+
+    # Fixed 500ms delay
+    - name: "500ms Latency"
+      enabled: true
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "500ms"
+
+    # Fixed 1 second delay
+    - name: "1 Second Latency"
+      enabled: false
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "1s"
+
+    # Variable latency with jitter
+    - name: "Variable Latency with Jitter"
+      enabled: false
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "200ms"
+          jitter: "100ms"  # ±100ms random jitter
+
+    # High jitter simulation
+    - name: "High Jitter"
+      enabled: false
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "300ms"
+          jitter: "200ms"  # ±200ms jitter
+
+    # Asymmetric latency - delay responses more than requests
+    - name: "Asymmetric Latency"
+      enabled: false
+      priority: 90
+      match:
+          direction: server_to_client
+      action:
+          type: delay
+          duration: "800ms"
+
+    # Delay only large responses
+    - name: "Delay Large Responses"
+      enabled: false
+      priority: 110
+      match:
+          direction: server_to_client
+          size_gt: 10240  # Responses larger than 10KB
+      action:
+          type: delay
+          duration: "1s"
+
+    # Satellite connection simulation (high latency)
+    - name: "Satellite Connection"
+      enabled: false
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "600ms"
+          jitter: "50ms"
+
+    # Mobile network simulation (moderate latency with jitter)
+    - name: "Mobile Network (3G)"
+      enabled: false
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: delay
+          duration: "150ms"
+          jitter: "75ms"
+
+    # Progressively increasing latency (simulates network degradation)
+    - name: "Delay After 10s"
+      enabled: false
+      priority: 80
+      match:
+          direction: both
+          connection_age: ">10s"
+      action:
+          type: delay
+          duration: "1s"
+
+    # Log delayed packets
+    - name: "Log All Delays"
+      enabled: false
+      priority: 50
+      match:
+          direction: both
+      action:
+          type: log
+          level: debug
+          message: "Packet delayed"
+          dump_payload: false
+
+recording:
+    enabled: false
+    output: "captures/latency_test.json"
+    format: json
+    include_payload: false  # Don't need payloads for latency testing
+    max_file_size: "20MB"
+    flush_interval: "10s"

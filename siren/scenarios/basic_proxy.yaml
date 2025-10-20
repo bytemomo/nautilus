@@ -1,0 +1,82 @@
+name: "Basic Transparent Proxy"
+description: "Simple pass-through proxy with optional logging - no traffic manipulation"
+
+proxy:
+    listen: ":8080"
+    target: "example.com:80"
+    protocol: tcp
+    max_connections: 1000
+    connection_timeout: "30s"
+    buffer_size: 32768
+    enable_logging: true
+
+rules:
+    # Log all traffic passing through
+    - name: "Log All Traffic"
+      enabled: true
+      priority: 100
+      match:
+          direction: both
+      action:
+          type: log
+          level: info
+          message: "Traffic passing through proxy"
+          dump_payload: false
+
+    # Log only requests (client to server)
+    - name: "Log Requests"
+      enabled: false
+      priority: 90
+      match:
+          direction: client_to_server
+      action:
+          type: log
+          level: debug
+          message: "Client request"
+          dump_payload: true
+
+    # Log only responses (server to client)
+    - name: "Log Responses"
+      enabled: false
+      priority: 90
+      match:
+          direction: server_to_client
+      action:
+          type: log
+          level: debug
+          message: "Server response"
+          dump_payload: true
+
+    # Log large packets
+    - name: "Log Large Packets"
+      enabled: false
+      priority: 95
+      match:
+          direction: both
+          size_gt: 8192  # Packets larger than 8KB
+      action:
+          type: log
+          level: info
+          message: "Large packet detected"
+          dump_payload: false
+
+    # Log HTTP requests specifically
+    - name: "Log HTTP Requests"
+      enabled: false
+      priority: 100
+      match:
+          direction: client_to_server
+          content_regex: "^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)"
+      action:
+          type: log
+          level: info
+          message: "HTTP request detected"
+          dump_payload: true
+
+recording:
+    enabled: false
+    output: "captures/basic_proxy.json"
+    format: json
+    include_payload: true
+    max_file_size: "50MB"
+    flush_interval: "5s"
