@@ -1,6 +1,10 @@
 *
 
 !.gitignore
+
+!.github/
+!.github/**
+
 !README.md
 
 !.clang-format
