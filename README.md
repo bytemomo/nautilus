@@ -14,6 +14,8 @@ Nautilus is composed of several subprojects, each with a distinct role:
   Transport abstraction layer. Implements conduits for stream and datagram protocols (TCP, TLS, UDP, DTLS, etc.), used by Kraken and plugins.
 
 - **siren/**
+  Man-in-the-Middle testing proxy for client validation. Intercepts, modifies, delays, or drops traffic to test client resilience.
+  See [`siren/README.md`](siren/README.md) for details.
 
 - **campaigns/**
   Example and template campaign definitions (YAML files) for various IoT protocols and scenarios.
@@ -49,7 +51,7 @@ Nautilus is composed of several subprojects, each with a distinct role:
 
 - [Kraken README](kraken/README.md) — Campaign orchestration, plugin APIs, attack trees, and usage.
 - [Trident README](trident/README.md) — Transport abstraction and conduit system.
-- [Siren README](siren/README.md) —
+- [Siren README](siren/README.md) — Man-in-the-Middle proxy for client testing and fault injection.
 
 ## Roadmap
 

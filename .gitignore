@@ -20,6 +20,8 @@
 
 # Kraken
 !kraken/
+!kraken/README.md
+
 !kraken/main.go
 !kraken/internal/
 !kraken/internal/**
@@ -33,8 +35,12 @@
 !kraken/pkg/plugpb/plugin.proto
 
 # Siren
+
 !siren/
-!siren/**
+!siren/README.md
+
+!siren/*
+!siren/**/*.go
 
 # Trident
 !trident/

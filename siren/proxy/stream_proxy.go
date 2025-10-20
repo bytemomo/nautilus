@@ -224,31 +224,16 @@ func (sp *StreamProxy) handleConnection(clientConn net.Conn) {
 	// Client -> Server
 	go func() {
 		defer wg.Done()
-		sp.proxyStream(connCtx, conn, clientConn, serverStream, ClientToServer)
+		sp.proxyFromNetConn(connCtx, conn, clientConn, serverStream, ClientToServer)
 	}()
 
 	// Server -> Client
 	go func() {
 		defer wg.Done()
-		sp.proxyStream(connCtx, conn, serverStream, clientConn, ServerToClient)
+		sp.proxyFromStream(connCtx, conn, serverStream, serverStream, ServerToClient)
 	}()
 
 	wg.Wait()
-}
-
-// proxyStream proxies data from src to dst with interception
-func (sp *StreamProxy) proxyStream(
-	ctx context.Context,
-	conn *Connection,
-	src io.Reader,
-	dst conduit.Stream,
-	direction Direction,
-) {
-	if netConn, ok := src.(net.Conn); ok {
-		sp.proxyFromNetConn(ctx, conn, netConn, dst, direction)
-	} else {
-		sp.proxyFromStream(ctx, conn, src.(conduit.Stream), dst, direction)
-	}
 }
 
 // proxyFromNetConn proxies from net.Conn to conduit.Stream
