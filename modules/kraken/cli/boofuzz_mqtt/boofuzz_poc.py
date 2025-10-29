@@ -6,6 +6,7 @@ from boofuzz import *
 import io
 import os
 import argparse
+from typing import Union
 
 
 OUTDIR = "./boofuzz-results"
@@ -26,7 +27,7 @@ def mqtt_varlen_encoder(value):
     return bytes(out)
 
 # --- Packet Building Functions ---
-def build_mqtt_packet(name: str, control_header: int, variable_header_fields=None, payload_fields=None):
+def build_mqtt_packet(name: str, control_header: Union[int, dict], variable_header_fields=None, payload_fields=None):
     variable_header_fields = variable_header_fields or []
     payload_fields = payload_fields or []
 
@@ -34,17 +35,31 @@ def build_mqtt_packet(name: str, control_header: int, variable_header_fields=Non
         elements = []
         for f in field_defs:
             ftype, fname, fval, fuzzable, endian, max_len = f.get("type"), f.get("name"), f.get("value", 0), f.get("fuzzable", True), f.get("endian", "big"), f.get("max_len", None)
-            if ftype == "byte": elements.append(Byte(name=fname, default_value=fval, fuzzable=fuzzable))
+
+            if ftype == "group":
+                values, default_value = f.get("values", []), f.get("default_value", None)
+                elements.append(Group(name=fname, values=values, default_value=default_value, fuzzable=fuzzable))
+            elif ftype == "byte": elements.append(Byte(name=fname, default_value=fval, fuzzable=fuzzable))
             elif ftype == "word": elements.append(Word(name=fname, default_value=fval, endian=endian, fuzzable=fuzzable))
             elif ftype == "string":
                 elements.append(Word(name=f"{fname}_len", default_value=len(fval), endian=endian, fuzzable=False))
                 elements.append(String(name=fname, default_value=fval, fuzzable=fuzzable, max_len=max_len))
             elif ftype == "raw": elements.append(Bytes(name=fname, default_value=fval, fuzzable=fuzzable))
+
         return elements
+
+    if type(control_header) == dict:
+        fvalues, fdef, ffuzz = control_header.get("values", None), control_header.get("default_value", None), control_header.get("fuzzable", False)
+        if fvalues == None and fdef == None:
+            print("[FATAL] At least values or default value has to be specified for the control header")
+            exit()
+        ch = Group(name="ControlHeader", values=fvalues, default_value=fdef, fuzzable=ffuzz)
+    else:
+        ch = Byte(name="ControlHeader", default_value=control_header, fuzzable=False)
 
     return Request(name, children=(
         Block(name="FixedHeader", children=(
-            Byte(name="ControlHeader", default_value=control_header, fuzzable=False),
+            ch, # Control Header
             Block(name="RemainingLength", children=Size(name="RemainingLengthRaw", block_name="Body", fuzzable=True, length=4, endian=">"), encoder=mqtt_varlen_encoder, fuzzable=False)
         )),
         Block(name="Body", children=(
@@ -100,16 +115,16 @@ def build_connect_with_lwt_request():
     return build_mqtt_packet("MQTT_CONNECT_LWT", 0x10, variable_header, payload)
 
 # --- Publish Packet Definitions for Each QoS Level ---
-def build_publish_qos0_request():
+def build_publish_request():
     variable_header = [
-        {"type": "string", "name": "TopicName", "value": "fuzz/qos0"},
+        {"type": "string", "name": "TopicName", "value": "fuzz/publish"},
         {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
 
     payload = [
-        {"type": "raw", "name": "Message", "value": b"QoS 0 Test"}
+        {"type": "raw", "name": "Message", "value": b"Publish Test"}
     ]
-    return build_mqtt_packet("MQTT_PUBLISH_QOS0", 0x30, variable_header, payload)
+    return build_mqtt_packet("MQTT_PUBLISH",  0x30, variable_header, payload)
 
 def build_publish_qos1_request():
     variable_header = [
@@ -125,7 +140,8 @@ def build_publish_qos1_request():
 def build_publish_qos2_request():
     variable_header = [
         {"type": "string", "name": "TopicName", "value": "fuzz/qos2"},
-        {"type": "word", "name": "PacketIdentifier", "value": 12}
+        {"type": "word", "name": "PacketIdentifier", "value": 12},
+        {"type": "byte", "name": "PropertiesLength", "value": 0, "fuzzable": False},
     ]
     payload = [
         {"type": "raw", "name": "Message", "value": b"QoS 2 Test"}
@@ -215,10 +231,136 @@ def parse_args():
     return args.host, int(args.port), dynamic_params
 
 
+# Callbacks ------------------------------
+
+
+def conn_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
+    """Handle MQTT CONNACK after CONNECT using session.last_recv"""
+    try:
+        resp = session.last_recv
+        if not resp:
+            fuzz_data_logger.log_error("No response to CONNECT packet.")
+            return
+
+        ctrl_type = resp[0] & 0xF0
+        if ctrl_type == 0x20:
+            fuzz_data_logger.log_info(f"Received CONNACK: {resp.hex()}")
+        else:
+            fuzz_data_logger.log_error(f"Unexpected response (expected CONNACK): {resp.hex()}")
+
+    except Exception as e:
+        fuzz_data_logger.log_error(f"Error in conn_callback: {e}")
+
+
+def qos1_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
+    """Handle MQTT PUBACK for QoS1 publish using session.last_recv"""
+    try:
+        resp = session.last_recv
+        if not resp:
+            fuzz_data_logger.log_error("No PUBACK received for QoS1 Publish.")
+            return
+
+        ctrl_type = resp[0] & 0xF0
+        if ctrl_type == 0x40:
+            fuzz_data_logger.log_info(f"Received PUBACK: {resp.hex()}")
+        else:
+            fuzz_data_logger.log_error(f"Unexpected response (expected PUBACK): {resp.hex()}")
+
+    except Exception as e:
+        fuzz_data_logger.log_error(f"Error in qos1_callback: {e}")
+
+
+def qos2_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
+    """Handle MQTT PUBREC -> PUBREL -> PUBCOMP for QoS2 publish using session.last_recv"""
+    try:
+        resp = session.last_recv
+        if not resp:
+            fuzz_data_logger.log_error("No PUBREC received for QoS2 Publish.")
+            return
+
+        ctrl_type = resp[0] & 0xF0
+        if ctrl_type == 0x50:
+            fuzz_data_logger.log_info(f"Received PUBREC: {resp.hex()}")
+
+            # Send PUBREL
+            pubrel = b'\x62\x02\x00\x0C'
+            target.send(pubrel)
+            fuzz_data_logger.log_info(f"Sent PUBREL: {pubrel.hex()}")
+
+            # Wait for PUBCOMP via session.last_recv again
+            resp2 = session.last_recv
+            if resp2 and (resp2[0] & 0xF0) == 0x70:
+                fuzz_data_logger.log_info(f"Received PUBCOMP: {resp2.hex()}")
+            else:
+                fuzz_data_logger.log_error(f"Expected PUBCOMP, got: {resp2.hex() if resp2 else 'None'}")
+        else:
+            fuzz_data_logger.log_error(f"Unexpected response (expected PUBREC): {resp.hex()}")
+
+    except Exception as e:
+        fuzz_data_logger.log_error(f"Error in qos2_callback: {e}")
+
+
+def sub_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
+    """Handle MQTT SUBACK using session.last_recv"""
+    try:
+        resp = session.last_recv
+        if not resp:
+            fuzz_data_logger.log_error("No SUBACK received.")
+            return
+
+        ctrl_type = resp[0] & 0xF0
+        if ctrl_type == 0x90:
+            fuzz_data_logger.log_info(f"Received SUBACK: {resp.hex()}")
+        else:
+            fuzz_data_logger.log_error(f"Unexpected response (expected SUBACK): {resp.hex()}")
+
+    except Exception as e:
+        fuzz_data_logger.log_error(f"Error in sub_callback: {e}")
+
+
+def unsub_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
+    """Handle MQTT UNSUBACK using session.last_recv"""
+    try:
+        resp = session.last_recv
+        if not resp:
+            fuzz_data_logger.log_error("No UNSUBACK received.")
+            return
+
+        ctrl_type = resp[0] & 0xF0
+        if ctrl_type == 0xB0:
+            fuzz_data_logger.log_info(f"Received UNSUBACK: {resp.hex()}")
+        else:
+            fuzz_data_logger.log_error(f"Unexpected response (expected UNSUBACK): {resp.hex()}")
+
+    except Exception as e:
+        fuzz_data_logger.log_error(f"Error in unsub_callback: {e}")
+
+
+def ping_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
+    """Handle MQTT PINGRESP using session.last_recv"""
+    try:
+        resp = session.last_recv
+        if not resp:
+            fuzz_data_logger.log_error("No PINGRESP received.")
+            return
+
+        ctrl_type = resp[0] & 0xF0
+        if ctrl_type == 0xD0:
+            fuzz_data_logger.log_info("Received PINGRESP")
+        else:
+            fuzz_data_logger.log_error(f"Unexpected response (expected PINGRESP): {resp.hex()}")
+
+    except Exception as e:
+        fuzz_data_logger.log_error(f"Error in ping_callback: {e}")
+
+# General TODOS:
+# - Look at AUTH
+
 def main():
     host, port, dynamic_args = parse_args()
 
     session = Session(
+        receive_data_after_fuzz=True, # Session will attempt to receive a reply after transmitting fuzzed message
         target=Target(connection=TCPSocketConnection(host, port)),
         fuzz_loggers=[FuzzLoggerText(), FuzzLoggerText(file_handle=io.TextIOWrapper(open(LOG_FILEPATH, "wb+"), encoding="utf-8"))],
     )
@@ -227,54 +369,43 @@ def main():
     connect_auth_req = build_connect_with_auth_request()
     connect_lwt_req = build_connect_with_lwt_request()
 
+    publish_req = build_publish_request()
+    publish_qos1_req = build_publish_qos1_request()
+    publish_qos2_req = build_publish_qos2_request()
+
     subscribe_req = build_subscribe_request()
     unsubscribe_req = build_unsubscribe_request()
 
-    publish_qos0_req = build_publish_qos0_request()
-    publish_qos1_req = build_publish_qos1_request()
-
-    publish_qos2_req = build_publish_qos2_request()
     pubrel_req = build_pubrel_request()
 
     ping_req = build_pingreq_request()
     disconnect_req = build_disconnect_request()
 
-    # The fuzzer can start with any of the connection types.
     session.connect(connect_req)
     session.connect(connect_auth_req)
     session.connect(connect_lwt_req)
 
-    # Define valid transitions from a simple connected state.
-    session.connect(connect_req, subscribe_req)
-    session.connect(connect_req, unsubscribe_req)
-    session.connect(connect_req, publish_qos0_req)
+    session.connect(connect_req, subscribe_req, callback=conn_callback)
+    session.connect(connect_req, unsubscribe_req, callback=conn_callback)
+    session.connect(connect_req, publish_req, callback=conn_callback)
 
-    session.connect(connect_auth_req, subscribe_req)
-    session.connect(connect_auth_req, unsubscribe_req)
-    session.connect(connect_auth_req, publish_qos0_req)
+    session.connect(connect_req, publish_qos1_req, callback=conn_callback)
+    session.connect(connect_req, publish_qos2_req, callback=conn_callback)
 
-    session.connect(connect_lwt_req, subscribe_req)
-    session.connect(connect_lwt_req, unsubscribe_req)
-    session.connect(connect_lwt_req, publish_qos0_req)
+    session.connect(connect_req, ping_req, callback=conn_callback)
 
-    # # Need callback to handle reqs
-    session.connect(connect_req, publish_qos1_req, callback=None) # TODO: Check PUBACK ?
-    session.connect(connect_req, ping_req, callback=None) # TODO: Check PINGRESP ?
+    session.connect(subscribe_req, unsubscribe_req, callback=sub_callback)
+    session.connect(subscribe_req, disconnect_req, callback=sub_callback)
 
-    # # QoS2
-    # session.connect(connect_req, publish_qos2_req, callback=None) # TODO: Handle PUBREC
-    # session.connect(publish_qos2_req, pubrel_req, callback=None) # TODO: Handle PUBCOMP
+    session.connect(unsubscribe_req, disconnect_req, callback=unsub_callback)
+    session.connect(ping_req, disconnect_req, callback=ping_callback)
 
-    # # After subscribing, you can publish or unsubscribe.
-    session.connect(subscribe_req, unsubscribe_req)
-    session.connect(subscribe_req, disconnect_req)
+    session.connect(publish_req, disconnect_req)
 
-    session.connect(unsubscribe_req, disconnect_req)
-    session.connect(publish_qos0_req, disconnect_req)
-    session.connect(ping_req, disconnect_req)
-
-    session.connect(publish_qos1_req, disconnect_req)
-    # session.connect(publish_qos2_req, disconnect_req)
+    session.connect(publish_qos1_req, disconnect_req, callback=qos1_callback)
+    session.connect(publish_qos2_req, disconnect_req, callback=qos2_callback)
+    session.connect(connect_auth_req, disconnect_req, callback=conn_callback)
+    session.connect(connect_lwt_req, disconnect_req, callback=conn_callback)
 
     with open('somefile.png', 'wb') as file:
         file.write(session.render_graph_graphviz().create_png())
