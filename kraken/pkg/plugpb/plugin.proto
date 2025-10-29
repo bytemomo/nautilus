@@ -7,34 +7,12 @@ import "google/protobuf/empty.proto";
 
 option go_package = ".;plugpb";
 
-// ======================================================================
-// V2 API Design Philosophy
-// ======================================================================
-//
-// V2 API uses bidirectional streaming to allow the runner to provide
-// a connected conduit handle to the plugin, rather than having the
-// plugin create its own connection.
-//
-// Key differences from V1:
-// - Plugin receives connection I/O over gRPC stream
-// - Runner manages connection lifecycle (dial, close)
-// - Plugin focuses on protocol logic only
-// - Same plugin code works over TCP, TLS, UDP, DTLS, etc.
-//
-// ======================================================================
-
-// ------------------------------
-// Connection Management
-// ------------------------------
-
-// Type of connection provided to the plugin
 enum ConnectionType {
   CONNECTION_TYPE_UNSPECIFIED = 0;
   CONNECTION_TYPE_STREAM = 1;    // Stream-based (TCP, TLS, etc.)
   CONNECTION_TYPE_DATAGRAM = 2;  // Datagram-based (UDP, DTLS, etc.)
 }
 
-// Information about the established connection
 message ConnectionInfo {
   ConnectionType type = 1;
   string local_addr = 2;         // e.g., "192.168.1.10:12345"
@@ -43,59 +21,30 @@ message ConnectionInfo {
   map<string, string> metadata = 5; // Additional connection metadata
 }
 
-// Target information (for reporting purposes)
 message Target {
   string host = 1;
   uint32 port = 2;
 }
 
-// ------------------------------
-// Bidirectional Stream Messages
-// ------------------------------
-
-// Messages sent from Runner -> Plugin
 message RunnerToPlugin {
   oneof message {
-    // Initial message: provide connection and start execution
     StartExecution start = 1;
-
-    // Data received from the conduit (response to ReadRequest)
     DataChunk data = 2;
-
-    // End of stream / connection closed
     ConnectionClosed closed = 3;
-
-    // Error occurred in the runner
     RunnerError error = 4;
   }
 }
 
-// Messages sent from Plugin -> Runner
 message PluginToRunner {
   oneof message {
-    // Plugin is ready to start
     Ready ready = 1;
-
-    // Request to send data over the connection
     WriteRequest write = 2;
-
-    // Request to receive data from the connection
     ReadRequest read = 3;
-
-    // Plugin execution complete (with results)
     ExecutionComplete complete = 4;
-
-    // Error occurred in the plugin
     PluginError error = 5;
-
-    // Log message from plugin
     LogMessage log = 6;
   }
 }
-
-// ------------------------------
-// Runner -> Plugin Messages
-// ------------------------------
 
 message StartExecution {
   ConnectionInfo connection = 1;
@@ -116,7 +65,7 @@ message ConnectionClosed {
 
 message RunnerError {
   string error = 1;
-  bool fatal = 2;  // If true, plugin should abort
+  bool fatal = 2;
 }
 
 // ------------------------------
@@ -199,35 +148,13 @@ message ModuleMetadata {
 // ------------------------------
 
 service OrcaPluginV2 {
-  // V2 execution using bidirectional streaming for connection I/O
-  //
-  // Flow:
-  // 1. Runner establishes connection (TCP, TLS, UDP, etc.)
-  // 2. Runner opens stream and sends StartExecution
-  // 3. Plugin sends Ready
-  // 4. Plugin sends WriteRequest/ReadRequest as needed
-  // 5. Runner responds with DataChunk for reads
-  // 6. Plugin sends ExecutionComplete with results
-  // 7. Runner closes stream and connection
   rpc RunWithConnection(stream RunnerToPlugin) returns (stream PluginToRunner);
-
-  // Get plugin metadata
   rpc Metadata(google.protobuf.Empty) returns (ModuleMetadata);
-
-  // Health check
   rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
-// ------------------------------
-// Alternative: Simplified RPC-based API
-// ------------------------------
-
-// For plugins that don't need fine-grained I/O control,
-// a simpler RPC-based approach where the runner provides
-// a connection handle ID that can be used in subsequent calls.
-
 message ConnectionHandle {
-  string handle_id = 1;  // Opaque connection handle
+  string handle_id = 1;
   ConnectionInfo info = 2;
 }
 
@@ -256,18 +183,6 @@ message IOResponse {
 
 message WriteResult {
   int64 bytes_written = 1;
-}
-
-// Alternative simpler service (can coexist with streaming version)
-service OrcaPluginV2Simple {
-  // Run with a pre-established connection handle
-  rpc RunWithHandle(SimpleRunRequest) returns (RunResult);
-
-  // Perform I/O operations on the connection handle
-  rpc IO(IORequest) returns (IOResponse);
-
-  // Get plugin metadata
-  rpc Metadata(google.protobuf.Empty) returns (ModuleMetadata);
 }
 
 // ------------------------------
