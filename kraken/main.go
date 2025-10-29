@@ -8,13 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"bytemomo/kraken/internal/adapter/abiplugin"
-	"bytemomo/kraken/internal/adapter/cliplugin"
-	"bytemomo/kraken/internal/adapter/grpcplugin"
 	"bytemomo/kraken/internal/adapter/jsonreport"
 	"bytemomo/kraken/internal/adapter/yamlconfig"
 	"bytemomo/kraken/internal/domain"
-	"bytemomo/kraken/internal/usecase"
+	"bytemomo/kraken/internal/reporter"
+	"bytemomo/kraken/internal/runner"
+	"bytemomo/kraken/internal/scanner"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -45,7 +44,7 @@ func main() {
 	}
 
 	resultDir := fmt.Sprintf("%s/%s/%d", *outDir, camp.ID, time.Now().Unix())
-	reporter := jsonreport.New(resultDir)
+	jsonReporter := jsonreport.New(resultDir)
 	camp.Runner.ResultDirectory = resultDir
 
 	// Scanner
@@ -54,7 +53,7 @@ func main() {
 		scannerConfig = &domain.ScannerConfig{}
 	}
 
-	scanner := usecase.ScannerUC{
+	scanner := scanner.Scanner{
 		Config: *scannerConfig,
 	}
 
@@ -66,15 +65,15 @@ func main() {
 	}
 
 	// Runner with module-based executors (supports both V1 and V2)
-	executors := []domain.ModuleExecutor{
-		abiplugin.NewModuleAdapter(), // ABI adapter supports both V1 and V2
-		cliplugin.NewModuleAdapter(), // CLI adapter for V1 modules
-		grpcplugin.New(),             // gRPC adapter for V2 modules with conduit config
+	executors := []runner.ModuleExecutor{
+		runner.NewABIModuleAdapter(),
+		runner.NewCLIModuleAdapter(),
+		// runner.NewGRPCModuleAdapter(),
 	}
 
-	runner := usecase.RunnerUC{
+	runner := runner.Runner{
 		Executors: executors,
-		Store:     reporter,
+		Store:     jsonReporter,
 		Config:    camp.Runner,
 	}
 
@@ -86,7 +85,7 @@ func main() {
 	}
 
 	// Report
-	report := usecase.ReporterUC{Writer: reporter}
+	report := reporter.Reporter{Writer: jsonReporter}
 	path, err := report.Execute(context.Background(), all)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fatal:", err)

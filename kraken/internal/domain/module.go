@@ -1,4 +1,4 @@
-package module
+package domain
 
 import (
 	cnd "bytemomo/trident/conduit"

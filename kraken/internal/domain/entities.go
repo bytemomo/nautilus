@@ -1,9 +1,5 @@
 package domain
 
-import (
-	"bytemomo/kraken/internal/module"
-)
-
 type HostPort struct {
 	Host string
 	Port uint16
@@ -17,14 +13,14 @@ type ClassifiedTarget struct {
 }
 
 type Campaign struct {
-	ID                 string           `yaml:"id"`
-	Name               string           `yaml:"name"`
-	Version            string           `yaml:"version"`
-	Runner             RunnerConfig     `yaml:"runner"`
-	Scanner            *ScannerConfig   `yaml:"scanner,omitempty"`
-	Tasks              []*module.Module `yaml:"tasks"`
-	AttackTreesDefPath string           `yaml:"attack_trees_def_path,omitempty"`
-	ModulesPath        string           `yaml:"modules_path,omitempty"`
+	ID                 string         `yaml:"id"`
+	Name               string         `yaml:"name"`
+	Version            string         `yaml:"version"`
+	Runner             RunnerConfig   `yaml:"runner"`
+	Scanner            *ScannerConfig `yaml:"scanner,omitempty"`
+	Tasks              []*Module      `yaml:"tasks"`
+	AttackTreesDefPath string         `yaml:"attack_trees_def_path,omitempty"`
+	ModulesPath        string         `yaml:"modules_path,omitempty"`
 }
 
 type Finding struct {

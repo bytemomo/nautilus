@@ -81,7 +81,7 @@ func writeJSONAtomic(path string, v any) error {
 		return fmt.Errorf("close temp: %w", err)
 	}
 
-	_ = os.Remove(path) // Windows-safe overwrite
+	_ = os.Remove(path)
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename into place: %w", err)

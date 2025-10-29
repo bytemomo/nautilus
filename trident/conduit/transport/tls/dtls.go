@@ -42,6 +42,9 @@ func (d *DtlsClient) Dial(ctx context.Context) error {
 		return err
 	}
 
+	// TODO: Change dtls coduit API to take a net.PacketConn so that has an equivalent API
+	// to the tls conduit
+
 	c, err := dtls.Dial("udp", raddr, d.cfg)
 	if err != nil {
 		return err
@@ -228,8 +231,6 @@ func (d *dtlsDatagram) RemoteAddr() netip.AddrPort {
 	}
 	return addrToAddrPort(c.RemoteAddr())
 }
-
-
 
 // =====================================================================================
 // Helpers

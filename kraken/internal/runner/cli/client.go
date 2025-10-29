@@ -1,4 +1,4 @@
-package cliplugin
+package cli
 
 import (
 	"bytemomo/kraken/internal/domain"
@@ -21,14 +21,13 @@ func (c *Client) Supports(transport string) bool {
 	return strings.EqualFold(transport, "cli")
 }
 
-// This will accept every plugin with the following api: ./plugin --host --port <OTHER_PARAMS>
+// This will accept every plugin with the following api: ./plugin --host <HOST> --port <PORT> --output-dir <DIR> <OTHER_PARAMS>
 // OTHER_PARAMS can be passed using the campaign params field in the following way:
 //
 // params:
-//
 //	param-flag: param-value
 //
-// will translate into: ./plugin --host <HOST> --port <PORT> --param-flag param-value
+// will translate into: ./plugin --host <HOST> --port <PORT> --output-dir <DIR> param-flag param-value
 
 func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	if timeout > 0 {

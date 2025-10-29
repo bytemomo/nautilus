@@ -1,46 +1,75 @@
-package abiplugin
+package runner
 
 import (
+	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/abi"
+	cli "bytemomo/kraken/internal/runner/cli"
+	cnd "bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/transport"
+	tlscond "bytemomo/trident/conduit/transport/tls"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"strings"
 	"time"
 
-	"bytemomo/kraken/internal/domain"
-	"bytemomo/kraken/internal/module"
-	cnd "bytemomo/trident/conduit"
-	"bytemomo/trident/conduit/transport"
-	tlscond "bytemomo/trident/conduit/transport/tls"
-
 	"github.com/pion/dtls/v3"
 )
 
-// ModuleAdapter adapts the ABI client to work with the module system
-// Supports both V1 and V2 APIs
-type ModuleAdapter struct {
-	client *Client
+type ModuleExecutor interface {
+	Supports(m *domain.Module) bool
+	Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error)
 }
 
-// NewModuleAdapter creates a new module adapter for ABI execution
-func NewModuleAdapter() *ModuleAdapter {
-	return &ModuleAdapter{
-		client: New(),
+// CLI --------------------------------------------------
+
+type CLIModuleAdapter struct {
+	client *cli.Client
+}
+
+func NewCLIModuleAdapter() *CLIModuleAdapter {
+	return &CLIModuleAdapter{
+		client: cli.New(),
 	}
 }
 
-// Supports checks if this adapter can handle the given module
-func (a *ModuleAdapter) Supports(m *module.Module) bool {
+func (a *CLIModuleAdapter) Supports(m *domain.Module) bool {
 	if m == nil {
 		return false
 	}
-	// Supports both V1 and V2 modules with ABI config
-	return m.ExecConfig.ABI != nil && (m.Type == module.Lib || m.Type == module.Native)
+	return m.Version == domain.ModuleV1 && m.ExecConfig.CLI != nil
 }
 
-// Run executes an ABI module (V1 or V2)
-func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	// Merge module params with runtime overrides
+func (a *CLIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	cliConfig := &domain.CLIConfig{
+		Executable: m.ExecConfig.CLI.Executable,
+		Command:    m.ExecConfig.CLI.Command,
+	}
+
+	cliCtx := context.WithValue(ctx, "cli", cliConfig)
+	return a.client.Run(cliCtx, params, t, timeout)
+}
+
+// ABI --------------------------------------------------
+
+type ABIModuleAdapter struct {
+	client *abi.Client
+}
+
+func NewABIModuleAdapter() *ABIModuleAdapter {
+	return &ABIModuleAdapter{
+		client: abi.New(),
+	}
+}
+
+func (a *ABIModuleAdapter) Supports(m *domain.Module) bool {
+	if m == nil {
+		return false
+	}
+	return m.ExecConfig.ABI != nil && (m.Type == domain.Lib || m.Type == domain.Native)
+}
+
+func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	mergedParams := make(map[string]any)
 	for k, v := range m.ExecConfig.Params {
 		mergedParams[k] = v
@@ -49,13 +78,11 @@ func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[st
 		mergedParams[k] = v
 	}
 
-	// Create a context with ABI config embedded (legacy API requirement)
 	abiConfig := &domain.ABIConfig{
 		LibraryPath: m.ExecConfig.ABI.LibraryPath,
 		Symbol:      m.ExecConfig.ABI.Symbol,
 	}
 
-	// Remove file extension if present - the client will add the correct one
 	libPath := abiConfig.LibraryPath
 	libPath = strings.TrimSuffix(libPath, ".so")
 	libPath = strings.TrimSuffix(libPath, ".dylib")
@@ -64,11 +91,10 @@ func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[st
 
 	abiCtx := context.WithValue(ctx, "abi", abiConfig)
 
-	// For V2 modules with conduit config, build and dial the conduit
 	var conduit interface{}
 	var closeConduit func()
 
-	if m.Version == module.ModuleV2 && m.ExecConfig.Conduit != nil {
+	if m.Version == domain.ModuleV2 && m.ExecConfig.Conduit != nil {
 		addr := fmt.Sprintf("%s:%d", t.Host, t.Port)
 		cfg := m.ExecConfig.Conduit
 
@@ -110,23 +136,17 @@ func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[st
 		}
 	}
 
-	// Delegate to the client which handles both V1 and V2
 	return a.client.RunWithConduit(abiCtx, mergedParams, t, timeout, conduit)
 }
 
-// buildStreamConduit builds a stream-based conduit (TCP/TLS)
-func (a *ModuleAdapter) buildStreamConduit(addr string, stack []module.LayerHint) (cnd.Conduit[cnd.Stream], error) {
-	// Start with TCP as the base
+func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Stream], error) {
 	var current cnd.Conduit[cnd.Stream] = transport.TCP(addr)
 
-	// Apply stack layers in order
 	for _, layer := range stack {
 		switch strings.ToLower(layer.Name) {
 		case "tcp":
-			// TCP is the base, already applied
 			continue
 		case "tls":
-			// Wrap current conduit with TLS
 			tlsConfig := a.buildTLSConfig(layer.Params)
 			current = tlscond.NewTlsClient(current, tlsConfig)
 		default:
@@ -137,23 +157,17 @@ func (a *ModuleAdapter) buildStreamConduit(addr string, stack []module.LayerHint
 	return current, nil
 }
 
-// buildDatagramConduit builds a datagram-based conduit (UDP/DTLS)
-func (a *ModuleAdapter) buildDatagramConduit(addr string, stack []module.LayerHint) (cnd.Conduit[cnd.Datagram], error) {
-	// Check if we need DTLS (it replaces UDP completely)
+func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Datagram], error) {
 	for _, layer := range stack {
 		if strings.ToLower(layer.Name) == "dtls" {
-			// DTLS conduit handles UDP internally
 			dtlsConfig := a.buildDTLSConfig(layer.Params)
 			return tlscond.NewDtlsClient(addr, dtlsConfig), nil
 		}
 	}
-
-	// Otherwise use plain UDP
 	return transport.UDP(addr), nil
 }
 
-// buildTLSConfig creates a tls.Config from layer parameters
-func (a *ModuleAdapter) buildTLSConfig(params map[string]any) *tls.Config {
+func (a *ABIModuleAdapter) buildTLSConfig(params map[string]any) *tls.Config {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -162,17 +176,14 @@ func (a *ModuleAdapter) buildTLSConfig(params map[string]any) *tls.Config {
 		return cfg
 	}
 
-	// Server name for SNI
 	if serverName, ok := params["server_name"].(string); ok && serverName != "" {
 		cfg.ServerName = serverName
 	}
 
-	// Skip verification (for testing)
 	if skipVerify, ok := params["skip_verify"].(bool); ok {
 		cfg.InsecureSkipVerify = skipVerify
 	}
 
-	// Minimum TLS version
 	if minVersion, ok := params["min_version"].(string); ok {
 		switch strings.ToUpper(minVersion) {
 		case "TLS1.0", "TLS10":
@@ -189,18 +200,18 @@ func (a *ModuleAdapter) buildTLSConfig(params map[string]any) *tls.Config {
 	return cfg
 }
 
-// buildDTLSConfig creates a dtls.Config from layer parameters
-func (a *ModuleAdapter) buildDTLSConfig(params map[string]any) *dtls.Config {
+func (a *ABIModuleAdapter) buildDTLSConfig(params map[string]any) *dtls.Config {
 	cfg := &dtls.Config{}
 
 	if params == nil {
 		return cfg
 	}
 
-	// Skip verification (for testing)
 	if skipVerify, ok := params["skip_verify"].(bool); ok && skipVerify {
 		cfg.InsecureSkipVerify = true
 	}
 
 	return cfg
 }
+
+// GRPC --------------------------------------------------

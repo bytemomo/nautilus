@@ -1,4 +1,4 @@
-package usecase
+package scanner
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type ScannerUC struct {
+type Scanner struct {
 	Config domain.ScannerConfig
 }
 
-func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.ClassifiedTarget, error) {
+func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.ClassifiedTarget, error) {
 	targets := sanitizeCIDRs(cidrs)
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no valid CIDRs provided")
@@ -86,7 +86,6 @@ func (s ScannerUC) Execute(ctx context.Context, cidrs []string) ([]domain.Classi
 		log.Errorf("Wrong timing for scanner: %s", s.Config.Timing)
 	}
 
-	// Optional overall deadline for the process.Config.
 	if s.Config.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.Config.Timeout)
@@ -190,7 +189,10 @@ func pickHostAddress(h nmap.Host) string {
 func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel, product string) []domain.Tag {
 	tagset := map[domain.Tag]struct{}{}
 
-	// Transport/protocol baseline
+	if t.Host == "localhost" || t.Host == "127.0.0.1" || t.Host == "::1" {
+		tagset[domain.Tag("service:local")] = struct{}{}
+	}
+
 	if strings.EqualFold(proto, "udp") {
 		tagset[domain.Tag("transport:udp")] = struct{}{}
 	} else {
@@ -201,13 +203,11 @@ func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel, product st
 	svcLower := strings.ToLower(svcName)
 	prodLower := strings.ToLower(product)
 
-	// TLS detection
 	if tunnel == "ssl" || strings.HasPrefix(svcLower, "ssl/") ||
 		t.Port == 443 || t.Port == 8883 || t.Port == 5684 {
 		tagset[domain.Tag("supports:tls")] = struct{}{}
 	}
 
-	// Service→protocol tags
 	switch {
 	case containsSvc(svcLower, "mqtt") || strings.Contains(prodLower, "mosquitto") || strings.Contains(prodLower, "mqtt"):
 		tagset[domain.Tag("protocol:mqtt")] = struct{}{}
@@ -219,7 +219,6 @@ func deriveTagsFromService(t domain.HostPort, proto, svcName, tunnel, product st
 		tagset[domain.Tag("protocol:modbus")] = struct{}{}
 	}
 
-	// Port fallbacks (cheap heuristics)
 	switch t.Port {
 	case 1883:
 		tagset[domain.Tag("protocol:mqtt")] = struct{}{}

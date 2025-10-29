@@ -7,7 +7,7 @@ type CLIConfig struct {
 	Command    string `yaml:"command"`
 	// Mode string `yaml:"mode"`
 
-	// TODO: Reverse tunneling?
+	// TODO: Reverse tunneling to run it on remote host ?
 	// SshReverseTunneling bool   `yaml:"rev_tunnel"`
 	// TargetTunnel        string `yaml:"target_tunnel"`
 	// LoginUser           string `yaml:"login_user"`

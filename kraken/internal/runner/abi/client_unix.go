@@ -1,16 +1,19 @@
-//go:build windows
+//go:build !windows
 
-package abiplugin
+package abi
 
 /*
-#include <windows.h>
+#cgo LDFLAGS: -ldl
+#include <dlfcn.h>
 #include <stdlib.h>
+#include <string.h>
 #include "../../../pkg/plugabi/orca_plugin_abi.h"
 #include "../../../pkg/plugabi/orca_plugin_abi_v2.h"
 
-static HMODULE my_LoadLibrary(const char* p) { return LoadLibraryA(p); }
-static FARPROC my_GetProcAddress(HMODULE h, const char* s) { return GetProcAddress(h, s); }
-static BOOL my_FreeLibrary(HMODULE h) { return FreeLibrary(h); }
+static void* my_dlopen(const char* p)              { return dlopen(p, RTLD_NOW); }
+static void* my_dlsym(void* h, const char* s)      { return dlsym(h, s); }
+static int   my_dlclose(void* h)                   { return dlclose(h); }
+static const char* my_dlerror()                    { return dlerror(); }
 
 // Thin bridge wrappers so Go can call function pointers.
 static inline int call_ORCA_Run(ORCA_RunFn f, const char* host, uint32_t port, uint32_t timeout_ms,
@@ -43,6 +46,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -60,9 +64,8 @@ func (c *Client) Supports(transport string) bool {
 	return strings.EqualFold(transport, "abi")
 }
 
-// V2 connection handle wrapper
 type v2ConnectionHandle struct {
-	conduit interface{} // cnd.Stream or cnd.Datagram
+	conduit interface{}
 	info    *C.ORCA_ConnectionInfo
 }
 
@@ -82,10 +85,8 @@ func go_conduit_send(conn C.ORCA_ConnectionHandle, data *C.uint8_t, length C.siz
 		return -1
 	}
 
-	// Convert C data to Go slice
 	goData := C.GoBytes(unsafe.Pointer(data), C.int(length))
 
-	// Determine conduit type and perform send
 	switch c := handle.conduit.(type) {
 	case cnd.Stream:
 		ctx := context.Background()
@@ -135,7 +136,6 @@ func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_siz
 		return -1
 	}
 
-	// Determine conduit type and perform recv
 	switch c := handle.conduit.(type) {
 	case cnd.Stream:
 		ctx := context.Background()
@@ -152,7 +152,7 @@ func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_siz
 
 		chunk, err := c.Recv(ctx, &cnd.RecvOptions{MaxBytes: maxBytes})
 		if err == io.EOF {
-			return 0 // EOF
+			return 0
 		} else if err != nil {
 			return -1
 		}
@@ -163,10 +163,7 @@ func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_siz
 			if n > int(buffer_size) {
 				n = int(buffer_size)
 			}
-			// Copy to C buffer
-			for i := 0; i < n; i++ {
-				*(*C.uint8_t)(unsafe.Pointer(uintptr(unsafe.Pointer(buffer)) + uintptr(i))) = C.uint8_t(data[i])
-			}
+			C.memcpy(unsafe.Pointer(buffer), unsafe.Pointer(&data[0]), C.size_t(n))
 			chunk.Data.Release()
 			return C.int64_t(n)
 		}
@@ -198,9 +195,7 @@ func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_siz
 			if n > int(buffer_size) {
 				n = int(buffer_size)
 			}
-			for i := 0; i < n; i++ {
-				*(*C.uint8_t)(unsafe.Pointer(uintptr(unsafe.Pointer(buffer)) + uintptr(i))) = C.uint8_t(data[i])
-			}
+			C.memcpy(unsafe.Pointer(buffer), unsafe.Pointer(&data[0]), C.size_t(n))
 			chunk.Data.Release()
 			return C.int64_t(n)
 		}
@@ -223,22 +218,30 @@ func go_conduit_get_info(conn C.ORCA_ConnectionHandle) *C.ORCA_ConnectionInfo {
 	return handle.info
 }
 
-// Run is the legacy method for backward compatibility (no conduit)
-func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
+// func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+// 	if timeout > 0 {
+// 		var cancel context.CancelFunc
+// 		ctx, cancel = context.WithTimeout(ctx, timeout)
+// 		defer cancel()
+// 	}
 
-	return c.RunWithConduit(ctx, params, t, timeout, nil)
-}
+// 	return c.RunWithConduit(ctx, params, t, timeout, nil)
+// }
 
-// RunWithConduit executes a module with optional conduit support
 func (c *Client) RunWithConduit(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
 
-	libPath := abiConfig.LibraryPath + ".dll"
+	var extension string
+	switch runtime.GOOS {
+	case "darwin":
+		extension = ".dylib"
+	case "linux":
+		extension = ".so"
+	default:
+		return domain.RunResult{}, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	libPath := abiConfig.LibraryPath + extension
 	if libPath == "" {
 		return domain.RunResult{}, fmt.Errorf("abi library path missing in exec.params")
 	}
@@ -250,43 +253,38 @@ func (c *Client) RunWithConduit(ctx context.Context, params map[string]any, t do
 	clib := C.CString(libPath)
 	defer C.free(unsafe.Pointer(clib))
 
-	handle := C.my_LoadLibrary(clib)
+	handle := C.my_dlopen(clib)
 	if handle == nil {
-		return domain.RunResult{}, fmt.Errorf("LoadLibrary(%s) failed", libPath)
+		return domain.RunResult{}, fmt.Errorf("dlopen(%s) failed: %s", libPath, C.GoString(C.my_dlerror()))
 	}
-	defer C.my_FreeLibrary(handle)
+	defer C.my_dlclose(handle)
 
-	// Try V2 API first
 	if strings.HasSuffix(symbol, "_V2") || symbol == "ORCA_Run_V2" {
 		return c.runV2(handle, symbol, params, t, timeout, conduit)
 	}
 
-	// Fall back to V1 API
 	return c.runV1(handle, symbol, params, t, timeout)
 }
 
-func (c *Client) runV1(handle C.HMODULE, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	// resolve run symbol
+func (c *Client) runV1(handle unsafe.Pointer, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
 
-	runPtr := C.my_GetProcAddress(handle, csym)
+	runPtr := C.my_dlsym(handle, csym)
 	if runPtr == nil {
-		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s) failed", symbol)
+		return domain.RunResult{}, fmt.Errorf("dlsym(%s) failed: %s", symbol, C.GoString(C.my_dlerror()))
 	}
 	run := (C.ORCA_RunFn)(runPtr)
 
-	// resolve free symbol
 	freeSym := C.CString("ORCA_Free")
 	defer C.free(unsafe.Pointer(freeSym))
 
-	freePtr := C.my_GetProcAddress(handle, freeSym)
+	freePtr := C.my_dlsym(handle, freeSym)
 	if freePtr == nil {
-		return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free) failed")
+		return domain.RunResult{}, fmt.Errorf("dlsym(ORCA_Free) failed: %s", C.GoString(C.my_dlerror()))
 	}
 	freeFn := (C.ORCA_FreeFn)(freePtr)
 
-	// prepare args
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
 
@@ -299,7 +297,6 @@ func (c *Client) runV1(handle C.HMODULE, symbol string, params map[string]any, t
 
 	var outResult *C.ORCA_RunResult
 
-	// call into plugin
 	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, cParams, &outResult)
 	if int(ret) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
@@ -310,50 +307,43 @@ func (c *Client) runV1(handle C.HMODULE, symbol string, params map[string]any, t
 	}
 	defer C.call_ORCA_Free(freeFn, unsafe.Pointer(outResult))
 
-	// copy and decode
 	return decodeRunResult(outResult)
 }
 
-func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
-	// resolve run symbol
+func (c *Client) runV2(handle unsafe.Pointer, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
 
-	runPtr := C.my_GetProcAddress(handle, csym)
+	runPtr := C.my_dlsym(handle, csym)
 	if runPtr == nil {
-		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s) failed", symbol)
+		return domain.RunResult{}, fmt.Errorf("dlsym(%s) failed: %s", symbol, C.GoString(C.my_dlerror()))
 	}
 	run := (C.ORCA_RunV2Fn)(runPtr)
 
-	// resolve free symbol
 	freeSym := C.CString("ORCA_Free_V2")
 	defer C.free(unsafe.Pointer(freeSym))
 
-	freePtr := C.my_GetProcAddress(handle, freeSym)
+	freePtr := C.my_dlsym(handle, freeSym)
 	if freePtr == nil {
-		// Try fallback to ORCA_Free
 		freeSym = C.CString("ORCA_Free")
 		defer C.free(unsafe.Pointer(freeSym))
-		freePtr = C.my_GetProcAddress(handle, freeSym)
+		freePtr = C.my_dlsym(handle, freeSym)
 		if freePtr == nil {
-			return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free_V2/ORCA_Free) failed")
+			return domain.RunResult{}, fmt.Errorf("dlsym(ORCA_Free_V2/ORCA_Free) failed: %s", C.GoString(C.my_dlerror()))
 		}
 	}
 	freeFn := (C.ORCA_FreeV2Fn)(freePtr)
 
-	// Create connection handle and info
 	v2HandleMutex.Lock()
 	handleID := v2HandleCounter
 	v2HandleCounter++
 	connHandle := C.ORCA_ConnectionHandle(unsafe.Pointer(handleID))
 
-	// Create connection info
 	info := (*C.ORCA_ConnectionInfo)(C.malloc(C.sizeof_ORCA_ConnectionInfo))
 	remoteAddr := fmt.Sprintf("%s:%d", t.Host, t.Port)
 	info.remote_addr = C.CString(remoteAddr)
 	info.local_addr = C.CString("0.0.0.0:0")
 
-	// Determine connection type and build stack layers based on conduit
 	var stackLayers []string
 	if conduit != nil {
 		switch c := conduit.(type) {
@@ -390,15 +380,13 @@ func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t
 		stackLayers = []string{"tcp"}
 	}
 
-	// Populate stack layers
 	info.stack_layers_count = C.size_t(len(stackLayers))
-	info.stack_layers = (**C.char)(C.malloc(C.size_t(len(stackLayers)) * C.size_t(unsafe.Sizeof(uintptr(0)))))
+	info.stack_layers = (**C.char)(C.malloc(C.size_t(len(stackLayers)) * C.sizeof_uintptr_t))
 	for i, layer := range stackLayers {
 		layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
 		*layerPtr = C.CString(layer)
 	}
 
-	// Register handle for callbacks
 	v2HandleMap[handleID] = &v2ConnectionHandle{
 		conduit: conduit,
 		info:    info,
@@ -410,7 +398,6 @@ func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t
 		delete(v2HandleMap, handleID)
 		v2HandleMutex.Unlock()
 
-		// Free connection info
 		C.free(unsafe.Pointer(info.remote_addr))
 		C.free(unsafe.Pointer(info.local_addr))
 		for i := 0; i < len(stackLayers); i++ {
@@ -421,13 +408,11 @@ func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t
 		C.free(unsafe.Pointer(info))
 	}()
 
-	// Setup connection ops with our Go callbacks
 	var ops C.ORCA_ConnectionOps
 	ops.send = C.ORCA_SendFn(C.go_conduit_send)
 	ops.recv = C.ORCA_RecvFn(C.go_conduit_recv)
 	ops.get_info = C.ORCA_GetConnectionInfoFn(C.go_conduit_get_info)
 
-	// Setup target
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
 
@@ -443,7 +428,6 @@ func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t
 
 	var outResult *C.ORCA_RunResult
 
-	// call into plugin
 	ret := C.call_ORCA_Run_V2(run, connHandle, &ops, &target, timeoutMs, cParams, &outResult)
 	if int(ret) != 0 {
 		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
@@ -454,17 +438,14 @@ func (c *Client) runV2(handle C.HMODULE, symbol string, params map[string]any, t
 	}
 	defer C.call_ORCA_Free_V2(freeFn, unsafe.Pointer(outResult))
 
-	// copy and decode
 	return decodeRunResult(outResult)
 }
 
-// decodeRunResult is shared logic (duplicated to avoid build tag import hassles)
 func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 	var res domain.RunResult
 	res.Target.Host = C.GoString(cResult.target.host)
 	res.Target.Port = uint16(cResult.target.port)
 
-	// logs
 	if cResult.logs.count > 0 {
 		logSlice := unsafe.Slice(cResult.logs.strings, cResult.logs.count)
 		for _, s := range logSlice {
@@ -472,7 +453,6 @@ func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 		}
 	}
 
-	// findings
 	if cResult.findings_count > 0 {
 		findingSlice := unsafe.Slice(cResult.findings, cResult.findings_count)
 		for _, cFinding := range findingSlice {
