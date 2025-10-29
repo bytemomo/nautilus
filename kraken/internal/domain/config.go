@@ -3,7 +3,8 @@ package domain
 import "time"
 
 type CLIConfig struct {
-	Path string `yaml:"path"`
+	Executable string `yaml:exec`
+	Command    string `yaml:"command"`
 	// Mode string `yaml:"mode"`
 
 	// TODO: Reverse tunneling?
@@ -35,6 +36,8 @@ type ExecConfig struct {
 type RunnerConfig struct {
 	GlobalTimeout time.Duration `yaml:"global_timeout,omitempty"`
 	MaxTargets    int           `yaml:"max_parallel_targets,omitempty"`
+
+	ResultDirectory string
 }
 
 type ServiceDetectType string

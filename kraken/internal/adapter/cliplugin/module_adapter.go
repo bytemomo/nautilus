@@ -33,7 +33,8 @@ func (a *ModuleAdapter) Supports(m *module.Module) bool {
 func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	// Create a context with CLI config embedded (legacy API requirement)
 	cliConfig := &domain.CLIConfig{
-		Path: m.ExecConfig.CLI.Path,
+		Executable: m.ExecConfig.CLI.Executable,
+		Command:    m.ExecConfig.CLI.Command,
 	}
 
 	cliCtx := context.WithValue(ctx, "cli", cliConfig)

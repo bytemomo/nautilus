@@ -39,21 +39,29 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 	}
 
 	args := []string{
+		config.Command,
 		"--host", t.Host,
 		"--port", fmt.Sprintf("%d", t.Port),
 	}
-	for k, v := range params {
-		args = append(args, "--"+k, fmt.Sprintf("%v", v))
+
+	if out_dir, ok := ctx.Value("out_dir").(*string); ok {
+		args = append(args, "--output-dir", *out_dir)
 	}
 
-	cmd := exec.CommandContext(ctx, config.Path, args...)
+	for k, v := range params {
+		args = append(args, k, fmt.Sprintf("%v", v))
+	}
+
+	cmd := exec.Command(config.Executable, args...)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
 	if err := cmd.Run(); err != nil {
-		return result, fmt.Errorf("error running plugin %s: %w: %s", config.Path, err, out.String())
+		return result, fmt.Errorf("error running plugin %s: %w: %s", config.Command, err, out.String())
+	} else {
+		fmt.Printf("Running cmd: %s %v", config.Command, args)
 	}
 
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {

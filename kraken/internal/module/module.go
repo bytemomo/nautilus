@@ -9,24 +9,24 @@ import (
 type ModuleType string
 
 const (
-    Native ModuleType = "native"
-    Lib     ModuleType = "lib"
-    Grpc    ModuleType = "grpc"
+	Native ModuleType = "native"
+	Lib    ModuleType = "lib"
+	Grpc   ModuleType = "grpc"
 )
 
 type ModuleApiVersion uint8
 
 const (
-    ModuleV1 ModuleApiVersion = iota
-    ModuleV2
+	ModuleV1 ModuleApiVersion = iota
+	ModuleV2
 )
 
 type Module struct {
-	ModuleID     string          `yaml:"id"`
-	RequiredTags []string        `yaml:"required_tags,omitempty"`
-	MaxDuration  time.Duration   `yaml:"max_duration,omitempty"`
-	Type         ModuleType      `yaml:"type"`     // native|lib|grpc|cli
-	Version      ModuleApiVersion `yaml:"api"`     // v1|v2
+	ModuleID     string           `yaml:"id"`
+	RequiredTags []string         `yaml:"required_tags,omitempty"`
+	MaxDuration  time.Duration    `yaml:"max_duration,omitempty"`
+	Type         ModuleType       `yaml:"type"` // native|lib|grpc|cli
+	Version      ModuleApiVersion `yaml:"api"`  // v1|v2
 
 	ExecConfig struct {
 		ABI *struct {
@@ -40,12 +40,12 @@ type Module struct {
 		} `yaml:"grpc,omitempty"`
 
 		CLI *struct { // Only runnable with V1
-			Path string   `yaml:"path"`
-			Args []string `yaml:"args,omitempty"`
+			Executable string `yaml:"exec"`
+			Command    string `yaml:"command"`
 		} `yaml:"cli,omitempty"`
 
 		Conduit *struct {
-			Kind  cnd.Kind   `yaml:"kind"`
+			Kind  cnd.Kind    `yaml:"kind"`
 			Stack []LayerHint `yaml:"stack,omitempty"`
 		} `yaml:"conduit"`
 
@@ -57,8 +57,6 @@ type LayerHint struct {
 	Name   string         `yaml:"name"`
 	Params map[string]any `yaml:"params,omitempty"`
 }
-
-
 
 func (m *Module) Validate() error {
 	if m.ModuleID == "" {
@@ -121,7 +119,7 @@ func (m *Module) Validate() error {
 	// Validate CLI config
 	// CLI only supports V1
 	if hasCLI {
-		if m.ExecConfig.CLI.Path == "" {
+		if m.ExecConfig.CLI.Command == "" {
 			return fmt.Errorf("cli.path is required")
 		}
 		if m.Version != ModuleV1 {

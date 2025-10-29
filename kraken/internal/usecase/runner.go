@@ -12,9 +12,9 @@ import (
 )
 
 type RunnerUC struct {
-	Executors      []domain.ModuleExecutor // Module-based executors (supports both V1 and V2)
-	Store          domain.ResultRepo
-	Config         domain.RunnerConfig
+	Executors []domain.ModuleExecutor // Module-based executors (supports both V1 and V2)
+	Store     domain.ResultRepo
+	Config    domain.RunnerConfig
 }
 
 func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
@@ -108,6 +108,7 @@ func (uc RunnerUC) runModuleStep(ctx context.Context, mod *module.Module, target
 
 	// Execute the module
 	cctx, cancel := context.WithTimeout(ctx, timeout)
+	cctx = context.WithValue(cctx, "out_dir", &uc.Config.ResultDirectory)
 	rr, err := exec.Run(cctx, mod, mod.ExecConfig.Params, target, timeout)
 	cancel()
 
@@ -127,10 +128,6 @@ func (uc RunnerUC) runModuleStep(ctx context.Context, mod *module.Module, target
 	result.Logs = rr.Logs
 	return result
 }
-
-
-
-
 
 func filterStepsByTags(steps []*module.Module, tags []domain.Tag) []*module.Module {
 	tagset := map[domain.Tag]struct{}{}

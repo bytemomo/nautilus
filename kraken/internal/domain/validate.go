@@ -22,7 +22,7 @@ func (e ExecConfig) Validate() error {
 		}
 	}
 	if e.CLI != nil {
-		if e.CLI.Path == "" {
+		if e.CLI.Command == "" {
 			return fmt.Errorf("exec.abi.library is required")
 		}
 	}
