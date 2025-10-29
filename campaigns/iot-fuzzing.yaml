@@ -56,5 +56,20 @@ steps:
       type: native
       api: 0
       exec:
+          # The orchestrator will to set the --output-dir parameter automatically
+          # so that the outputs of boofuzz will be placed in the right directory.
           cli:
-              path: "./modules/kraken/cli/boofuzz_mqtt/boofuzz_poc.py"
+              exec: "/Users/cosimo.giraldi/repos/nautilus/modules/kraken/cli/boofuzz_mqtt/boofuzz_poc.py"
+              command: "fuzz"
+          params:
+              # --test-case-index: 10-20
+              # test-case-index INTEGER     # Test case index
+              # test-case-name TEXT         # Name of node or specific test case
+              # csv-out TEXT                # Output to CSV file
+              # sleep-between-cases FLOAT   # Wait time between test cases (floating point)
+              # procmon-host TEXT           # Process monitor port host or IP
+              # procmon-port INTEGER        # Process monitor port
+              # procmon-start TEXT          # Process monitor start command
+              # procmon-capture             # Capture stdout/stderr from target process upon failure
+              # file-dump / no-file-dump    # Enable/disable full dump of logs into a file
+              # help                        # Show this message and exit.

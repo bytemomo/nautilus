@@ -2,15 +2,18 @@
 
 import sys
 import json
-from boofuzz import *
 import io
 import os
-import argparse
 from typing import Union
+import click
+
+from boofuzz import *
+from boofuzz.constants import DEFAULT_PROCMON_PORT
+from boofuzz.utils.debugger_thread_simple import DebuggerThreadSimple
+from boofuzz.utils.process_monitor_local import ProcessMonitorLocal
 
 
-OUTDIR = "./boofuzz-results"
-LOG_FILEPATH = f"{OUTDIR}/fuzz.log"
+OUTDIR: String = "boofuzz-results"
 
 # (mqtt_varlen_encoder and its unit tests remain the same as before)
 def mqtt_varlen_encoder(value):
@@ -186,53 +189,7 @@ def build_disconnect_request():
     return build_mqtt_packet("MQTT_DISCONNECT", 0xE0, variable_header)
 
 
-# UTILS ------------------------------
-
-def parse_dynamic_args(dynamic_args):
-    """
-    Parses arbitrary flags like --key value from a list of arguments.
-    Returns a dictionary.
-    """
-    parsed = {}
-    i = 0
-    while i < len(dynamic_args):
-        if dynamic_args[i].startswith('--'):
-            key = dynamic_args[i][2:]
-            # Make sure there is a value after the key
-            if i + 1 < len(dynamic_args) and not dynamic_args[i+1].startswith('--'):
-                value = dynamic_args[i+1]
-                i += 2
-            else:
-                value = True  # flag without a value (boolean style)
-                i += 1
-            parsed[key] = value
-        else:
-            print(f"Warning: Unexpected argument {dynamic_args[i]}")
-            i += 1
-    return parsed
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--host', required=True)
-    parser.add_argument('--port', required=True)
-    args, remainder = parser.parse_known_args()
-
-    if '--' in remainder:
-        sep_index = remainder.index('--')
-        extra_args = remainder[sep_index + 1:]
-    else:
-        extra_args = []
-
-    dynamic_params = parse_dynamic_args(extra_args)
-
-    print("Host:", args.host)
-    print("Port:", args.port)
-    print("Dynamic Params:", dynamic_params)
-    return args.host, int(args.port), dynamic_params
-
-
 # Callbacks ------------------------------
-
 
 def conn_callback(target, fuzz_data_logger, session, test_case_context, *args, **kwargs):
     """Handle MQTT CONNACK after CONNECT using session.last_recv"""
@@ -356,13 +313,104 @@ def ping_callback(target, fuzz_data_logger, session, test_case_context, *args, *
 # General TODOS:
 # - Look at AUTH
 
-def main():
-    host, port, dynamic_args = parse_args()
+# UTILS ------------------------------
+
+@click.group()
+def cli():
+    pass
+
+@click.command()
+@click.option('--host', help='Host or IP address of target', prompt=True)
+@click.option('--port', type=int, default=21, help='Network port of target')
+@click.option('--test-case-index', help='Test case index', type=str)
+@click.option('--test-case-name', help='Name of node or specific test case')
+@click.option('--csv-out', help='Output to CSV file')
+@click.option('--sleep-between-cases', help='Wait time between test cases (floating point)', type=float, default=0)
+@click.option('--procmon-host', help='Process monitor port host or IP')
+@click.option('--procmon-port', type=int, default=DEFAULT_PROCMON_PORT, help='Process monitor port')
+@click.option('--procmon-start', help='Process monitor start command')
+@click.option('--procmon-capture', is_flag=True, help='Capture stdout/stderr from target process upon failure')
+@click.option('--tui/--no-tui', help='Enable/disable TUI')
+@click.option('--text-dump/--no-text-dump', help='Enable/disable full text dump of logs', default=False)
+@click.option('--file-dump/--no-file-dump', help='Enable/disable full dump of logs into a file', default=True)
+@click.option('--output-dir', type=str, help='Specify output directory', default="")
+@click.argument('target_cmdline', nargs=-1, type=click.UNPROCESSED)
+def fuzz(target_cmdline, host, port, test_case_index, test_case_name, csv_out, sleep_between_cases,
+         procmon_host, procmon_port, procmon_start, procmon_capture, tui, text_dump, file_dump, output_dir
+    ):
+
+
+    if output_dir == "":
+        MASTER_OUTDIR = f"./{OUTDIR}"
+    else:
+        MASTER_OUTDIR=f"{output_dir}/{OUTDIR}"
+
+    os.makedirs(MASTER_OUTDIR, exist_ok=True)
+    LOG_FILEPATH = f"{MASTER_OUTDIR}/fuzz.log"
+
+    fuzz_loggers = []
+    if text_dump:
+        fuzz_loggers.append(FuzzLoggerText())
+    elif tui:
+        fuzz_loggers.append(FuzzLoggerCurses())
+    elif file_dump:
+        fuzz_loggers.append(FuzzLoggerText(file_handle=io.TextIOWrapper(open(LOG_FILEPATH, "wb+"), encoding="utf-8")))
+    if csv_out is not None:
+        f = open('ftp-fuzz.csv', 'wb')
+        fuzz_loggers.append(FuzzLoggerCsv(file_handle=f))
+
+    local_procmon = None
+    if len(target_cmdline) > 0 and procmon_host is None:
+        local_procmon = ProcessMonitorLocal(crash_filename="boofuzz-crash-bin", proc_name=None, pid_to_ignore=None, debugger_class=DebuggerThreadSimple, level=1)
+
+    procmon_options = {}
+    if procmon_start is not None:
+        procmon_options['start_commands'] = [procmon_start]
+    if target_cmdline is not None:
+        procmon_options['start_commands'] = [list(target_cmdline)]
+    if procmon_capture:
+        procmon_options['capture_output'] = True
+
+    if local_procmon is not None or procmon_host is not None:
+        if procmon_host is not None:
+            procmon = ProcessMonitor(procmon_host, procmon_port)
+        else:
+            procmon = local_procmon
+        procmon.set_options(**procmon_options)
+        monitors = [procmon]
+    else:
+        procmon = None
+        monitors = []
+
+    start = None
+    end = None
+    fuzz_only_one_case = None
+    if test_case_index is None:
+        start = 1
+    elif "-" in test_case_index:
+        start, end = test_case_index.split("-")
+        if not start:
+            start = 1
+        else:
+            start = int(start)
+        if not end:
+            end = None
+        else:
+            end = int(end)
+    else:
+        fuzz_only_one_case = int(test_case_index)
 
     session = Session(
-        receive_data_after_fuzz=True, # Session will attempt to receive a reply after transmitting fuzzed message
-        target=Target(connection=TCPSocketConnection(host, port)),
-        fuzz_loggers=[FuzzLoggerText(), FuzzLoggerText(file_handle=io.TextIOWrapper(open(LOG_FILEPATH, "wb+"), encoding="utf-8"))],
+        target=Target(
+            connection=TCPSocketConnection(host, port),
+            monitors=monitors,
+        ),
+        fuzz_loggers=fuzz_loggers,
+        sleep_time=sleep_between_cases,
+        index_start=start,
+        index_end=end,
+        receive_data_after_fuzz=True,
+        db_filename=f"{MASTER_OUTDIR}/session.db"
     )
 
     connect_req = build_connect_request()
@@ -407,13 +455,19 @@ def main():
     session.connect(connect_auth_req, disconnect_req, callback=conn_callback)
     session.connect(connect_lwt_req, disconnect_req, callback=conn_callback)
 
-    with open('somefile.png', 'wb') as file:
+    with open(f'./{MASTER_OUTDIR}/fsm.png', 'wb') as file:
         file.write(session.render_graph_graphviz().create_png())
 
     print(f"Logs will be saved to {LOG_FILEPATH}")
 
-    session.fuzz()
+
+    if fuzz_only_one_case is not None:
+        session.fuzz_single_case(mutant_index=full_only_one_case)
+    else:
+        session.fuzz()
     print("Fuzzing session finished.")
 
+
 if __name__ == "__main__":
-    main()
+    cli.add_command(fuzz)
+    cli()
