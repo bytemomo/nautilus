@@ -19,7 +19,6 @@ type RunnerUC struct {
 
 func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
 	log.WithFields(log.Fields{
-		"GlobalTimeout":      uc.Config.GlobalTimeout,
 		"MaxParallelTargets": uc.Config.MaxTargets,
 	}).Info("Running campaign with following runner parameters")
 
@@ -36,7 +35,7 @@ func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classi
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem }()
-			res := uc.runForTarget(ctx, campaign, ct)
+			res := uc.runForTarget(campaign, ct)
 			if err := uc.Store.Save(res.Target, res); err != nil {
 				log.WithFields(log.Fields{
 					"target": res.Target.Host + ":" + strconv.Itoa(int(res.Target.Port)),
@@ -56,7 +55,7 @@ func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classi
 	return all, nil
 }
 
-func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
+func (uc RunnerUC) runForTarget(camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
 	result := domain.RunResult{Target: ct.Target}
 	plan := filterStepsByTags(camp.Steps, ct.Tags)
 
@@ -67,14 +66,14 @@ func (uc RunnerUC) runForTarget(ctx context.Context, camp domain.Campaign, ct do
 	}).Info("Running for target")
 
 	for _, mod := range plan {
-		rr := uc.runModuleStep(ctx, mod, ct.Target)
+		rr := uc.runModuleStep(mod, ct.Target)
 		result.Findings = append(result.Findings, rr.Findings...)
 		result.Logs = append(result.Logs, rr.Logs...)
 	}
 	return result
 }
 
-func (uc RunnerUC) runModuleStep(ctx context.Context, mod *module.Module, target domain.HostPort) domain.RunResult {
+func (uc RunnerUC) runModuleStep(mod *module.Module, target domain.HostPort) domain.RunResult {
 	result := domain.RunResult{Target: target}
 
 	l := log.WithFields(log.Fields{
@@ -98,19 +97,9 @@ func (uc RunnerUC) runModuleStep(ctx context.Context, mod *module.Module, target
 		return result
 	}
 
-	// Determine timeout - use module's max duration
-	timeout := uc.Config.GlobalTimeout
-	if mod.MaxDuration > 0 {
-		timeout = mod.MaxDuration
-	}
-
-	l.WithField("timeout", timeout).Info("Executing module step")
-
 	// Execute the module
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	cctx = context.WithValue(cctx, "out_dir", &uc.Config.ResultDirectory)
-	rr, err := exec.Run(cctx, mod, mod.ExecConfig.Params, target, timeout)
-	cancel()
+	ctx := context.WithValue(context.Background(), "out_dir", &uc.Config.ResultDirectory)
+	rr, err := exec.Run(ctx, mod, mod.ExecConfig.Params, target, mod.MaxDuration)
 
 	if err != nil {
 		msg := fmt.Sprintf("run module %s: %v", mod.ModuleID, err)

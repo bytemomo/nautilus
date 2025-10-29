@@ -71,7 +71,7 @@ type v2ConnectionHandle struct {
 }
 
 var (
-	v2HandleMap     = make(map[uintptr]*v2ConnectionHandle)
+	v2HandleMap             = make(map[uintptr]*v2ConnectionHandle)
 	v2HandleCounter uintptr = 1
 	v2HandleMutex   sync.RWMutex
 )
@@ -225,6 +225,12 @@ func go_conduit_get_info(conn C.ORCA_ConnectionHandle) *C.ORCA_ConnectionInfo {
 
 // Run is the legacy method for backward compatibility (no conduit)
 func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	return c.RunWithConduit(ctx, params, t, timeout, nil)
 }
 

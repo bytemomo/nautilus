@@ -32,8 +32,6 @@ description: |
     could creates many allerts and flood the network making it more unstable.
 
 runner:
-    # 3h circa
-    global_timeout: 10800s
     max_parallel_targets: 2
 
 scanner:
@@ -52,7 +50,7 @@ scanner:
 steps:
     - id: "mqtt-boofuzz"
       required_tags: ["protocol:mqtt"]
-      max_duration: 120s
+      max_duration: 30m
       type: native
       api: 0
       exec:
@@ -61,8 +59,10 @@ steps:
           cli:
               exec: "/Users/cosimo.giraldi/repos/nautilus/modules/kraken/cli/boofuzz_mqtt/boofuzz_poc.py"
               command: "fuzz"
+          # Params will be translated in arguments, entry, e.g.:
+          #     --test-case-index: 10-20
+          # will be translated in: <exec> <command> --test-case-index: 10-20
           params:
-              # --test-case-index: 10-20
               # test-case-index INTEGER     # Test case index
               # test-case-name TEXT         # Name of node or specific test case
               # csv-out TEXT                # Output to CSV file

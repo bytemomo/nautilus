@@ -58,8 +58,8 @@ func main() {
 		Config: *scannerConfig,
 	}
 
-	ctx := context.Background()
-	classified, err := scanner.Execute(ctx, cidrs)
+	scannerCtx := context.Background()
+	classified, err := scanner.Execute(scannerCtx, cidrs)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fatal:", err)
 		os.Exit(1)
@@ -78,7 +78,8 @@ func main() {
 		Config:    camp.Runner,
 	}
 
-	all, err := runner.Execute(ctx, *camp, classified)
+	runnerCtx := context.Background()
+	all, err := runner.Execute(runnerCtx, *camp, classified)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fatal:", err)
 		os.Exit(1)
@@ -86,7 +87,7 @@ func main() {
 
 	// Report
 	report := usecase.ReporterUC{Writer: reporter}
-	path, err := report.Execute(ctx, all)
+	path, err := report.Execute(context.Background(), all)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fatal:", err)
 		os.Exit(1)

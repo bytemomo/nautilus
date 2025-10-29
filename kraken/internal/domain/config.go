@@ -34,8 +34,7 @@ type ExecConfig struct {
 }
 
 type RunnerConfig struct {
-	GlobalTimeout time.Duration `yaml:"global_timeout,omitempty"`
-	MaxTargets    int           `yaml:"max_parallel_targets,omitempty"`
+	MaxTargets int `yaml:"max_parallel_targets,omitempty"`
 
 	ResultDirectory string
 }

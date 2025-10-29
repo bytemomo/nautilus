@@ -47,6 +47,12 @@ func (c *Client) Supports(m *module.Module) bool {
 // Run executes a gRPC V2 module over a connected conduit
 // This method matches the ModuleExecutor interface
 func (c *Client) Run(ctx context.Context, m *module.Module, params map[string]any, target domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	result := domain.RunResult{Target: target}
 
 	if !c.Supports(m) {
@@ -76,9 +82,7 @@ func (c *Client) Run(ctx context.Context, m *module.Module, params map[string]an
 			return result, fmt.Errorf("failed to build stream conduit: %w", err)
 		}
 
-		dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
-		err = streamConduit.Dial(dialCtx)
-		dialCancel()
+		err = streamConduit.Dial(ctx)
 		if err != nil {
 			return result, fmt.Errorf("failed to dial stream conduit: %w", err)
 		}
@@ -92,9 +96,7 @@ func (c *Client) Run(ctx context.Context, m *module.Module, params map[string]an
 			return result, fmt.Errorf("failed to build datagram conduit: %w", err)
 		}
 
-		dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
-		err = datagramConduit.Dial(dialCtx)
-		dialCancel()
+		err = datagramConduit.Dial(ctx)
 		if err != nil {
 			return result, fmt.Errorf("failed to dial datagram conduit: %w", err)
 		}
@@ -114,15 +116,7 @@ func (c *Client) Run(ctx context.Context, m *module.Module, params map[string]an
 		return result, fmt.Errorf("grpc server_addr not configured")
 	}
 
-	dialTimeout := 10 * time.Second
-	if m.ExecConfig.GRPC.DialTimeout != nil {
-		dialTimeout = *m.ExecConfig.GRPC.DialTimeout
-	}
-
-	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	defer cancel()
-
-	conn, err := grpc.DialContext(dialCtx, endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.DialContext(ctx, endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return result, fmt.Errorf("failed to dial %s: %w", endpoint, err)
 	}
@@ -407,9 +401,9 @@ func (c *Client) handleRead(stream grpc.BidiStreamingClient[plugpb.RunnerToPlugi
 // buildConnectionInfo creates connection info from conduit
 func (c *Client) buildConnectionInfo(conduit interface{}) *plugpb.ConnectionInfo {
 	info := &plugpb.ConnectionInfo{
-		Type:         plugpb.ConnectionType_CONNECTION_TYPE_UNSPECIFIED,
-		StackLayers:  []string{},
-		Metadata:     make(map[string]string),
+		Type:        plugpb.ConnectionType_CONNECTION_TYPE_UNSPECIFIED,
+		StackLayers: []string{},
+		Metadata:    make(map[string]string),
 	}
 
 	switch conn := conduit.(type) {

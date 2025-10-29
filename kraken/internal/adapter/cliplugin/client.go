@@ -31,6 +31,12 @@ func (c *Client) Supports(transport string) bool {
 // will translate into: ./plugin --host <HOST> --port <PORT> --param-flag param-value
 
 func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	var result domain.RunResult
 
 	config, ok := ctx.Value("cli").(*domain.CLIConfig)
@@ -52,7 +58,7 @@ func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPo
 		args = append(args, k, fmt.Sprintf("%v", v))
 	}
 
-	cmd := exec.Command(config.Executable, args...)
+	cmd := exec.CommandContext(ctx, config.Executable, args...)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out

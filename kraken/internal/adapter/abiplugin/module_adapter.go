@@ -79,9 +79,7 @@ func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[st
 				return domain.RunResult{Target: t}, fmt.Errorf("failed to build stream conduit: %w", err)
 			}
 
-			dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
-			err = streamConduit.Dial(dialCtx)
-			dialCancel()
+			err = streamConduit.Dial(ctx)
 			if err != nil {
 				return domain.RunResult{Target: t}, fmt.Errorf("failed to dial stream conduit: %w", err)
 			}
@@ -95,9 +93,7 @@ func (a *ModuleAdapter) Run(ctx context.Context, m *module.Module, params map[st
 				return domain.RunResult{Target: t}, fmt.Errorf("failed to build datagram conduit: %w", err)
 			}
 
-			dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
-			err = datagramConduit.Dial(dialCtx)
-			dialCancel()
+			err = datagramConduit.Dial(ctx)
 			if err != nil {
 				return domain.RunResult{Target: t}, fmt.Errorf("failed to dial datagram conduit: %w", err)
 			}
