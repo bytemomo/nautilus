@@ -40,11 +40,11 @@ func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, error) {
 	// Now parse the full campaign with modules resolved
 	var campaign domain.Campaign
 	if err := yaml.Unmarshal(data, &campaign); err != nil {
-		return nil,fmt.Errorf("failed to parse campaign: %w", err)
+		return nil, fmt.Errorf("failed to parse campaign: %w", err)
 	}
 
 	// Validate all modules
-	for i, mod := range campaign.Steps {
+	for i, mod := range campaign.Tasks {
 		if mod == nil {
 			return nil, fmt.Errorf("step %d is nil", i)
 		}
@@ -53,12 +53,12 @@ func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, error) {
 		}
 	}
 
-	return &campaign,  nil
+	return &campaign, nil
 }
 
 // LoadCampaign loads a campaign without module resolution (legacy)
 func LoadCampaign(path string) (*domain.Campaign, error) {
-	campaign,  err := LoadCampaignWithModules(path)
+	campaign, err := LoadCampaignWithModules(path)
 	return campaign, err
 }
 

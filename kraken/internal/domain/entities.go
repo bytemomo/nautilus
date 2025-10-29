@@ -22,7 +22,7 @@ type Campaign struct {
 	Version            string           `yaml:"version"`
 	Runner             RunnerConfig     `yaml:"runner"`
 	Scanner            *ScannerConfig   `yaml:"scanner,omitempty"`
-	Steps              []*module.Module `yaml:"steps"`
+	Tasks              []*module.Module `yaml:"tasks"`
 	AttackTreesDefPath string           `yaml:"attack_trees_def_path,omitempty"`
 	ModulesPath        string           `yaml:"modules_path,omitempty"`
 }

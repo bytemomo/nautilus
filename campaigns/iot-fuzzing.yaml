@@ -47,7 +47,7 @@ scanner:
     ports:
         - "1883,8883,8083,8084,80,443,8000,8080,8443,8888,502,4840,554,8554,5672,5671,21,22,23,25,110,143,3128,3306,5432,6379,9002,9003"
 
-steps:
+tasks:
     - id: "mqtt-boofuzz"
       required_tags: ["protocol:mqtt"]
       max_duration: 30m

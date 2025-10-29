@@ -57,7 +57,7 @@ func (uc RunnerUC) Execute(ctx context.Context, campaign domain.Campaign, classi
 
 func (uc RunnerUC) runForTarget(camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
 	result := domain.RunResult{Target: ct.Target}
-	plan := filterStepsByTags(camp.Steps, ct.Tags)
+	plan := filterStepsByTags(camp.Tasks, ct.Tags)
 
 	log.WithFields(log.Fields{
 		"target": ct.Target.Host + ":" + strconv.Itoa(int(ct.Target.Port)),

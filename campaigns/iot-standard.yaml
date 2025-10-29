@@ -63,7 +63,6 @@ description: |
         - ports: List of ports to target. If empty, the scanner will use the standard port set.
 
 runner:
-    global_timeout: 60s
     max_parallel_targets: 16
 
 scanner:
@@ -81,7 +80,7 @@ scanner:
 
 attack_trees_def_path: "./campaigns/trees/iot.yaml"
 
-steps:
+tasks:
     - id: "cert-inspect"
       required_tags: ["supports:tls", "protocol:tcp"]
       max_duration: 15s
