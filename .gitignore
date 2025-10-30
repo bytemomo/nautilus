@@ -14,6 +14,9 @@
 !go.work
 !go.work.sum
 
+!docs/
+!docs/**
+
 !campaigns/
 !campaigns/*.yaml
 !campaigns/trees/
