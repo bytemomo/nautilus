@@ -1,168 +1,93 @@
-# **Kraken --- System Requisites**
+# 🦑 **Kraken System Requisites**
 
-## Architecture
+## **Architecture Overview**
 
 ![architecture](./architecture.svg)
 
-## **1. General Requirements**
+---
 
-- **R1.1** --- Kraken shall serve as the main orchestrator for security assessment
-  campaigns.
-- **R1.2** --- Kraken shall coordinate the interaction between campaigns, modules,
-  and transport layers.
-- **R1.3** --- Kraken shall be implemented in Go and packaged as a standalone executable.
-- **R1.4** --- Kraken shall support both local and distributed execution modes
-  (future extension).
+## **1. Runner Component (KRK-RUN)**
 
-## **2. Campaign Management**
+### **1.1 Architectural Requirements**
 
-- **R2.1** --- Kraken shall load campaign definitions from YAML files.
-- **R2.2** --- Kraken shall validate campaign files against a defined schema
-  (required keys, formats, data types).
-- **R2.3** --- Kraken shall allow campaigns to specify:
-    1. Target network ranges (CIDRs or IPs)
-    2. Module list and execution order
-    3. Output directory for results
-    4. Transport and protocol configurations
+- **KRK-RUN-A1** — The Runner shall be a core subsystem of Kraken responsible for executing modules defined in campaigns.
+- **KRK-RUN-A2** — The Runner shall communicate with the Trident transport layer for network I/O.
+- **KRK-RUN-A3** — The Runner shall provide an internal interface for module scheduling, execution, and lifecycle management.
+- **KRK-RUN-A4** — The Runner shall isolate each module execution to prevent cross-failure.
 
-- **R2.4** --- Kraken shall support command-line overrides for YAML-defined parameters.
-- **R2.5** --- Kraken shall maintain a campaign state machine (e.g., _Pending_,
-  _Running_, _Completed_, _Failed_).
-- **R2.6** --- Kraken shall allow pausing, resuming, or stopping campaigns gracefully.
-- **R2.7** --- Kraken shall support running multiple campaigns sequentially or concurrently.
-- **R2.8** --- Kraken shall log campaign progress and status.
+### **1.2 Functional Requirements**
 
-## **3. Target Discovery and Classification**
+- **KRK-RUN-F1** — The Runner shall not crash if a module crashes.
+- **KRK-RUN-F2** — The Runner shall execute modules in parallel.
+- **KRK-RUN-F3** — The Runner shall support a configurable maximum number of parallel module executions.
+- **KRK-RUN-F4** — The Runner shall execute modules targeting different targets in parallel.
+- **KRK-RUN-F5** — The Runner shall be configurable from the campaign YAML file.
+- **KRK-RUN-F6** — The Runner shall collect and standardize module outputs for the Reporter.
+- **KRK-RUN-F7** — The Runner shall manage module dependencies (e.g., run module B only after A).
+- **KRK-RUN-F8** — The Runner shall handle retry and timeout logic during execution.
 
-- **R3.1** --- Kraken shall perform target discovery within specified CIDR ranges.
-- **R3.2** --- Kraken shall detect open ports and available network services.
-- **R3.3** --- Kraken shall identify protocols used by each discovered target
-  (e.g., TCP, UDP, MQTT, CoAP).
-- **R3.4** --- Kraken shall classify devices by protocol fingerprint, vendor, or
-  known IoT profile.
-- **R3.5** --- Kraken shall store discovery results in a structured format for
-  module consumption.
+### **1.3 Non-Functional Requirements**
 
-## **4. Module Management and Execution**
-
-- **R4.1** --- Kraken shall load test modules from a designated `modules/` directory.
-- **R4.2** --- Kraken shall support three module formats:
-    1. **ABI:** compiled Go plugins
-    2. **CLI:** external executables
-       .3 **gRPC:** remote service modules
-
-- **R4.3** --- Kraken shall validate module metadata (name, version, author,
-  supported protocols).
-- **R4.4** --- Kraken shall provide a unified execution interface for all module
-  types.
-- **R4.5** --- Kraken shall execute modules in isolation, preventing one failure
-  from affecting others.
-- **R4.6** --- Kraken shall handle module dependencies (e.g., module B depends
-  on module A’s results).
-- **R4.7** --- Kraken shall collect and standardize module outputs (e.g., JSON records).
-- **R4.8** --- Kraken shall support concurrent module execution when possible.
-
-## **5. Transport Integration (Trident)**
-
-- **R5.1** --- Kraken shall use the Trident framework for all network communications.
-- **R5.2** --- Kraken shall automatically select the appropriate Trident conduit
-  based on the module or campaign definition.
-- **R5.3** --- Kraken shall handle connection retries, timeouts, and transport-level
-  errors.
-- **R5.4** --- Kraken shall allow campaigns to specify custom transport parameters
-  (e.g., TLS certificates, timeout values).
-
-## **6. Reporting and Results**
-
-- **R6.1** --- Kraken shall collect all outputs generated during a campaign.
-- **R6.2** --- Kraken shall aggregate results per module, per target, and per campaign.
-- **R6.3** --- Kraken shall generate reports in the following formats:
-    1. JSON (machine-readable)
-    2. Markdown (human-readable)
-
-- **R6.4** --- Kraken shall store reports under a specified `results/` directory.
-- **R6.5** --- Kraken shall include in each report:
-    1. Campaign metadata (date, parameters, duration)
-    2. Module results (success/failure, findings, severity)
-    3. Target summary
-
-- **R6.6** --- Kraken shall provide a summary report after campaign completion.
-
-## **7. Command-Line Interface (CLI)**
-
-- **R7.1** --- Kraken shall provide a CLI with the following parameters:
-    1. `--campaign` (YAML file path)
-    2. `--cidrs` (target range)
-    3. `--out` (output path)
-    4. `--report-format` (e.g., json, md)
-    5. `--verbose` (logging level)
-
-- **R7.2** --- Kraken shall display usage information when invoked with `--help`.
-- **R7.3** --- Kraken shall validate all CLI inputs and handle missing or conflicting
-  parameters gracefully.
-- **R7.4** --- Kraken shall display progress information (e.g., number of completed
-  targets, elapsed time).
-
-## **8. Logging and Error Handling**
-
-- **R8.1** --- Kraken shall provide structured logging using a configurable logging
-  library.
-- **R8.2** --- Kraken shall support multiple log levels: _debug_, _info_, _warn_,
-  _error_.
-- **R8.3** --- Logs shall include campaign ID, target, and module context.
-- **R8.4** --- Kraken shall continue executing remaining tasks even when non-critical
-  errors occur.
-- **R8.5** --- Kraken shall write both console and file-based logs to the campaign’s
-  output directory.
-
-## **9. Configuration and Extensibility**
-
-- **R9.1** --- Kraken shall allow configuration through both YAML and environment
-  variables.
-- **R9.2** --- Kraken shall expose a well-defined internal API for integrating
-  new module types.
-- **R9.3** --- Kraken shall allow future addition of REST/gRPC APIs for remote orchestration.
-- **R9.4** --- Kraken shall maintain backward compatibility with existing module
-  and campaign formats.
-
-## **10. Non-Functional Requirements**
-
-- **R10.1** --- Kraken shall run on Linux and macOS operating systems.
-- **R10.2** --- Kraken shall handle concurrent executions efficiently without
-  data corruption.
-- **R10.3** --- Kraken shall be able to scale linearly with available CPU cores.
-- **R10.4** --- Kraken shall isolate module processes to prevent system compromise.
-- **R10.5** --- Kraken shall include comprehensive developer and user documentation.
-- **R10.6** --- Kraken shall achieve ≥80% code coverage in unit tests.
-- **R10.7** --- Kraken’s average campaign run time shall scale proportionally
-  with target count and module complexity.
+- **KRK-RUN-N1** — The Runner shall efficiently use system resources during concurrent execution.
+- **KRK-RUN-N2** — The Runner shall ensure stability under high concurrency (≥100 parallel modules).
+- **KRK-RUN-N3** — The Runner shall produce structured logs for every module execution (success/failure).
+- **KRK-RUN-N4** — The Runner shall recover gracefully from transient system or network errors.
 
 ---
 
-## Runner
+## **2. Scanner Component (KRK-SCN)**
 
-- **RUN_R1.0** --- The runner shall not crash if the module crash
-- **RUN_R1.1** --- The runner shall execute modules in a parallel way
-- **RUN_R1.2** --- The runner shall have a maximum number of parallel modules in
-  execution
-- **RUN_R1.3** --- The runner shall execute in parallel modules that are targeting
-  different targets.
-- **RUN_R1.4** --- The runner shall be configurable from the yaml file
+### **2.1 Architectural Requirements**
 
-## Scanner
+- **KRK-SCN-A1** — The Scanner shall serve as Kraken’s reconnaissance subsystem.
+- **KRK-SCN-A2** — The Scanner shall integrate with Nmap for IP-layer discovery and scanning.
+- **KRK-SCN-A3** — The Scanner shall expose its results to the Runner and Reporter through a standardized data schema.
+- **KRK-SCN-A4** — The Scanner shall support modular extensions for future discovery engines.
 
-- **SCN_R1.0** --- The scanner shall occupy of the reconinnassance step of the tool
-- **SCN_R1.1** --- The scanner shall use nmap under the hood (for the IP stack)
-- **SCN_R1.2** --- The scannel shall identify also targets at the L2 layer
-- **SCN_R1.3** --- The scanner shall assign tags to the identified targets
-- **SCN_R1.4** --- The scanner shall be configurable from the yaml file
-- **SCN_R1.5** --- The scanner shall have non invasive and non agressive options
-  by default
+### **2.2 Functional Requirements**
 
-## Reporter
+- **KRK-SCN-F1** — The Scanner shall perform network reconnaissance as the first step of a campaign.
+- **KRK-SCN-F2** — The Scanner shall use Nmap for IP-layer scanning (TCP/UDP ports).
+- **KRK-SCN-F3** — The Scanner shall identify targets at the L2 layer (e.g., MAC addresses, vendor).
+- **KRK-SCN-F4** — The Scanner shall assign classification tags to identified targets (e.g., protocol, vendor, type).
+- **KRK-SCN-F5** — The Scanner shall be configurable via YAML parameters.
+- **KRK-SCN-F6** — The Scanner shall provide non-invasive and non-aggressive options by default.
+- **KRK-SCN-F7** — The Scanner shall output structured data consumable by the Runner (e.g., JSON).
+- **KRK-SCN-F8** — The Scanner shall support both IPv4 and IPv6 scanning.
 
-- **REP_R1.0** --- The reporter shall receive the modules findings and aggregate
-  them
-- **REP_R1.1** --- The reporter shall have two concrete implementations:
-    1. Markdown - for human readability
-    2. JSON - for machine readability
+### **2.3 Non-Functional Requirements**
+
+- **KRK-SCN-N1** — The Scanner shall minimize network footprint during reconnaissance.
+- **KRK-SCN-N2** — The Scanner shall ensure accuracy of service and protocol identification.
+- **KRK-SCN-N3** — The Scanner shall be extensible for integration with third-party discovery tools.
+- **KRK-SCN-N4** — The Scanner shall complete discovery within a configurable timeout per target.
+
+---
+
+## **3. Reporter Component (KRK-REP)**
+
+### **3.1 Architectural Requirements**
+
+- **KRK-REP-A1** — The Reporter shall serve as the result aggregation and reporting subsystem.
+- **KRK-REP-A2** — The Reporter shall consume outputs from the Runner and Scanner through defined interfaces.
+- **KRK-REP-A3** — The Reporter shall support pluggable output formats (e.g., Markdown, JSON).
+- **KRK-REP-A4** — The Reporter shall write all reports under the campaign’s result directory.
+
+### **3.2 Functional Requirements**
+
+- **KRK-REP-F1** — The Reporter shall aggregate findings from all modules and scanners.
+- **KRK-REP-F2** — The Reporter shall generate campaign-level summaries (metadata, duration, target counts).
+- **KRK-REP-F3** — The Reporter shall produce reports in two formats:
+    1. **Markdown** — for human readability
+    2. **JSON** — for machine readability
+
+- **KRK-REP-F4** — The Reporter shall support per-module and per-target report breakdowns.
+- **KRK-REP-F5** — The Reporter shall include severity levels and result statuses (success/failure).
+- **KRK-REP-F6** — The Reporter shall summarize results after campaign completion.
+
+### **3.3 Non-Functional Requirements**
+
+- **KRK-REP-N1** — The Reporter shall produce reports in <10 seconds for campaigns with ≤1,000 targets.
+- **KRK-REP-N2** — The Reporter shall ensure report files are deterministic and reproducible.
+- **KRK-REP-N3** — The Reporter shall maintain consistent schema across versions for backward compatibility.
+- **KRK-REP-N4** — The Reporter shall handle partial or missing module data gracefully.
