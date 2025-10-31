@@ -1,0 +1,35 @@
+kraken: {
+  scanner: {
+    label: "scanner"
+  }
+
+  runner: {
+    label: "runner/executor/scheduler"
+  }
+
+  reporter: {
+    label: "reporter"
+  }
+
+  abi_modules: {
+    label: "ABI Modules (.so/.dll/.dylib)"
+  }
+
+  runner <-> abi_modules: "intra process comunication (CABI)"
+}
+
+kraken.scanner -> kraken.runner: "Found targets"
+kraken.runner -> kraken.reporter: "Results"
+
+external_modules: {
+  label: "External Module"
+  cli
+}
+
+network_modules: {
+  label: "Network Module"
+  grpc
+}
+
+kraken.runner <-> external_modules.cli: "inter process comunication (CLI)"
+kraken.runner <-> network_modules.grpc: "inter network comunication (gRPC)"
