@@ -32,4 +32,8 @@ network_modules: {
 }
 
 kraken.runner <-> external_modules.cli: "inter process comunication (CLI)"
-kraken.runner <-> network_modules.grpc: "inter network comunication (gRPC)"
+kraken.runner <-> network_modules.grpc: "inter network comunication (gRPC)" {
+  style: {
+    stroke-dash: 3
+  }
+}
