@@ -11,8 +11,8 @@
 #       - LEAF: to be true the findings have to match in one of the ways the specified in the finding_mode field
 #
 #   findings: list
-#       - list of finding names that the plugins will write in the results when that plugin find a certain finding.
-#           They need to match with the plugins' one and the name is case sensitive
+#       - list of finding names that the modules will write in the results when that module find a certain finding.
+#           They need to match with the modules' one and the name is case sensitive
 #
 #   finding_mode: any | all | threshold
 #       - any: if there is one match in the finding ids and the findings found after the run then the node is true.

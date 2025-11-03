@@ -3,7 +3,7 @@ package runner
 import (
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/runner/abi"
-	cli "bytemomo/kraken/internal/runner/cli"
+	"bytemomo/kraken/internal/runner/cli"
 	"bytemomo/kraken/internal/runner/grpc"
 	cnd "bytemomo/trident/conduit"
 	"bytemomo/trident/conduit/transport"

@@ -7,18 +7,18 @@ description: |
     ======
 
     This campaign is used to automatically find fuzzable services in the network and then
-    fuzz them with fine tuned plugins for the said protocols, for now the supported protocols
+    fuzz them with fine tuned modules for the said protocols, for now the supported protocols
     are:
         - MQTT
         - EtherCAT
         - RTSP
 
     The campaign can require a lot of time to execute and also could find anything usefull.
-    Each plugin handles alone the connection, fuzzing process and results savings. This mean
-    that depending on the plugin the results could be saved with different formats.
+    Each module handles alone the connection, fuzzing process and results savings. This mean
+    that depending on the module the results could be saved with different formats.
 
-    If possible, as you will see specified in the params of each plugin, it would be nice to
-    give the plugins access to the process that they are fuzzing.
+    If possible, as you will see specified in the params of each module, it would be nice to
+    give the modules access to the process that they are fuzzing.
 
     This is beacause a white box approach (code path analysis, and output analysis) could give
     more informations than a black box approach (that uses only a network response based approach).

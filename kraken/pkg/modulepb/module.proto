@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package orca.plugin.v1;
+package kraken.module.v1;
 
 import "google/protobuf/struct.proto";
 
-option go_package = ".;plugpb";
+option go_package = ".;modulepb";
 
 // ------------------------------
 // Messages
@@ -23,7 +23,7 @@ message RunRequest {
 
 message Finding {
   string id = 1;
-  string plugin_id = 2;
+  string module_id = 2;
 
   bool success = 3;
   string title = 4;
@@ -46,7 +46,7 @@ message RunResponse {
   repeated LogLine logs = 2;
 }
 
-message PluginMetadata {
+message ModuleMetadata {
   string id = 1;
   string version = 2;
   repeated string capabilities = 3;
@@ -56,9 +56,9 @@ message PluginMetadata {
 // Service
 // ------------------------------
 
-service OrcaPlugin {
+service KrakenModule {
   rpc Run(RunRequest) returns (RunResponse);
-  rpc Metadata(google.protobuf.Empty) returns (PluginMetadata);
+  rpc Metadata(google.protobuf.Empty) returns (ModuleMetadata);
 }
 
 import "google/protobuf/empty.proto";

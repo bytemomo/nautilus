@@ -7,16 +7,16 @@ yaml files.
 
 - `id`, `name` and `version` are not essential to the run, they are used to
   describe the campaign.
-- runner: contains every option to set the EXECUTION phase of the ORCA. This phase
-  handles the life cycle of the execution of each plugin.
-    1. global_timeout: timeout for plugins, if the plugin does not specify its
+- runner: contains every option to set the EXECUTION phase of the Kraken. This phase
+  handles the life cycle of the execution of each module.
+    1. global_timeout: timeout for modules, if the module does not specify its
        own or this one is bigger then the global one is used.
     2. max_parallel_targets: number of parallel step that can be executed, the
-       ORCA executable will parallelize steps on different targets (i.e. two
+       Kraken executable will parallelize steps on different targets (i.e. two
        steps on the same `host:port` will NEVER be executed on parallel).
 
-- scanner: Configuration options for ORCA’s **SCANNER** phase, which discovers
-  and classifies targets. ORCA uses `nmap` under the hood, and many settings
+- scanner: Configuration options for Kraken's **SCANNER** phase, which discovers
+  and classifies targets. Kraken uses `nmap` under the hood, and many settings
   mirror `nmap` behavior.
     1. open_only: Report only open ports.
     2. skip_host_discovery: Skip the host discovery step (do not attempt to
@@ -52,8 +52,8 @@ Attack tree definitions for IoT campaigns.
        in the finding_mode field
 
 - findings: list
-    1. list of finding names that the plugins will write in the results when that
-       plugin find a certain finding. They need to match with the plugins' one
+    1. list of finding names that the modules will write in the results when that
+       module find a certain finding. They need to match with the modules' one
        and the name is case sensitive
 
 - finding_mode: any | all | threshold

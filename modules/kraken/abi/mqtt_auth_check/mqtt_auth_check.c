@@ -1,6 +1,6 @@
-#define ORCA_PLUGIN_BUILD
+#define KRAKEN_MODULE_BUILD
 #define BUILDING_MQTT_AUTH_CHECK_V2
-#include <orca_plugin_abi_v2.h>
+#include <kraken_module_abi_v2.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +10,7 @@
 /* ------------------------------------------------------------------ */
 /* ABI Version Export                                                 */
 /* ------------------------------------------------------------------ */
-ORCA_API const uint32_t ORCA_PLUGIN_ABI_VERSION_V2 = ORCA_ABI_VERSION_V2;
+KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION_V2 = KRAKEN_ABI_VERSION_V2;
 
 /* -------------------------------------------------------- */
 /* Minimal MQTT Helper                                      */
@@ -128,15 +128,15 @@ static char *mystrdup(const char *s) {
     return p;
 }
 
-static void add_log(ORCA_RunResult *result, const char *log_line) {
+static void add_log(KrakenRunResult *result, const char *log_line) {
     result->logs.count++;
     result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
     result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
 }
 
-static void add_finding(ORCA_RunResult *result, ORCA_Finding *finding) {
+static void add_finding(KrakenRunResult *result, KrakenFinding *finding) {
     result->findings_count++;
-    result->findings = (ORCA_Finding *)realloc(result->findings, result->findings_count * sizeof(ORCA_Finding));
+    result->findings = (KrakenFinding *)realloc(result->findings, result->findings_count * sizeof(KrakenFinding));
     result->findings[result->findings_count - 1] = *finding;
 }
 
@@ -183,10 +183,10 @@ static char *json_extract_string(const char *json, const char *key) {
 /* MQTT Check Functions using V2 API                                  */
 /* ------------------------------------------------------------------ */
 
-static int mqtt_check_auth(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, const char *user, const char *pass, uint32_t timeout_ms) {
+static int mqtt_check_auth(KrakenConnectionHandle conn, const KrakenConnectionOps *ops, const char *user, const char *pass, uint32_t timeout_ms) {
     mqtt_packet_t pkt;
     char cid[32];
-    snprintf(cid, sizeof(cid), "ORCA_%u", (unsigned)rand());
+    snprintf(cid, sizeof(cid), "kraken_%u", (unsigned)rand());
 
     // Build MQTT CONNECT packet
     int len = mqtt_build_connect(&pkt, cid, user, pass);
@@ -208,9 +208,9 @@ static int mqtt_check_auth(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps 
     return mqtt_parse_connack(resp, (size_t)received) ? 1 : 0;
 }
 
-static int mqtt_check_pubsub(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, uint32_t timeout_ms) {
+static int mqtt_check_pubsub(KrakenConnectionHandle conn, const KrakenConnectionOps *ops, uint32_t timeout_ms) {
     mqtt_packet_t pkt;
-    const char *topic = "orca/test/topic";
+    const char *topic = "kraken/test/topic";
 
     // Try SUBSCRIBE
     int len = mqtt_build_subscribe(&pkt, topic);
@@ -225,7 +225,7 @@ static int mqtt_check_pubsub(ORCA_ConnectionHandle conn, const ORCA_ConnectionOp
     int sub_ok = (received > 0 && mqtt_parse_suback(resp, (size_t)received));
 
     // Try PUBLISH
-    const char *msg = "hello from ORCA";
+    const char *msg = "hello from Kraken";
     len = mqtt_build_publish(&pkt, topic, msg);
     sent = ops->send(conn, pkt.buf, len, timeout_ms);
 
@@ -281,15 +281,15 @@ static creds_list_t load_creds_file(const char *path) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Plugin Entry Point (V2 API)                                        */
+/* Module Entry Point (V2 API)                                        */
 /* ------------------------------------------------------------------ */
 
-ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *ops, const ORCA_HostPort *target, uint32_t timeout_ms, const char *params_json,
-                         ORCA_RunResult **out_result) {
+KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnectionOps *ops, const KrakenHostPort *target, uint32_t timeout_ms,
+                             const char *params_json, KrakenRunResult **out_result) {
     srand((unsigned)time(NULL));
 
     // 1. Allocate and initialize the main result structure
-    ORCA_RunResult *result = (ORCA_RunResult *)calloc(1, sizeof(ORCA_RunResult));
+    KrakenRunResult *result = (KrakenRunResult *)calloc(1, sizeof(KrakenRunResult));
     if (!result)
         return -1;
 
@@ -299,10 +299,10 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
     add_log(result, "MQTT authentication assessment started (V2 with conduit)");
 
     // 2. Get connection info
-    const ORCA_ConnectionInfo *info = ops->get_info(conn);
+    const KrakenConnectionInfo *info = ops->get_info(conn);
 
     char log_buf[512];
-    snprintf(log_buf, sizeof(log_buf), "Connection type: %s", info->type == ORCA_CONN_TYPE_STREAM ? "stream" : "datagram");
+    snprintf(log_buf, sizeof(log_buf), "Connection type: %s", info->type == KRAKEN_CONN_TYPE_STREAM ? "stream" : "datagram");
     add_log(result, log_buf);
 
     time_t ts = time(NULL);
@@ -313,9 +313,9 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
     int anon_result = mqtt_check_auth(conn, ops, NULL, NULL, timeout_ms);
 
     if (anon_result == 1) {
-        ORCA_Finding f = {0};
+        KrakenFinding f = {0};
         f.id = mystrdup("MQTT-ANON");
-        f.plugin_id = mystrdup("mqtt-auth-check-v2");
+        f.module_id = mystrdup("mqtt-auth-check-v2");
         f.success = true;
         f.title = mystrdup("Anonymous authentication accepted");
         f.severity = mystrdup("high");
@@ -338,9 +338,9 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
         int pubsub_ok = mqtt_check_pubsub(conn, ops, timeout_ms);
 
         if (pubsub_ok) {
-            ORCA_Finding f_pubsub = {0};
+            KrakenFinding f_pubsub = {0};
             f_pubsub.id = mystrdup("MQTT-PUBSUB-ANON");
-            f_pubsub.plugin_id = mystrdup("mqtt-auth-check-v2");
+            f_pubsub.module_id = mystrdup("mqtt-auth-check-v2");
             f_pubsub.success = true;
             f_pubsub.title = mystrdup("Unauthenticated publish/subscribe allowed");
             f_pubsub.severity = mystrdup("critical");
@@ -399,27 +399,26 @@ ORCA_API int ORCA_Run_V2(ORCA_ConnectionHandle conn, const ORCA_ConnectionOps *o
         free(creds_path);
     }
 
-    // 5. Finalize and return
     *out_result = result;
-    return 0; // Success
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
 /* Memory Deallocator                                                 */
 /* ------------------------------------------------------------------ */
 
-ORCA_API void ORCA_Free_V2(void *p) {
+KRAKEN_API void kraken_free_v2(void *p) {
     if (!p)
         return;
 
-    ORCA_RunResult *result = (ORCA_RunResult *)p;
+    KrakenRunResult *result = (KrakenRunResult *)p;
 
     free((void *)result->target.host);
 
     for (size_t i = 0; i < result->findings_count; i++) {
-        ORCA_Finding *f = &result->findings[i];
+        KrakenFinding *f = &result->findings[i];
         free((void *)f->id);
-        free((void *)f->plugin_id);
+        free((void *)f->module_id);
         free((void *)f->title);
         free((void *)f->severity);
         free((void *)f->description);
@@ -444,16 +443,4 @@ ORCA_API void ORCA_Free_V2(void *p) {
     free(result->logs.strings);
 
     free(result);
-}
-
-/* ------------------------------------------------------------------ */
-/* Optional: Initialization and Cleanup hooks                         */
-/* ------------------------------------------------------------------ */
-
-ORCA_API int ORCA_Init(void) {
-    return 0; // Success
-}
-
-ORCA_API void ORCA_Cleanup(void) {
-    // Cleanup if needed
 }

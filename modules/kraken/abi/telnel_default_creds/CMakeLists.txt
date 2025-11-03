@@ -11,7 +11,7 @@ option(BUILD_STATIC_RUNTIME "Link the static runtime on MSVC (MT/MTd)" OFF)
 add_library(telnet_default_creds SHARED telnet_default_creds.c)
 
 target_compile_definitions(telnet_default_creds PRIVATE BUILDING_TELNET_DEFAULT_CREDS)
-target_include_directories(telnet_default_creds PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../../kraken/pkg/plugabi)
+target_include_directories(telnet_default_creds PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../../kraken/pkg/moduleabi)
 
 set_target_properties(telnet_default_creds PROPERTIES
   PREFIX ""

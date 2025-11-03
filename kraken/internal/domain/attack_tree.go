@@ -107,7 +107,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 			return false
 		}
 	default:
-		log.Errorf("Invalid plugin mode in attack tree's settings (available types are: any, all, threshold): %s\n", pluginModeToString(t.FindingMode))
+		log.Errorf("Invalid module mode in attack tree's settings (available types are: any, all, threshold): %s\n", moduleModeToString(t.FindingMode))
 		return false
 	}
 }
@@ -137,7 +137,7 @@ func nodeTypeToString(t NodeType) string {
 	}
 }
 
-func pluginModeToString(m SuccessMode) string {
+func moduleModeToString(m SuccessMode) string {
 	switch m {
 	case SuccessModeAll:
 		return "all"

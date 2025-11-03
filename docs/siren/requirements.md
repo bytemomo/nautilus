@@ -138,6 +138,6 @@ modify, or corrupt traffic; **Spoof** helpers position the proxy on-path
 
 - **SRN-N23** — WebSocket proxy; HTTP/2/3 interception.
 - **SRN-N24** — GUI for real-time traffic visualization.
-- **SRN-N25** — Plugin system for custom protocols and matchers.
+- **SRN-N25** — Module system for custom protocols and matchers.
 - **SRN-N26** — Distributed multi-node proxying and performance mode.
 - **SRN-N27** — ML-based anomaly detection; Prometheus exporters.

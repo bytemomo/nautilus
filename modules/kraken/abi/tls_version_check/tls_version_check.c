@@ -1,6 +1,6 @@
-#define ORCA_PLUGIN_BUILD
+#define KRAKEN_MODULE_BUILD
 #define BUILDING_TLS_VERSION_CHECK
-#include <orca_plugin_abi.h>
+#include <kraken_module_abi.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +19,7 @@
 /* ------------------------------------------------------------------ */
 /* ABI Version Export                                                 */
 /* ------------------------------------------------------------------ */
-ORCA_API const uint32_t ORCA_PLUGIN_ABI_VERSION = ORCA_ABI_VERSION;
+KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION = KRAKEN_ABI_VERSION;
 
 /* ------------------------------------------------------------------ */
 /* OpenSSL Version Compatibility                                      */
@@ -52,7 +52,7 @@ static char *mystrdup(const char *s) {
     return p;
 }
 
-static void add_log(ORCA_RunResult *result, const char *log_line) {
+static void add_log(KrakenRunResult *result, const char *log_line) {
     result->logs.count++;
     result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
     result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
@@ -105,10 +105,10 @@ static const char *status_str(int v) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Plugin Entry Point                                                 */
+/* Module Entry Point                                                 */
 /* ------------------------------------------------------------------ */
 
-ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, ORCA_RunResult **out_result) {
+KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, KrakenRunResult **out_result) {
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -121,7 +121,7 @@ ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms, cons
 #endif
 
     // 1. Allocate and initialize the main result structure
-    ORCA_RunResult *result = (ORCA_RunResult *)calloc(1, sizeof(ORCA_RunResult));
+    KrakenRunResult *result = (KrakenRunResult *)calloc(1, sizeof(KrakenRunResult));
     if (!result)
         return -1;
 
@@ -143,11 +143,11 @@ ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms, cons
 
     // 3. Create a single finding to report all results
     result->findings_count = 1;
-    result->findings = (ORCA_Finding *)calloc(1, sizeof(ORCA_Finding));
-    ORCA_Finding *f = &result->findings[0];
+    result->findings = (KrakenFinding *)calloc(1, sizeof(KrakenFinding));
+    KrakenFinding *f = &result->findings[0];
 
     f->id = mystrdup("TLS-SUPPORT-OVERVIEW");
-    f->plugin_id = mystrdup("tls_version_check");
+    f->module_id = mystrdup("tls_version_check");
     f->success = true;
     f->title = mystrdup("TLS Protocol Support Summary");
     f->severity = mystrdup("info");
@@ -158,7 +158,7 @@ ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms, cons
 
     // 4. Populate evidence with the results of each check
     f->evidence.count = 4;
-    f->evidence.items = (ORCA_KeyValue *)malloc(4 * sizeof(ORCA_KeyValue));
+    f->evidence.items = (KrakenKeyValue *)malloc(4 * sizeof(KrakenKeyValue));
     for (int i = 0; i < 4; ++i) {
         f->evidence.items[i].key = mystrdup(version_keys[i]);
         f->evidence.items[i].value = mystrdup(status_str(results[i]));
@@ -183,18 +183,18 @@ ORCA_API int ORCA_Run(const char *host, uint32_t port, uint32_t timeout_ms, cons
 /* Memory Deallocator                                                 */
 /* ------------------------------------------------------------------ */
 
-ORCA_API void ORCA_Free(void *p) {
+KRAKEN_API void kraken_free(void *p) {
     if (!p)
         return;
 
-    ORCA_RunResult *result = (ORCA_RunResult *)p;
+    KrakenRunResult *result = (KrakenRunResult *)p;
 
     free((void *)result->target.host);
 
     for (size_t i = 0; i < result->findings_count; i++) {
-        ORCA_Finding *f = &result->findings[i];
+        KrakenFinding *f = &result->findings[i];
         free((void *)f->id);
-        free((void *)f->plugin_id);
+        free((void *)f->module_id);
         free((void *)f->title);
         free((void *)f->severity);
         free((void *)f->description);

@@ -21,13 +21,13 @@ func (c *CLIModule) Supports(transport string) bool {
 	return strings.EqualFold(transport, "cli")
 }
 
-// This will accept every plugin with the following api: ./plugin --host <HOST> --port <PORT> --output-dir <DIR> <OTHER_PARAMS>
+// This will accept every module with the following api: ./module --host <HOST> --port <PORT> --output-dir <DIR> <OTHER_PARAMS>
 // OTHER_PARAMS can be passed using the campaign params field in the following way:
 //
 // params:
 //	param-flag: param-value
 //
-// will translate into: ./plugin --host <HOST> --port <PORT> --output-dir <DIR> param-flag param-value
+// will translate into: ./module --host <HOST> --port <PORT> --output-dir <DIR> param-flag param-value
 
 func (c *CLIModule) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	if timeout > 0 {
@@ -64,13 +64,13 @@ func (c *CLIModule) Run(ctx context.Context, params map[string]any, t domain.Hos
 	cmd.Stderr = &out
 
 	if err := cmd.Run(); err != nil {
-		return result, fmt.Errorf("error running plugin %s: %w: %s", config.Command, err, out.String())
+		return result, fmt.Errorf("error running module %s: %w: %s", config.Command, err, out.String())
 	} else {
 		fmt.Printf("Running cmd: %s %v", config.Command, args)
 	}
 
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		return result, fmt.Errorf("error unmarshaling plugin output: %w", err)
+		return result, fmt.Errorf("error unmarshaling module output: %w", err)
 	}
 
 	return result, nil

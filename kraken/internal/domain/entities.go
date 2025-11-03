@@ -27,7 +27,7 @@ type Campaign struct {
 
 type Finding struct {
 	ID          string         `json:"id"`
-	PluginID    string         `json:"plugin_id"`
+	ModuleID    string         `json:"module_id"`
 	Success     bool           `json:"success"`
 	Title       string         `json:"title"`
 	Severity    string         `json:"severity"`

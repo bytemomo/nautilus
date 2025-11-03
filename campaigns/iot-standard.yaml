@@ -6,14 +6,14 @@ description: |
     README
     ======
 
-    This plugin assess basic misconfigurations and possible known vulnerabilities in
+    This module assess basic misconfigurations and possible known vulnerabilities in
     the protocols server in ICS environment.
 
-    Each plugin will handle the connection and its execution on with its own logic,
-    as you can see there are different types of plugins and each plugin is more or less
+    Each module will handle the connection and its execution on with its own logic,
+    as you can see there are different types of modules and each module is more or less
     complex.
 
-    Some example of plugins are:
+    Some example of modules are:
         - TLS version check: checks that the server only accept TLS >= 1.2,1.3
         - Default passowrd audit: checks that, if open, that telnet does not accept
             known passwords using a standard db.
@@ -37,17 +37,17 @@ description: |
 
     `id`, `name` and `version` are not essential to the run, they are used to describe the campaign.
 
-    runner: contains every option to set the EXECUTION phase of the ORCA. This phase handles the life cycle of the
-        execution of each plugin.
+    runner: contains every option to set the EXECUTION phase of the Kraken. This phase handles the life cycle of the
+        execution of each modules.
 
-        - global_timeout: timeout for plugins, if the plugin does not specify its own or this one is bigger
+        - global_timeout: timeout for modules, if the module does not specify its own or this one is bigger
             then the global one is used.
-        - max_parallel_targets: number of parallel step that can be executed, the ORCA executable will parallelize
+        - max_parallel_targets: number of parallel step that can be executed, the Kraken executable will parallelize
             steps on different targets (i.e. two steps on the same `host:port` will NEVER be executed on parallel).
 
 
-    scanner: Configuration options for ORCA’s **SCANNER** phase, which discovers and classifies targets.
-        ORCA uses `nmap` under the hood, and many settings mirror `nmap` behavior.
+    scanner: Configuration options for Kraken's **SCANNER** phase, which discovers and classifies targets.
+        Kraken uses `nmap` under the hood, and many settings mirror `nmap` behavior.
 
         - open_only: Report only open ports.
         - skip_host_discovery: Skip the host discovery step (do not attempt to find live hosts).
@@ -89,7 +89,7 @@ tasks:
           abi:
               api: v1
               library_path: "./modules/kraken/abi/cert_inspect/target/release/libcert_inspect"
-              symbol: "ORCA_Run"
+              symbol: kraken_run
           params:
               tls_insecure: true
               warn_days: 21
@@ -108,7 +108,7 @@ tasks:
           abi:
               api: v1
               library_path: "./modules/kraken/abi/tls_version_check/build/tls_version_check"
-              symbol: "ORCA_Run"
+              symbol: "kraken_run"
 
     - id: "telnet-default-creds"
       required_tags: ["protocol:tcp", "protocol:telnet"]
@@ -118,14 +118,14 @@ tasks:
           abi:
               api: v2
               library_path: "./modules/kraken/abi/telnel_default_creds/build/telnet_default_creds"
-              symbol: "ORCA_Run_V2"
+              symbol: kraken_run_v2
           conduit:
               kind: 1
               stack:
                   - name: tcp
 
     # MQTT authentication & authorization checks:
-    # as it can be seen with the new API a plugin
+    # as it can be seen with the new API a module
     # can be run both on clear text connections
     # and also on TLS connections only by changing
     # the module specification in the yaml file.
@@ -138,7 +138,7 @@ tasks:
           abi:
               api: v2
               library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
-              symbol: "ORCA_Run_V2"
+              symbol: kraken_run_v2
           conduit:
               kind: 1
               stack:
@@ -154,7 +154,7 @@ tasks:
           abi:
               api: v2
               library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
-              symbol: "ORCA_Run_V2"
+              symbol: kraken_run_v2
           conduit:
               kind: 1
               stack:

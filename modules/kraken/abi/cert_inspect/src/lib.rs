@@ -14,49 +14,49 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /* C ABI Structures Replicated in Rust                              */
 /* ================================================================ */
 #[repr(C)]
-pub struct ORCA_HostPort {
+pub struct KrakenHostPort {
     pub host: *const c_char,
     pub port: u16,
 }
 
 #[repr(C)]
-pub struct ORCA_StringList {
+pub struct KrakenStringList {
     pub strings: *mut *const c_char,
     pub count: usize,
 }
 
 #[repr(C)]
-pub struct ORCA_KeyValue {
+pub struct KrakenKeyValue {
     pub key: *const c_char,
     pub value: *const c_char,
 }
 
 #[repr(C)]
-pub struct ORCA_Evidence {
-    pub items: *mut ORCA_KeyValue,
+pub struct KrakenEvidence {
+    pub items: *mut KrakenKeyValue,
     pub count: usize,
 }
 
 #[repr(C)]
-pub struct ORCA_Finding {
+pub struct KrakenFinding {
     pub id: *const c_char,
-    pub plugin_id: *const c_char,
+    pub module_id: *const c_char,
     pub success: bool,
     pub title: *const c_char,
     pub severity: *const c_char,
     pub description: *const c_char,
-    pub evidence: ORCA_Evidence,
-    pub tags: ORCA_StringList,
+    pub evidence: KrakenEvidence,
+    pub tags: KrakenStringList,
     pub timestamp: i64,
-    pub target: ORCA_HostPort,
+    pub target: KrakenHostPort,
 }
 
 #[repr(C)]
-pub struct ORCA_RunResult {
-    pub target: ORCA_HostPort,
-    pub findings: *mut ORCA_Finding,
+pub struct KrakenRunResult {
+    pub target: KrakenHostPort,
+    pub findings: *mut KrakenFinding,
     pub findings_count: usize,
-    pub logs: ORCA_StringList,
+    pub logs: KrakenStringList,
 }
 
 /* ================================================================ */
@@ -64,15 +64,15 @@ pub struct ORCA_RunResult {
 /* ================================================================ */
 
 #[no_mangle]
-pub static ORCA_PLUGIN_ABI_VERSION: u32 = 2;
+pub static KRAKEN_MODULE_ABI_VERSION: u32 = 1;
 
 #[no_mangle]
-pub extern "C" fn ORCA_Free(p: *mut c_void) {
+pub extern "C" fn kraken_free(p: *mut c_void) {
     if p.is_null() {
         return;
     }
     unsafe {
-        let result = Box::from_raw(p as *mut ORCA_RunResult);
+        let result = Box::from_raw(p as *mut KrakenRunResult);
         let _ = CString::from_raw(result.target.host as *mut c_char);
 
         let findings = Vec::from_raw_parts(
@@ -82,7 +82,7 @@ pub extern "C" fn ORCA_Free(p: *mut c_void) {
         );
         for f in findings {
             let _ = CString::from_raw(f.id as *mut c_char);
-            let _ = CString::from_raw(f.plugin_id as *mut c_char);
+            let _ = CString::from_raw(f.module_id as *mut c_char);
             let _ = CString::from_raw(f.title as *mut c_char);
             let _ = CString::from_raw(f.severity as *mut c_char);
             let _ = CString::from_raw(f.description as *mut c_char);
@@ -117,12 +117,12 @@ pub extern "C" fn ORCA_Free(p: *mut c_void) {
 }
 
 #[no_mangle]
-pub extern "C" fn ORCA_Run(
+pub extern "C" fn kraken_run(
     host: *const c_char,
     port: c_uint,
     _timeout_ms: c_uint,
     params_json: *const c_char,
-    out_result: *mut *mut ORCA_RunResult,
+    out_result: *mut *mut KrakenRunResult,
 ) -> c_int {
     if host.is_null() || out_result.is_null() {
         return 1;
@@ -280,20 +280,20 @@ pub extern "C" fn ORCA_Run(
     }
 
     if require_server_auth {
-        println!("[ERROR] cert_inspect plugin: require_server_auth flag not yet supported!");
+        println!("[ERROR] cert_inspect module: require_server_auth flag not yet supported!");
     }
 
     // --- Finalize and Return Result Struct ---
     let findings_count = findings.len();
     let logs_count = logs.len();
-    let result = Box::new(ORCA_RunResult {
-        target: ORCA_HostPort {
+    let result = Box::new(KrakenRunResult {
+        target: KrakenHostPort {
             host: CString::new(host_str).unwrap().into_raw(),
             port: port as u16,
         },
         findings: vec_to_raw_parts(findings),
         findings_count,
-        logs: ORCA_StringList {
+        logs: KrakenStringList {
             strings: vec_to_raw_parts(
                 logs.into_iter()
                     .map(|s| s.into_raw() as *const c_char)
@@ -331,7 +331,7 @@ fn connect_and_get_cert(target: &str, host: &str, tls_insecure: bool) -> Result<
 }
 
 fn add_finding(
-    findings: &mut Vec<ORCA_Finding>,
+    findings: &mut Vec<KrakenFinding>,
     id: &str,
     title: &str,
     severity: &str,
@@ -341,9 +341,9 @@ fn add_finding(
     host: &str,
     port: c_uint,
 ) {
-    let evidence_vec: Vec<ORCA_KeyValue> = evidence_pairs
+    let evidence_vec: Vec<KrakenKeyValue> = evidence_pairs
         .into_iter()
-        .map(|(k, v)| ORCA_KeyValue {
+        .map(|(k, v)| KrakenKeyValue {
             key: CString::new(k).unwrap().into_raw(),
             value: CString::new(v).unwrap().into_raw(),
         })
@@ -355,23 +355,23 @@ fn add_finding(
     let evidence_count = evidence_vec.len();
     let tags_count = tags_vec.len();
 
-    findings.push(ORCA_Finding {
+    findings.push(KrakenFinding {
         id: CString::new(id).unwrap().into_raw(),
-        plugin_id: CString::new("cert_inspect_rust").unwrap().into_raw(),
+        module_id: CString::new("cert_inspect_rust").unwrap().into_raw(),
         success: true,
         title: CString::new(title).unwrap().into_raw(),
         severity: CString::new(severity).unwrap().into_raw(),
         description: CString::new(description).unwrap().into_raw(),
-        evidence: ORCA_Evidence {
+        evidence: KrakenEvidence {
             items: vec_to_raw_parts(evidence_vec),
             count: evidence_count,
         },
-        tags: ORCA_StringList {
+        tags: KrakenStringList {
             strings: vec_to_raw_parts(tags_vec),
             count: tags_count,
         },
         timestamp: ts,
-        target: ORCA_HostPort {
+        target: KrakenHostPort {
             host: CString::new(host).unwrap().into_raw(),
             port: port as u16,
         },
@@ -382,18 +382,18 @@ fn finish_with_error(
     msg: &str,
     host: &str,
     port: c_uint,
-    out_result: *mut *mut ORCA_RunResult,
+    out_result: *mut *mut KrakenRunResult,
 ) -> c_int {
     let logs_vec = vec![CString::new(msg).unwrap().into_raw() as *const c_char];
     let logs_count = logs_vec.len();
-    let result = Box::new(ORCA_RunResult {
-        target: ORCA_HostPort {
+    let result = Box::new(KrakenRunResult {
+        target: KrakenHostPort {
             host: CString::new(host).unwrap().into_raw(),
             port: port as u16,
         },
         findings: ptr::null_mut(),
         findings_count: 0,
-        logs: ORCA_StringList {
+        logs: KrakenStringList {
             strings: vec_to_raw_parts(logs_vec),
             count: logs_count,
         },

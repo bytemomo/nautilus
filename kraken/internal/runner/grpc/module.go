@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"bytemomo/kraken/internal/domain"
-	plugpb "bytemomo/kraken/pkg/plugpb"
+
+	modulepb "bytemomo/kraken/pkg/modulepb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -47,14 +48,14 @@ func (c *GRPCModule) Run(ctx context.Context, params map[string]any, t domain.Ho
 		paramsVals[k] = pv
 	}
 
-	cl := plugpb.NewOrcaPluginClient(conn)
-	resp, err := cl.Run(ctx, &plugpb.RunRequest{
-		Target:    &plugpb.Target{Host: t.Host, Port: uint32(t.Port)},
+	cl := modulepb.NewKrakenModuleClient(conn)
+	resp, err := cl.Run(ctx, &modulepb.RunRequest{
+		Target:    &modulepb.Target{Host: t.Host, Port: uint32(t.Port)},
 		TimeoutMs: timeoutMs,
 		Params:    paramsVals,
 	})
 	if err != nil {
-		return domain.RunResult{}, fmt.Errorf("plugin run: %w", err)
+		return domain.RunResult{}, fmt.Errorf("module run: %w", err)
 	}
 
 	var findings []domain.Finding
@@ -68,7 +69,7 @@ func (c *GRPCModule) Run(ctx context.Context, params map[string]any, t domain.Ho
 			tags = append(tags, domain.Tag(s))
 		}
 		findings = append(findings, domain.Finding{
-			ID: f.GetId(), PluginID: f.GetPluginId(), Title: f.GetTitle(), Severity: f.GetSeverity(),
+			ID: f.GetId(), ModuleID: f.GetModuleId(), Title: f.GetTitle(), Severity: f.GetSeverity(),
 			Description: f.GetDescription(), Evidence: ev, Tags: tags, Timestamp: time.Unix(f.GetTimestamp(), 0).UTC(),
 			Target: t, Success: f.Success,
 		})

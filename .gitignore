@@ -5,6 +5,7 @@
 !.github/
 !.github/**
 
+!Justfile
 !README.md
 
 !.clang-format
@@ -34,12 +35,12 @@
 !kraken/internal/**
 
 !kraken/pkg/
-!kraken/pkg/plugabi/
-!kraken/pkg/plugabi/orca_plugin_abi.h
-!kraken/pkg/plugabi/orca_plugin_abi_v2.h
-!kraken/pkg/plugpb/
-!kraken/pkg/plugpb/generate.go
-!kraken/pkg/plugpb/plugin.proto
+!kraken/pkg/moduleabi/
+!kraken/pkg/moduleabi/kraken_module_abi.h
+!kraken/pkg/moduleabi/kraken_module_abi_v2.h
+!kraken/pkg/modulepb/
+!kraken/pkg/modulepb/generate.go
+!kraken/pkg/modulepb/module.proto
 
 # Siren
 

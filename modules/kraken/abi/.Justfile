@@ -22,7 +22,7 @@ clean-all:
 build-all-unix:
 	#!/usr/bin/env bash
 	set -euo pipefail
-	root="plugins"
+	root="moduless"
 	[[ -d "$root" ]] || root="."
 	for d in "$root"/*; do
 		[[ -d "$d" ]] || continue
@@ -44,7 +44,7 @@ build-all-unix:
 build-one-unix name:
 	#!/usr/bin/env bash
 	set -euo pipefail
-	dir="plugins/{{name}}"
+	dir="modules/{{name}}"
 	[[ -d "$dir" ]] || dir="./{{name}}"
 
 	if [[ -f "$d/CMakeLists.txt" ]]; then
@@ -63,7 +63,7 @@ build-one-unix name:
 clean-all-unix:
 	#!/usr/bin/env bash
 	set -euo pipefail
-	root="plugins"
+	root="moduless"
 	[[ -d "$root" ]] || root="."
 	for d in "$root"/*; do
 		if [[ -d "$d/build" ]]; then
@@ -92,7 +92,7 @@ build-all-windows:
 build-one-windows name:
 	#! pwsh
 	$ErrorActionPreference = "Stop"
-	$dir = Join-Path "plugins" "{{name}}"
+	$dir = Join-Path "modules" "{{name}}"
 	if (!(Test-Path (Join-Path $dir 'CMakeLists.txt'))) {
 		Write-Error "No CMakeLists.txt in $dir"
 		exit 1

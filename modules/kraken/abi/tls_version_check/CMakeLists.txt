@@ -14,8 +14,8 @@ find_package(OpenSSL REQUIRED)
 add_library(tls_version_check SHARED tls_version_check.c)
 
 target_compile_definitions(tls_version_check PRIVATE BUILDING_TLS_VERSION_CHECK)
-target_include_directories(tls_version_check PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../kraken/pkg/plugabi
+target_include_directories(tls_version_check PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../kraken/pkg/moduleabi
     ${OPENSSL_INCLUDE_DIR}
 )
 

@@ -11,7 +11,7 @@ option(BUILD_STATIC_RUNTIME "Link the static runtime on MSVC (MT/MTd)" OFF)
 add_library(mqtt_auth_check SHARED mqtt_auth_check.c)
 
 target_compile_definitions(mqtt_auth_check PRIVATE BUILDING_MQTT_AUTH_CHECK)
-target_include_directories(mqtt_auth_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../../kraken/pkg/plugabi)
+target_include_directories(mqtt_auth_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../../kraken/pkg/moduleabi)
 
 set_target_properties(mqtt_auth_check PROPERTIES
   PREFIX ""

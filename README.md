@@ -11,7 +11,7 @@ Nautilus is composed of several subprojects, each with a distinct role:
   See [`kraken/README.md`](kraken/README.md) for details.
 
 - **trident/**
-  Transport abstraction layer. Implements conduits for stream and datagram protocols (TCP, TLS, UDP, DTLS, etc.), used by Kraken and plugins.
+  Transport abstraction layer. Implements conduits for stream and datagram protocols (TCP, TLS, UDP, DTLS, etc.), used by Kraken and modules.
 
 - **siren/**
   Man-in-the-Middle testing proxy for client validation. Intercepts, modifies, delays, or drops traffic to test client resilience.
@@ -21,7 +21,7 @@ Nautilus is composed of several subprojects, each with a distinct role:
   Example and template campaign definitions (YAML files) for various IoT protocols and scenarios.
 
 - **modules/**
-  Directory for custom security test modules (plugins) in ABI, CLI, or gRPC formats.
+  Directory for custom security test modules (modules) in ABI, CLI, or gRPC formats.
 
 - **results/**
   Output directory for generated reports and findings.
@@ -49,7 +49,7 @@ Nautilus is composed of several subprojects, each with a distinct role:
 
 ## Documentation
 
-- [Kraken README](kraken/README.md) — Campaign orchestration, plugin APIs, attack trees, and usage.
+- [Kraken README](kraken/README.md) — Campaign orchestration, module APIs, attack trees, and usage.
 - [Trident README](trident/README.md) — Transport abstraction and conduit system.
 - [Siren README](siren/README.md) — Man-in-the-Middle proxy for client testing and fault injection.
 
@@ -57,5 +57,4 @@ Nautilus is composed of several subprojects, each with a distinct role:
 
 - Expand protocol support
 - Distributed and cloud-based execution
-- Plugin registry and marketplace
 - Advanced reporting and visualization

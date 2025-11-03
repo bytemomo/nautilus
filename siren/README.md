@@ -599,7 +599,7 @@ See `examples/` directory for complete examples:
 - [ ] WebSocket proxy support
 - [ ] HTTP/2 and HTTP/3 interception
 - [ ] GUI for real-time traffic visualization
-- [ ] Plugin system for custom protocols
+- [ ] Module system for custom protocols
 - [ ] Distributed proxy support (multiple Siren instances)
 - [ ] Machine learning-based anomaly detection
 - [ ] Performance testing mode (high throughput)

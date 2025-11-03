@@ -5,34 +5,34 @@ package abi
 /*
 #include <windows.h>
 #include <stdlib.h>
-#include "../../../pkg/plugabi/orca_plugin_abi.h"
-#include "../../../pkg/plugabi/orca_plugin_abi_v2.h"
+#include "../../../pkg/plugabi/kraken_module_abi.h"
+#include "../../../pkg/plugabi/kraken_module_abi_v2.h"
 
 static HMODULE my_LoadLibrary(const char* p) { return LoadLibraryA(p); }
 static FARPROC my_GetProcAddress(HMODULE h, const char* s) { return GetProcAddress(h, s); }
 static BOOL my_FreeLibrary(HMODULE h) { return FreeLibrary(h); }
 
 // Thin bridge wrappers so Go can call function pointers.
-static inline int call_ORCA_Run(ORCA_RunFn f, const char* host, uint32_t port, uint32_t timeout_ms,
-                                const char* params_json, ORCA_RunResult** out_result) {
+static inline int call_kraken_run(KrakenRunFn f, const char* host, uint32_t port, uint32_t timeout_ms,
+                                const char* params_json, KrakenRunResult** out_result) {
     return f(host, port, timeout_ms, params_json, out_result);
 }
 
-static inline void call_ORCA_Free(ORCA_FreeFn f, void* p) { f(p); }
+static inline void call_kraken_free(KrakenFreeFn f, void* p) { f(p); }
 
 // V2 API wrappers
-static inline int call_ORCA_Run_V2(ORCA_RunV2Fn f, ORCA_ConnectionHandle conn, const ORCA_ConnectionOps* ops,
-                                   const ORCA_HostPort* target, uint32_t timeout_ms,
-                                   const char* params_json, ORCA_RunResult** out_result) {
+static inline int call_kraken_run_v2(KrakenRunV2Fn f, KrakenConnectionHandle conn, const KrakenConnectionOps* ops,
+                                   const KrakenHostPort* target, uint32_t timeout_ms,
+                                   const char* params_json, KrakenRunResult** out_result) {
     return f(conn, ops, target, timeout_ms, params_json, out_result);
 }
 
-static inline void call_ORCA_Free_V2(ORCA_FreeV2Fn f, void* p) { f(p); }
+static inline void call_kraken_free_v2(KrakenFreeV2Fn f, void* p) { f(p); }
 
 // V2 I/O operation callbacks (implemented in Go)
-int64_t go_conduit_send(ORCA_ConnectionHandle conn, uint8_t* data, size_t len, uint32_t timeout_ms);
-int64_t go_conduit_recv(ORCA_ConnectionHandle conn, uint8_t* buffer, size_t buffer_size, uint32_t timeout_ms);
-ORCA_ConnectionInfo* go_conduit_get_info(ORCA_ConnectionHandle conn);
+int64_t go_conduit_send(KrakenConnectionHandle conn, uint8_t* data, size_t len, uint32_t timeout_ms);
+int64_t go_conduit_recv(KrakenConnectionHandle conn, uint8_t* buffer, size_t buffer_size, uint32_t timeout_ms);
+KrakenConnectionInfo* go_conduit_get_info(KrakenConnectionHandle conn);
 
 */
 import "C"
@@ -62,7 +62,7 @@ func (c *LIBModule) Supports(transport string) bool {
 
 type v2ConnectionHandle struct {
 	conduit interface{}
-	info    *C.ORCA_ConnectionInfo
+	info    *C.KrakenConnectionInfo
 }
 
 var (
@@ -72,7 +72,7 @@ var (
 )
 
 //export go_conduit_send
-func go_conduit_send(conn C.ORCA_ConnectionHandle, data *C.uint8_t, length C.size_t, timeout_ms C.uint32_t) C.int64_t {
+func go_conduit_send(conn C.KrakenConnectionHandle, data *C.uint8_t, length C.size_t, timeout_ms C.uint32_t) C.int64_t {
 	v2HandleMutex.RLock()
 	handle, ok := v2HandleMap[uintptr(conn)]
 	v2HandleMutex.RUnlock()
@@ -123,7 +123,7 @@ func go_conduit_send(conn C.ORCA_ConnectionHandle, data *C.uint8_t, length C.siz
 }
 
 //export go_conduit_recv
-func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_size C.size_t, timeout_ms C.uint32_t) C.int64_t {
+func go_conduit_recv(conn C.KrakenConnectionHandle, buffer *C.uint8_t, buffer_size C.size_t, timeout_ms C.uint32_t) C.int64_t {
 	v2HandleMutex.RLock()
 	handle, ok := v2HandleMap[uintptr(conn)]
 	v2HandleMutex.RUnlock()
@@ -207,7 +207,7 @@ func go_conduit_recv(conn C.ORCA_ConnectionHandle, buffer *C.uint8_t, buffer_siz
 }
 
 //export go_conduit_get_info
-func go_conduit_get_info(conn C.ORCA_ConnectionHandle) *C.ORCA_ConnectionInfo {
+func go_conduit_get_info(conn C.KrakenConnectionHandle) *C.KrakenConnectionInfo {
 	v2HandleMutex.RLock()
 	handle, ok := v2HandleMap[uintptr(conn)]
 	v2HandleMutex.RUnlock()
@@ -237,7 +237,7 @@ func (c *LIBModule) RunWithConduit(ctx context.Context, params map[string]any, t
 	}
 	symbol := abiConfig.Symbol
 	if symbol == "" {
-		symbol = "ORCA_Run"
+		symbol = "kraken_run"
 	}
 
 	clib := C.CString(libPath)
@@ -249,7 +249,7 @@ func (c *LIBModule) RunWithConduit(ctx context.Context, params map[string]any, t
 	}
 	defer C.my_FreeLibrary(handle)
 
-	if strings.HasSuffix(symbol, "_V2") || symbol == "ORCA_Run_V2" {
+	if strings.HasSuffix(symbol, "_v2") || symbol == "kraken_run_v2" {
 		return c.runV2(handle, symbol, params, t, timeout, conduit)
 	}
 
@@ -264,16 +264,16 @@ func (c *LIBModule) runV1(handle C.HMODULE, symbol string, params map[string]any
 	if runPtr == nil {
 		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s) failed", symbol)
 	}
-	run := (C.ORCA_RunFn)(runPtr)
+	run := (C.KrakenRunFn)(runPtr)
 
-	freeSym := C.CString("ORCA_Free")
+	freeSym := C.CString("kraken_free")
 	defer C.free(unsafe.Pointer(freeSym))
 
 	freePtr := C.my_GetProcAddress(handle, freeSym)
 	if freePtr == nil {
-		return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free) failed")
+		return domain.RunResult{}, fmt.Errorf("GetProcAddress(kraken_Free) failed")
 	}
-	freeFn := (C.ORCA_FreeFn)(freePtr)
+	freeFn := (C.KrakenFreeFn)(freePtr)
 
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
@@ -285,17 +285,17 @@ func (c *LIBModule) runV1(handle C.HMODULE, symbol string, params map[string]any
 	cParams := C.CString(string(paramsBytes))
 	defer C.free(unsafe.Pointer(cParams))
 
-	var outResult *C.ORCA_RunResult
+	var outResult *C.KrakenRunResult
 
-	ret := C.call_ORCA_Run(run, hostC, portC, timeoutMs, cParams, &outResult)
+	ret := C.call_kraken_run(run, hostC, portC, timeoutMs, cParams, &outResult)
 	if int(ret) != 0 {
-		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
+		return domain.RunResult{}, fmt.Errorf("module returned error code %d", int(ret))
 	}
 
 	if outResult == nil {
-		return domain.RunResult{}, errors.New("plugin returned empty result")
+		return domain.RunResult{}, errors.New("module returned empty result")
 	}
-	defer C.call_ORCA_Free(freeFn, unsafe.Pointer(outResult))
+	defer C.call_kraken_free(freeFn, unsafe.Pointer(outResult))
 
 	return decodeRunResult(outResult)
 }
@@ -308,28 +308,28 @@ func (c *LIBModule) runV2(handle C.HMODULE, symbol string, params map[string]any
 	if runPtr == nil {
 		return domain.RunResult{}, fmt.Errorf("GetProcAddress(%s) failed", symbol)
 	}
-	run := (C.ORCA_RunV2Fn)(runPtr)
+	run := (C.KrakenRunV2Fn)(runPtr)
 
-	freeSym := C.CString("ORCA_Free_V2")
+	freeSym := C.CString("kraken_free_v2")
 	defer C.free(unsafe.Pointer(freeSym))
 
 	freePtr := C.my_GetProcAddress(handle, freeSym)
 	if freePtr == nil {
-		freeSym = C.CString("ORCA_Free")
+		freeSym = C.CString("kraken_free")
 		defer C.free(unsafe.Pointer(freeSym))
 		freePtr = C.my_GetProcAddress(handle, freeSym)
 		if freePtr == nil {
-			return domain.RunResult{}, fmt.Errorf("GetProcAddress(ORCA_Free_V2/ORCA_Free) failed")
+			return domain.RunResult{}, fmt.Errorf("GetProcAddress(kraken_free_v2/kraken_free) failed")
 		}
 	}
-	freeFn := (C.ORCA_FreeV2Fn)(freePtr)
+	freeFn := (C.KrakenFreeV2Fn)(freePtr)
 
 	v2HandleMutex.Lock()
 	handleID := v2HandleCounter
 	v2HandleCounter++
-	connHandle := C.ORCA_ConnectionHandle(unsafe.Pointer(handleID))
+	connHandle := C.KrakenConnectionHandle(unsafe.Pointer(handleID))
 
-	info := (*C.ORCA_ConnectionInfo)(C.malloc(C.sizeof_ORCA_ConnectionInfo))
+	info := (*C.KrakenConnectionInfo)(C.malloc(C.sizeof_KrakenConnectionInfo))
 	remoteAddr := fmt.Sprintf("%s:%d", t.Host, t.Port)
 	info.remote_addr = C.CString(remoteAddr)
 	info.local_addr = C.CString("0.0.0.0:0")
@@ -338,7 +338,7 @@ func (c *LIBModule) runV2(handle C.HMODULE, symbol string, params map[string]any
 	if conduit != nil {
 		switch c := conduit.(type) {
 		case cnd.Stream:
-			*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_STREAM
+			*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
 			if c.LocalAddr() != nil {
 				C.free(unsafe.Pointer(info.local_addr))
 				info.local_addr = C.CString(c.LocalAddr().String())
@@ -350,7 +350,7 @@ func (c *LIBModule) runV2(handle C.HMODULE, symbol string, params map[string]any
 			stackLayers = []string{"tcp"}
 
 		case cnd.Datagram:
-			*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_DATAGRAM
+			*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.ORKRAKEN_CONN_TYPE_DATAGRAM
 			if c.LocalAddr().IsValid() {
 				C.free(unsafe.Pointer(info.local_addr))
 				info.local_addr = C.CString(c.LocalAddr().String())
@@ -362,11 +362,11 @@ func (c *LIBModule) runV2(handle C.HMODULE, symbol string, params map[string]any
 			stackLayers = []string{"udp"}
 
 		default:
-			*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_STREAM
+			*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
 			stackLayers = []string{"tcp"}
 		}
 	} else {
-		*(*C.ORCA_ConnectionType)(unsafe.Pointer(info)) = C.ORCA_CONN_TYPE_STREAM
+		*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
 		stackLayers = []string{"tcp"}
 	}
 
@@ -398,15 +398,15 @@ func (c *LIBModule) runV2(handle C.HMODULE, symbol string, params map[string]any
 		C.free(unsafe.Pointer(info))
 	}()
 
-	var ops C.ORCA_ConnectionOps
-	ops.send = C.ORCA_SendFn(C.go_conduit_send)
-	ops.recv = C.ORCA_RecvFn(C.go_conduit_recv)
-	ops.get_info = C.ORCA_GetConnectionInfoFn(C.go_conduit_get_info)
+	var ops C.KrakenConnectionOps
+	ops.send = C.KrakenSendFn(C.go_conduit_send)
+	ops.recv = C.KrakenRecvFn(C.go_conduit_recv)
+	ops.get_info = C.KrakenGetConnectionInfoFn(C.go_conduit_get_info)
 
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
 
-	var target C.ORCA_HostPort
+	var target C.KrakenHostPort
 	target.host = hostC
 	target.port = C.uint16_t(t.Port)
 
@@ -416,22 +416,22 @@ func (c *LIBModule) runV2(handle C.HMODULE, symbol string, params map[string]any
 	cParams := C.CString(string(paramsBytes))
 	defer C.free(unsafe.Pointer(cParams))
 
-	var outResult *C.ORCA_RunResult
+	var outResult *C.KrakenRunResult
 
-	ret := C.call_ORCA_Run_V2(run, connHandle, &ops, &target, timeoutMs, cParams, &outResult)
+	ret := C.call_kraken_run_v2(run, connHandle, &ops, &target, timeoutMs, cParams, &outResult)
 	if int(ret) != 0 {
-		return domain.RunResult{}, fmt.Errorf("plugin returned error code %d", int(ret))
+		return domain.RunResult{}, fmt.Errorf("module returned error code %d", int(ret))
 	}
 
 	if outResult == nil {
-		return domain.RunResult{}, errors.New("plugin returned empty result")
+		return domain.RunResult{}, errors.New("module returned empty result")
 	}
-	defer C.call_ORCA_Free_V2(freeFn, unsafe.Pointer(outResult))
+	defer C.call_kraken_free_v2(freeFn, unsafe.Pointer(outResult))
 
 	return decodeRunResult(outResult)
 }
 
-func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
+func decodeRunResult(cResult *C.KrakenRunResult) (domain.RunResult, error) {
 	var res domain.RunResult
 	res.Target.Host = C.GoString(cResult.target.host)
 	res.Target.Port = uint16(cResult.target.port)
@@ -469,7 +469,7 @@ func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 
 			res.Findings = append(res.Findings, domain.Finding{
 				ID:          C.GoString(cFinding.id),
-				PluginID:    C.GoString(cFinding.plugin_id),
+				ModuleID:    C.GoString(cFinding.module_id),
 				Success:     bool(cFinding.success),
 				Title:       C.GoString(cFinding.title),
 				Severity:    C.GoString(cFinding.severity),
