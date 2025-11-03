@@ -125,6 +125,7 @@ func report(reportWriter domain.ReportWriter, results []domain.RunResult, camp *
 			if tree.Evaluate(result.Findings) {
 				logrus.Infof("For target [%s:%d] attack tree is evaluated as true: %s", result.Target.Host, result.Target.Port, tree.Name)
 				tree.PrintTree(fmt.Sprintf("Target: %s:%d", result.Target.Host, result.Target.Port))
+				logrus.Infof("%s", tree.RenderTree())
 			}
 		}
 	}

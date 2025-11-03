@@ -5,8 +5,8 @@ package abi
 /*
 #include <windows.h>
 #include <stdlib.h>
-#include "../../../pkg/plugabi/kraken_module_abi.h"
-#include "../../../pkg/plugabi/kraken_module_abi_v2.h"
+#include "../../../pkg/moduleabi/kraken_module_abi.h"
+#include "../../../pkg/moduleabi/kraken_module_abi_v2.h"
 
 static HMODULE my_LoadLibrary(const char* p) { return LoadLibraryA(p); }
 static FARPROC my_GetProcAddress(HMODULE h, const char* s) { return GetProcAddress(h, s); }
