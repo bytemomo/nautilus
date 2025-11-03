@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type HostPort struct {
 	Host string
 	Port uint16
@@ -32,7 +34,7 @@ type Finding struct {
 	Description string         `json:"description"`
 	Evidence    map[string]any `json:"evidence"`
 	Tags        []Tag          `json:"tags"`
-	Timestamp   int64          `json:"timestamp"`
+	Timestamp   time.Time      `json:"timestamp"`
 	Target      HostPort       `json:"target"`
 }
 

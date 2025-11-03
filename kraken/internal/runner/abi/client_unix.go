@@ -477,6 +477,13 @@ func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 				Port: uint16(cFinding.target.port),
 			}
 
+			var timestamp time.Time
+			if cFinding.timestamp != 0 {
+				timestamp = time.Unix(int64(cFinding.timestamp), 0).UTC()
+			} else {
+				timestamp = time.Now()
+			}
+
 			res.Findings = append(res.Findings, domain.Finding{
 				ID:          C.GoString(cFinding.id),
 				PluginID:    C.GoString(cFinding.plugin_id),
@@ -486,7 +493,7 @@ func decodeRunResult(cResult *C.ORCA_RunResult) (domain.RunResult, error) {
 				Description: C.GoString(cFinding.description),
 				Evidence:    ev,
 				Tags:        tags,
-				Timestamp:   int64(cFinding.timestamp),
+				Timestamp:   timestamp,
 				Target:      findingTarget,
 			})
 		}

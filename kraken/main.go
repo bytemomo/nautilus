@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -11,11 +12,10 @@ import (
 	"bytemomo/kraken/internal/adapter/jsonreport"
 	"bytemomo/kraken/internal/adapter/yamlconfig"
 	"bytemomo/kraken/internal/domain"
-	"bytemomo/kraken/internal/reporter"
 	"bytemomo/kraken/internal/runner"
 	"bytemomo/kraken/internal/scanner"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -34,13 +34,12 @@ func main() {
 
 	camp, err := yamlconfig.LoadCampaign(*campaignPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		logrus.Fatalf("Cannot load campaign %s\n", err)
 	}
 
 	cidrs := splitCSV(*cidrsArg)
 	if len(cidrs) == 0 {
-		must(fmt.Errorf("no CIDRs parsed"))
+		logrus.Fatal("No CIDRs parsed!")
 	}
 
 	resultDir := fmt.Sprintf("%s/%s/%d", *outDir, camp.ID, time.Now().Unix())
@@ -48,6 +47,16 @@ func main() {
 	camp.Runner.ResultDirectory = resultDir
 
 	// Scanner
+	classifiedTargets := setupAndRunScanner(camp, cidrs)
+
+	// Runner
+	results := setupAndRunModuleRunner(camp, jsonReporter, classifiedTargets)
+
+	// Report
+	report(jsonReporter, results, camp)
+}
+
+func setupAndRunScanner(camp *domain.Campaign, cidrs []string) []domain.ClassifiedTarget {
 	scannerConfig := camp.Scanner
 	if scannerConfig == nil {
 		scannerConfig = &domain.ScannerConfig{}
@@ -60,11 +69,14 @@ func main() {
 	scannerCtx := context.Background()
 	classified, err := scanner.Execute(scannerCtx, cidrs)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "fatal:", err)
+		logrus.Fatalf("Failed network scanning %s\n", err)
 		os.Exit(1)
 	}
 
-	// Runner with module-based executors (supports both V1 and V2)
+	return classified
+}
+
+func setupAndRunModuleRunner(camp *domain.Campaign, reporter domain.ResultRepo, classifiedTargets []domain.ClassifiedTarget) []domain.RunResult {
 	executors := []runner.ModuleExecutor{
 		runner.NewABIModuleAdapter(),
 		runner.NewCLIModuleAdapter(),
@@ -73,46 +85,45 @@ func main() {
 
 	runner := runner.Runner{
 		Executors: executors,
-		Store:     jsonReporter,
+		Store:     reporter,
 		Config:    camp.Runner,
 	}
 
 	runnerCtx := context.Background()
-	all, err := runner.Execute(runnerCtx, *camp, classified)
+	results, err := runner.Execute(runnerCtx, *camp, classifiedTargets)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "fatal:", err)
-		os.Exit(1)
+		logrus.Fatalf("Failed runner execution: %s", err)
 	}
 
-	// Report
-	report := reporter.Reporter{Writer: jsonReporter}
-	path, err := report.Execute(context.Background(), all)
+	return results
+}
+
+func report(reportWriter domain.ReportWriter, results []domain.RunResult, camp *domain.Campaign) {
+	path, err := reportWriter.Aggregate(results)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "fatal:", err)
-		os.Exit(1)
+		log.Fatalf("Cannot report results: %s\n", err)
 	}
 
 	fmt.Println("Report written to:", path)
 
-	// Attack trees
+	// Attack trees evaluation
 	if camp.AttackTreesDefPath == "" {
-		log.Info("Attack tree definition file not specified!")
+		logrus.Info("Attack tree definition file not specified!")
 	}
 
 	trees, err := yamlconfig.LoadAttackTrees(camp.AttackTreesDefPath)
 	if err != nil {
-		log.Errorf("Could not load attack trees path: %s", err)
-		return
+		logrus.Fatalf("Could not load attack trees path: %s", err)
 	}
 
 	if len(trees) == 0 {
-		log.Info("No attack tree specified!")
+		logrus.Info("No attack tree specified!")
 	}
 
-	for _, result := range all {
+	for _, result := range results {
 		for _, tree := range trees {
 			if tree.Evaluate(result.Findings) {
-				log.Infof("For target [%s:%d] attack tree is evaluated as true: %s", result.Target.Host, result.Target.Port, tree.Name)
+				logrus.Infof("For target [%s:%d] attack tree is evaluated as true: %s", result.Target.Host, result.Target.Port, tree.Name)
 				tree.PrintTree(fmt.Sprintf("Target: %s:%d", result.Target.Host, result.Target.Port))
 			}
 		}
@@ -129,11 +140,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-func must(err error) {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "fatal:", err)
-		os.Exit(1)
-	}
 }

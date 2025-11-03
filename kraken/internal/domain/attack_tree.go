@@ -14,12 +14,12 @@ const (
 	OR   NodeType = "OR"
 )
 
-type PluginMode string
+type SuccessMode string
 
 const (
-	PluginModeAny       PluginMode = "any"
-	PluginModeAll       PluginMode = "all"
-	PluginModeThreshold PluginMode = "threshold"
+	SuccessModeAny       SuccessMode = "any"
+	SuccessModeAll       SuccessMode = "all"
+	SuccessModeThreshold SuccessMode = "threshold"
 )
 
 type AttackNode struct {
@@ -29,9 +29,9 @@ type AttackNode struct {
 	Success  bool
 
 	// NOTE: Only used on LEAF nodes
-	FindingIDs       []string   `yaml:"finding_ids"`
-	FindingMode      PluginMode `yaml:"finding_mode"`
-	FindingThreshold int        `yaml:"finding_threshold,omitempty"`
+	FindingIDs       []string    `yaml:"finding_ids"`
+	FindingMode      SuccessMode `yaml:"finding_mode"`
+	FindingThreshold int         `yaml:"finding_threshold,omitempty"`
 }
 
 func (t *AttackNode) Evaluate(findings []Finding) bool {
@@ -66,7 +66,7 @@ func (t *AttackNode) Evaluate(findings []Finding) bool {
 
 func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 	switch t.FindingMode {
-	case PluginModeAny:
+	case SuccessModeAny:
 		{
 			for _, fid := range t.FindingIDs {
 				for _, finding := range findings {
@@ -78,7 +78,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 			}
 			return false
 		}
-	case PluginModeAll:
+	case SuccessModeAll:
 		{
 			for _, fid := range t.FindingIDs {
 				for _, finding := range findings {
@@ -90,7 +90,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 			t.Success = true
 			return true
 		}
-	case PluginModeThreshold:
+	case SuccessModeThreshold:
 		{
 			count := 0
 			for _, pid := range t.FindingIDs {
@@ -137,13 +137,13 @@ func nodeTypeToString(t NodeType) string {
 	}
 }
 
-func pluginModeToString(m PluginMode) string {
+func pluginModeToString(m SuccessMode) string {
 	switch m {
-	case PluginModeAll:
+	case SuccessModeAll:
 		return "all"
-	case PluginModeThreshold:
+	case SuccessModeThreshold:
 		return "threshold"
-	case PluginModeAny:
+	case SuccessModeAny:
 		return "any"
 	default:
 		return string(m)
