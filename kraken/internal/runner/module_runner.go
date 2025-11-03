@@ -4,6 +4,7 @@ import (
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/runner/abi"
 	cli "bytemomo/kraken/internal/runner/cli"
+	"bytemomo/kraken/internal/runner/grpc"
 	cnd "bytemomo/trident/conduit"
 	"bytemomo/trident/conduit/transport"
 	tlscond "bytemomo/trident/conduit/transport/tls"
@@ -37,7 +38,7 @@ func (a *CLIModuleAdapter) Supports(m *domain.Module) bool {
 	if m == nil {
 		return false
 	}
-	return m.Version == domain.ModuleV1 && m.ExecConfig.CLI != nil
+	return m.ExecConfig.CLI != nil && m.Type == domain.Cli
 }
 
 func (a *CLIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
@@ -94,7 +95,7 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 	var conduit interface{}
 	var closeConduit func()
 
-	if m.Version == domain.ModuleV2 && m.ExecConfig.Conduit != nil {
+	if m.ExecConfig.ABI.Version == domain.ModuleV2 && m.ExecConfig.Conduit != nil {
 		addr := fmt.Sprintf("%s:%d", t.Host, t.Port)
 		cfg := m.ExecConfig.Conduit
 
@@ -215,3 +216,30 @@ func (a *ABIModuleAdapter) buildDTLSConfig(params map[string]any) *dtls.Config {
 }
 
 // GRPC --------------------------------------------------
+
+type GRPCModuleAdapter struct {
+	client *grpc.Client
+}
+
+func NewGRPCModuleAdapter() *GRPCModuleAdapter {
+	return &GRPCModuleAdapter{
+		client: grpc.New(),
+	}
+}
+
+func (a *GRPCModuleAdapter) Supports(m *domain.Module) bool {
+	if m == nil {
+		return false
+	}
+
+	return m.ExecConfig.GRPC != nil && m.Type == domain.Grpc
+}
+
+func (a *GRPCModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+	grpcConfig := &domain.GRPCConfig{
+		Server: m.ExecConfig.GRPC.ServerAddr,
+	}
+
+	cliCtx := context.WithValue(ctx, "grpc", grpcConfig)
+	return a.client.Run(cliCtx, params, t, timeout)
+}

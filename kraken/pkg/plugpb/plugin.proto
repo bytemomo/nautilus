@@ -1,116 +1,29 @@
 syntax = "proto3";
 
-package orca.plugin.v2;
+package orca.plugin.v1;
 
 import "google/protobuf/struct.proto";
-import "google/protobuf/empty.proto";
 
 option go_package = ".;plugpb";
 
-enum ConnectionType {
-  CONNECTION_TYPE_UNSPECIFIED = 0;
-  CONNECTION_TYPE_STREAM = 1;    // Stream-based (TCP, TLS, etc.)
-  CONNECTION_TYPE_DATAGRAM = 2;  // Datagram-based (UDP, DTLS, etc.)
-}
-
-message ConnectionInfo {
-  ConnectionType type = 1;
-  string local_addr = 2;         // e.g., "192.168.1.10:12345"
-  string remote_addr = 3;        // e.g., "10.0.0.1:80"
-  repeated string stack_layers = 4; // e.g., ["tcp", "tls"]
-  map<string, string> metadata = 5; // Additional connection metadata
-}
+// ------------------------------
+// Messages
+// ------------------------------
 
 message Target {
   string host = 1;
   uint32 port = 2;
 }
 
-message RunnerToPlugin {
-  oneof message {
-    StartExecution start = 1;
-    DataChunk data = 2;
-    ConnectionClosed closed = 3;
-    RunnerError error = 4;
-  }
+message RunRequest {
+  Target target = 1;
+  uint32 timeout_ms = 2;
+  map<string, google.protobuf.Value> params = 3;
 }
-
-message PluginToRunner {
-  oneof message {
-    Ready ready = 1;
-    WriteRequest write = 2;
-    ReadRequest read = 3;
-    ExecutionComplete complete = 4;
-    PluginError error = 5;
-    LogMessage log = 6;
-  }
-}
-
-message StartExecution {
-  ConnectionInfo connection = 1;
-  Target target = 2;
-  uint32 timeout_ms = 3;
-  map<string, google.protobuf.Value> params = 4;
-}
-
-message DataChunk {
-  uint64 request_id = 1;  // Matches ReadRequest.request_id
-  bytes data = 2;
-  bool eof = 3;           // True if end of stream reached
-}
-
-message ConnectionClosed {
-  string reason = 1;
-}
-
-message RunnerError {
-  string error = 1;
-  bool fatal = 2;
-}
-
-// ------------------------------
-// Plugin -> Runner Messages
-// ------------------------------
-
-message Ready {
-  string plugin_id = 1;
-  string version = 2;
-}
-
-message WriteRequest {
-  uint64 request_id = 1;  // Unique ID for this write operation
-  bytes data = 2;
-  uint32 timeout_ms = 3;
-}
-
-message ReadRequest {
-  uint64 request_id = 1;  // Unique ID for this read operation
-  uint32 max_bytes = 2;   // Maximum bytes to read
-  uint32 timeout_ms = 3;
-}
-
-message ExecutionComplete {
-  RunResult result = 1;
-}
-
-message PluginError {
-  string error = 1;
-  bool fatal = 2;  // If true, runner should abort
-}
-
-message LogMessage {
-  int64 timestamp = 1;
-  string level = 2;  // "debug", "info", "warn", "error"
-  string message = 3;
-}
-
-// ------------------------------
-// Result Types
-// ------------------------------
 
 message Finding {
   string id = 1;
-  string module_id = 2;
+  string plugin_id = 2;
 
   bool success = 3;
   string title = 4;
@@ -121,125 +34,31 @@ message Finding {
   repeated string tags = 8;
 
   int64 timestamp = 9;
-  Target target = 10;
 }
 
-message RunResult {
-  Target target = 1;
-  repeated Finding findings = 2;
-  repeated string logs = 3;
+message LogLine {
+  int64 ts = 1;
+  string line = 2;
 }
 
-// ------------------------------
-// Metadata
-// ------------------------------
+message RunResponse {
+  repeated Finding findings = 1;
+  repeated LogLine logs = 2;
+}
 
-message ModuleMetadata {
+message PluginMetadata {
   string id = 1;
   string version = 2;
-  repeated string required_tags = 3;
-  repeated ConnectionType supported_connection_types = 4;
-  map<string, string> default_params = 5;
-  string description = 6;
+  repeated string capabilities = 3;
 }
 
 // ------------------------------
-// Service Definition
+// Service
 // ------------------------------
 
-service OrcaPluginV2 {
-  rpc RunWithConnection(stream RunnerToPlugin) returns (stream PluginToRunner);
-  rpc Metadata(google.protobuf.Empty) returns (ModuleMetadata);
-  rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);
+service OrcaPlugin {
+  rpc Run(RunRequest) returns (RunResponse);
+  rpc Metadata(google.protobuf.Empty) returns (PluginMetadata);
 }
 
-message ConnectionHandle {
-  string handle_id = 1;
-  ConnectionInfo info = 2;
-}
-
-message SimpleRunRequest {
-  ConnectionHandle connection = 1;
-  Target target = 2;
-  uint32 timeout_ms = 3;
-  map<string, google.protobuf.Value> params = 4;
-}
-
-message IORequest {
-  string handle_id = 1;
-  oneof operation {
-    bytes write_data = 2;
-    ReadRequest read_req = 3;
-  }
-  uint32 timeout_ms = 4;
-}
-
-message IOResponse {
-  oneof result {
-    WriteResult write_res = 1;
-    bytes read_data = 2;
-  }
-}
-
-message WriteResult {
-  int64 bytes_written = 1;
-}
-
-// ------------------------------
-// Usage Notes
-// ------------------------------
-
-/*
- * Example Plugin Implementation (Streaming):
- *
- * func (s *MyPlugin) RunWithConnection(stream plugpb.OrcaPluginV2_RunWithConnectionServer) error {
- *     // 1. Receive StartExecution
- *     msg, _ := stream.Recv()
- *     start := msg.GetStart()
- *
- *     // 2. Send Ready
- *     stream.Send(&plugpb.PluginToRunner{
- *         Message: &plugpb.PluginToRunner_Ready{...},
- *     })
- *
- *     // 3. Send data (e.g., HTTP request)
- *     stream.Send(&plugpb.PluginToRunner{
- *         Message: &plugpb.PluginToRunner_Write{
- *             Write: &plugpb.WriteRequest{
- *                 RequestId: 1,
- *                 Data: []byte("GET / HTTP/1.0\r\n\r\n"),
- *             },
- *         },
- *     })
- *
- *     // 4. Request to read response
- *     stream.Send(&plugpb.PluginToRunner{
- *         Message: &plugpb.PluginToRunner_Read{
- *             Read: &plugpb.ReadRequest{
- *                 RequestId: 2,
- *                 MaxBytes: 4096,
- *             },
- *         },
- *     })
- *
- *     // 5. Receive data
- *     msg, _ = stream.Recv()
- *     data := msg.GetData()
- *
- *     // 6. Process and create findings...
- *     findings := analyzeSomething(data.Data)
- *
- *     // 7. Send results
- *     stream.Send(&plugpb.PluginToRunner{
- *         Message: &plugpb.PluginToRunner_Complete{
- *             Complete: &plugpb.ExecutionComplete{
- *                 Result: &plugpb.RunResult{
- *                     Findings: findings,
- *                 },
- *             },
- *         },
- *     })
- *
- *     return nil
- * }
- */
+import "google/protobuf/empty.proto";

@@ -12,26 +12,27 @@ const (
 	Native ModuleType = "native"
 	Lib    ModuleType = "lib"
 	Grpc   ModuleType = "grpc"
+	Cli    ModuleType = "cli"
 )
 
-type ModuleApiVersion uint8
+type ModuleApiVersion string
 
 const (
-	ModuleV1 ModuleApiVersion = iota
-	ModuleV2
+	ModuleV1 ModuleApiVersion = "v1"
+	ModuleV2 ModuleApiVersion = "v2"
 )
 
 type Module struct {
-	ModuleID     string           `yaml:"id"`
-	RequiredTags []string         `yaml:"required_tags,omitempty"`
-	MaxDuration  time.Duration    `yaml:"max_duration,omitempty"`
-	Type         ModuleType       `yaml:"type"` // native|lib|grpc|cli
-	Version      ModuleApiVersion `yaml:"api"`  // v1|v2
+	ModuleID     string        `yaml:"id"`
+	RequiredTags []string      `yaml:"required_tags,omitempty"`
+	MaxDuration  time.Duration `yaml:"max_duration,omitempty"`
+	Type         ModuleType    `yaml:"type"` // native|lib|grpc|cli
 
 	ExecConfig struct {
 		ABI *struct {
-			LibraryPath string `yaml:"library_path"`
-			Symbol      string `yaml:"symbol"`
+			Version     ModuleApiVersion `yaml:"api"`
+			LibraryPath string           `yaml:"library_path"`
+			Symbol      string           `yaml:"symbol"`
 		} `yaml:"abi,omitempty"`
 
 		GRPC *struct {
@@ -39,7 +40,7 @@ type Module struct {
 			DialTimeout *time.Duration `yaml:"dial_timeout,omitempty"`
 		} `yaml:"grpc,omitempty"`
 
-		CLI *struct { // Only runnable with V1
+		CLI *struct {
 			Executable string `yaml:"exec"`
 			Command    string `yaml:"command"`
 		} `yaml:"cli,omitempty"`
@@ -90,6 +91,10 @@ func (m *Module) Validate() error {
 	// Validate ABI config
 	// ABI supports both V1 and V2
 	if hasABI {
+		if m.ExecConfig.ABI.Version != "v1" && m.ExecConfig.ABI.Version != "v2" {
+			return fmt.Errorf("abi.version is required and accept only two valid values: v1 or v2")
+		}
+
 		if m.ExecConfig.ABI.LibraryPath == "" {
 			return fmt.Errorf("abi.library_path is required")
 		}
@@ -103,7 +108,6 @@ func (m *Module) Validate() error {
 	}
 
 	// Validate GRPC config
-	// gRPC only supports V2
 	if hasGRPC {
 		if m.ExecConfig.GRPC.ServerAddr == "" {
 			return fmt.Errorf("grpc.server_addr is required")
@@ -111,19 +115,12 @@ func (m *Module) Validate() error {
 		if m.Type != Grpc {
 			return fmt.Errorf("grpc execution requires type 'grpc'")
 		}
-		if m.Version != ModuleV2 {
-			return fmt.Errorf("grpc execution only supports API version v2 (api: 1)")
-		}
 	}
 
 	// Validate CLI config
-	// CLI only supports V1
 	if hasCLI {
 		if m.ExecConfig.CLI.Command == "" {
 			return fmt.Errorf("cli.path is required")
-		}
-		if m.Version != ModuleV1 {
-			return fmt.Errorf("cli execution only supports API version v1 (api: 0)")
 		}
 	}
 

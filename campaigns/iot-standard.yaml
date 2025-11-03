@@ -85,9 +85,9 @@ tasks:
       required_tags: ["supports:tls", "protocol:tcp"]
       max_duration: 15s
       type: lib
-      api: 0
       exec:
           abi:
+              api: v1
               library_path: "./modules/kraken/abi/cert_inspect/target/release/libcert_inspect"
               symbol: "ORCA_Run"
           params:
@@ -104,9 +104,9 @@ tasks:
       required_tags: ["supports:tls", "protocol:tcp"]
       max_duration: 20s
       type: lib
-      api: 0
       exec:
           abi:
+              api: v1
               library_path: "./modules/kraken/abi/tls_version_check/build/tls_version_check"
               symbol: "ORCA_Run"
 
@@ -114,9 +114,9 @@ tasks:
       required_tags: ["protocol:tcp", "protocol:telnet"]
       max_duration: 20s
       type: lib
-      api: 1
       exec:
           abi:
+              api: v2
               library_path: "./modules/kraken/abi/telnel_default_creds/build/telnet_default_creds"
               symbol: "ORCA_Run_V2"
           conduit:
@@ -134,9 +134,9 @@ tasks:
       required_tags: ["protocol:mqtt"]
       max_duration: 15s
       type: lib
-      api: 1
       exec:
           abi:
+              api: v2
               library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
               symbol: "ORCA_Run_V2"
           conduit:
@@ -150,9 +150,9 @@ tasks:
       required_tags: ["protocol:mqtt", "supports:tls"]
       max_duration: 15s
       type: lib
-      api: 1
       exec:
           abi:
+              api: v2
               library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
               symbol: "ORCA_Run_V2"
           conduit:

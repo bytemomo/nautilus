@@ -89,7 +89,7 @@ func (r Runner) runModuleStep(mod *domain.Module, target domain.HostPort) domain
 	}
 
 	if exec == nil {
-		msg := fmt.Sprintf("no executor found for domain %q (type=%s, version=%d)", mod.ModuleID, mod.Type, mod.Version)
+		msg := fmt.Sprintf("no executor found for domain %q (type=%s)", mod.ModuleID, mod.Type)
 		l.Warn(msg)
 		result.Logs = append(result.Logs, msg)
 		return result

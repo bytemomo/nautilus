@@ -52,7 +52,6 @@ tasks:
       required_tags: ["protocol:mqtt"]
       max_duration: 30m
       type: native
-      api: 0
       exec:
           # The orchestrator will to set the --output-dir parameter automatically
           # so that the outputs of boofuzz will be placed in the right directory.
