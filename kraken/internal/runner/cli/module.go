@@ -12,12 +12,12 @@ import (
 	"time"
 )
 
-type Client struct {
+type CLIModule struct {
 }
 
-func New() *Client { return &Client{} }
+func New() *CLIModule { return &CLIModule{} }
 
-func (c *Client) Supports(transport string) bool {
+func (c *CLIModule) Supports(transport string) bool {
 	return strings.EqualFold(transport, "cli")
 }
 
@@ -29,7 +29,7 @@ func (c *Client) Supports(transport string) bool {
 //
 // will translate into: ./plugin --host <HOST> --port <PORT> --output-dir <DIR> param-flag param-value
 
-func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+func (c *CLIModule) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)

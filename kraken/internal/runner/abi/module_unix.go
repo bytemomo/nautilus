@@ -56,11 +56,11 @@ import (
 	cnd "bytemomo/trident/conduit"
 )
 
-type Client struct{}
+type LIBModule struct{}
 
-func New() *Client { return &Client{} }
+func New() *LIBModule { return &LIBModule{} }
 
-func (c *Client) Supports(transport string) bool {
+func (c *LIBModule) Supports(transport string) bool {
 	return strings.EqualFold(transport, "abi")
 }
 
@@ -218,7 +218,7 @@ func go_conduit_get_info(conn C.ORCA_ConnectionHandle) *C.ORCA_ConnectionInfo {
 	return handle.info
 }
 
-// func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+// func (c *LIBModule) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 // 	if timeout > 0 {
 // 		var cancel context.CancelFunc
 // 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -228,7 +228,7 @@ func go_conduit_get_info(conn C.ORCA_ConnectionHandle) *C.ORCA_ConnectionInfo {
 // 	return c.RunWithConduit(ctx, params, t, timeout, nil)
 // }
 
-func (c *Client) RunWithConduit(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
+func (c *LIBModule) RunWithConduit(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
 
 	var extension string
@@ -266,7 +266,7 @@ func (c *Client) RunWithConduit(ctx context.Context, params map[string]any, t do
 	return c.runV1(handle, symbol, params, t, timeout)
 }
 
-func (c *Client) runV1(handle unsafe.Pointer, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+func (c *LIBModule) runV1(handle unsafe.Pointer, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
 
@@ -310,7 +310,7 @@ func (c *Client) runV1(handle unsafe.Pointer, symbol string, params map[string]a
 	return decodeRunResult(outResult)
 }
 
-func (c *Client) runV2(handle unsafe.Pointer, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
+func (c *LIBModule) runV2(handle unsafe.Pointer, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
 

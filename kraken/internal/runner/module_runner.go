@@ -25,12 +25,12 @@ type ModuleExecutor interface {
 // CLI --------------------------------------------------
 
 type CLIModuleAdapter struct {
-	client *cli.Client
+	module *cli.CLIModule
 }
 
 func NewCLIModuleAdapter() *CLIModuleAdapter {
 	return &CLIModuleAdapter{
-		client: cli.New(),
+		module: cli.New(),
 	}
 }
 
@@ -48,18 +48,18 @@ func (a *CLIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 	}
 
 	cliCtx := context.WithValue(ctx, "cli", cliConfig)
-	return a.client.Run(cliCtx, params, t, timeout)
+	return a.module.Run(cliCtx, params, t, timeout)
 }
 
 // ABI --------------------------------------------------
 
 type ABIModuleAdapter struct {
-	client *abi.Client
+	module *abi.LIBModule
 }
 
 func NewABIModuleAdapter() *ABIModuleAdapter {
 	return &ABIModuleAdapter{
-		client: abi.New(),
+		module: abi.New(),
 	}
 }
 
@@ -137,7 +137,7 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 		}
 	}
 
-	return a.client.RunWithConduit(abiCtx, mergedParams, t, timeout, conduit)
+	return a.module.RunWithConduit(abiCtx, mergedParams, t, timeout, conduit)
 }
 
 func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Stream], error) {
@@ -218,12 +218,12 @@ func (a *ABIModuleAdapter) buildDTLSConfig(params map[string]any) *dtls.Config {
 // GRPC --------------------------------------------------
 
 type GRPCModuleAdapter struct {
-	client *grpc.Client
+	module *grpc.GRPCModule
 }
 
 func NewGRPCModuleAdapter() *GRPCModuleAdapter {
 	return &GRPCModuleAdapter{
-		client: grpc.New(),
+		module: grpc.New(),
 	}
 }
 
@@ -241,5 +241,29 @@ func (a *GRPCModuleAdapter) Run(ctx context.Context, m *domain.Module, params ma
 	}
 
 	cliCtx := context.WithValue(ctx, "grpc", grpcConfig)
-	return a.client.Run(cliCtx, params, t, timeout)
+	return a.module.Run(cliCtx, params, t, timeout)
 }
+
+// NATIVE --------------------------------------------------
+
+// type NativeModuleAdapter struct {
+// 	client *native.Client
+// }
+
+// func NewNativeModuleAdapter() *NativeModuleAdapter {
+// 	return &NativeModuleAdapter{
+// 		client: native.New(),
+// 	}
+// }
+
+// func (a *NativeModuleAdapter) Supports(m *domain.Module) bool {
+// 	if m == nil {
+// 		return false
+// 	}
+
+// 	return m.ExecConfig.Native != nil && m.Type == domain.Native
+// }
+
+// func (a *NativeModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+// 	return a.client.Run(cliCtx, params, t, timeout)
+// }

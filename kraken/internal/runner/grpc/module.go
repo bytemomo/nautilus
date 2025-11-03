@@ -14,15 +14,15 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-type Client struct{}
+type GRPCModule struct{}
 
-func New() *Client { return &Client{} }
+func New() *GRPCModule { return &GRPCModule{} }
 
-func (c *Client) Supports(transport string) bool {
+func (c *GRPCModule) Supports(transport string) bool {
 	return strings.EqualFold(transport, "grpc")
 }
 
-func (c *Client) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
+func (c *GRPCModule) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	grpcConfig := ctx.Value("grpc").(*domain.GRPCConfig)
 
 	endpoint := grpcConfig.Server
