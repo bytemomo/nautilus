@@ -138,7 +138,7 @@ func (t *AttackNode) RenderTree() string {
 
 		sb.WriteString(fmt.Sprintf("    %s[%q]\n", nodeID, label))
 		if parentID != "" {
-			sb.WriteString(fmt.Sprintf("    %s --> %s\n", parentID, nodeID))
+			sb.WriteString(fmt.Sprintf("    %s --- %s\n", parentID, nodeID))
 		}
 		if node.Success {
 			sb.WriteString(fmt.Sprintf("    class %s success;\n", nodeID))
