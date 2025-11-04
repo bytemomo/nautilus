@@ -32,7 +32,7 @@ func (a *GRPCModuleAdapter) Supports(m *domain.Module) bool {
 // Run runs the gRPC module.
 func (a *GRPCModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
 	grpcConfig := &domain.GRPCConfig{
-		Server: m.ExecConfig.GRPC.Server,
+		Server: m.ExecConfig.GRPC.ServerAddr,
 	}
 
 	grpcCtx := context.WithValue(ctx, "grpc", grpcConfig)
