@@ -65,7 +65,7 @@ package "External Modules" as EXT {
   [CLI Module]  as MOD_CLI  <<module>>
 }
 
-
+ACT               --> YAML: Defines
 ICampaignYAML     --- YAML
 ICampaignSpec     --- PARSE
 ITargets          --- SCN
