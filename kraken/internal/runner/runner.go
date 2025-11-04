@@ -7,21 +7,25 @@ import (
 
 	"bytemomo/kraken/internal/domain"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
+// Runner executes a campaign against a set of targets.
 type Runner struct {
+	Log       *logrus.Entry
 	Executors []ModuleExecutor
 	Store     domain.ResultRepo
 	Config    domain.RunnerConfig
 }
 
-func (r Runner) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
-	log.WithFields(log.Fields{
-		"MaxParallelTargets": r.Config.MaxTargets,
-	}).Info("Running campaign with following runner parameters")
+// Execute executes the campaign. It runs all modules against all targets, in parallel.
+func (r *Runner) Execute(ctx context.Context, campaign domain.Campaign, classified []domain.ClassifiedTarget) ([]domain.RunResult, error) {
+	log := r.Log.WithFields(logrus.Fields{
+		"max_parallel_targets": r.Config.MaxTargets,
+	})
+	log.Info("Running campaign with following runner parameters")
 
-	log.WithFields(log.Fields{
+	log.WithFields(logrus.Fields{
 		"campaign": campaign.ID,
 		"targets":  len(classified),
 	}).Info("Starting campaign execution")
@@ -34,9 +38,9 @@ func (r Runner) Execute(ctx context.Context, campaign domain.Campaign, classifie
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem }()
-			res := r.runForTarget(campaign, ct)
+			res := r.runForTarget(log, campaign, ct)
 			if err := r.Store.Save(res.Target, res); err != nil {
-				log.WithFields(log.Fields{
+				log.WithFields(logrus.Fields{
 					"target": res.Target.Host + ":" + strconv.Itoa(int(res.Target.Port)),
 					"error":  err,
 				}).Error("Failed to save result")
@@ -54,30 +58,30 @@ func (r Runner) Execute(ctx context.Context, campaign domain.Campaign, classifie
 	return all, nil
 }
 
-func (r Runner) runForTarget(camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
+func (r *Runner) runForTarget(log *logrus.Entry, camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
 	result := domain.RunResult{Target: ct.Target}
 	plan := filterStepsByTags(camp.Tasks, ct.Tags)
 
-	log.WithFields(log.Fields{
+	log.WithFields(logrus.Fields{
 		"target": ct.Target.Host + ":" + strconv.Itoa(int(ct.Target.Port)),
 		"tags":   ct.Tags,
 		"plan":   stepIDs(plan),
 	}).Info("Running for target")
 
 	for _, mod := range plan {
-		rr := r.runModuleStep(mod, ct.Target)
+		rr := r.runModuleStep(log, mod, ct.Target)
 		result.Findings = append(result.Findings, rr.Findings...)
 		result.Logs = append(result.Logs, rr.Logs...)
 	}
 	return result
 }
 
-func (r Runner) runModuleStep(mod *domain.Module, target domain.HostPort) domain.RunResult {
+func (r *Runner) runModuleStep(log *logrus.Entry, mod *domain.Module, target domain.HostPort) domain.RunResult {
 	result := domain.RunResult{Target: target}
 
-	l := log.WithFields(log.Fields{
+	l := log.WithFields(logrus.Fields{
 		"target": target.Host + ":" + strconv.Itoa(int(target.Port)),
-		"domain": mod.ModuleID,
+		"module": mod.ModuleID,
 	})
 
 	var exec ModuleExecutor
@@ -89,7 +93,7 @@ func (r Runner) runModuleStep(mod *domain.Module, target domain.HostPort) domain
 	}
 
 	if exec == nil {
-		msg := fmt.Sprintf("no executor found for domain %q (type=%s)", mod.ModuleID, mod.Type)
+		msg := fmt.Sprintf("no executor found for module %q (type=%s)", mod.ModuleID, mod.Type)
 		l.Warn(msg)
 		result.Logs = append(result.Logs, msg)
 		return result
@@ -99,13 +103,13 @@ func (r Runner) runModuleStep(mod *domain.Module, target domain.HostPort) domain
 	rr, err := exec.Run(ctx, mod, mod.ExecConfig.Params, target, mod.MaxDuration)
 
 	if err != nil {
-		msg := fmt.Sprintf("run domain %s: %v", mod.ModuleID, err)
+		msg := fmt.Sprintf("run module %s: %v", mod.ModuleID, err)
 		l.WithError(err).Error("Module execution failed")
 		result.Logs = append(result.Logs, msg)
 		return result
 	}
 
-	l.WithFields(log.Fields{
+	l.WithFields(logrus.Fields{
 		"findings": len(rr.Findings),
 		"logs":     len(rr.Logs),
 	}).Info("Module execution complete")
@@ -116,7 +120,7 @@ func (r Runner) runModuleStep(mod *domain.Module, target domain.HostPort) domain
 }
 
 func filterStepsByTags(steps []*domain.Module, tags []domain.Tag) []*domain.Module {
-	tagset := map[domain.Tag]struct{}{}
+	tagset := make(map[domain.Tag]struct{})
 	for _, t := range tags {
 		tagset[t] = struct{}{}
 	}

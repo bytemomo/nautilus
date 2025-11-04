@@ -6,22 +6,31 @@ import (
 	"time"
 )
 
+// ModuleType is the type of a module.
 type ModuleType string
 
 const (
+	// Native is a native module.
 	Native ModuleType = "native"
-	Lib    ModuleType = "lib"
-	Grpc   ModuleType = "grpc"
-	Cli    ModuleType = "cli"
+	// Lib is a library module.
+	Lib ModuleType = "lib"
+	// Grpc is a gRPC module.
+	Grpc ModuleType = "grpc"
+	// Cli is a CLI module.
+	Cli ModuleType = "cli"
 )
 
-type ModuleApiVersion string
+// ModuleAPIVersion is the version of the module API.
+type ModuleAPIVersion string
 
 const (
-	ModuleV1 ModuleApiVersion = "v1"
-	ModuleV2 ModuleApiVersion = "v2"
+	// ModuleV1 is version 1 of the module API.
+	ModuleV1 ModuleAPIVersion = "v1"
+	// ModuleV2 is version 2 of the module API.
+	ModuleV2 ModuleAPIVersion = "v2"
 )
 
+// Module is a module that can be run against a target.
 type Module struct {
 	ModuleID     string        `yaml:"id"`
 	RequiredTags []string      `yaml:"required_tags,omitempty"`
@@ -30,7 +39,7 @@ type Module struct {
 
 	ExecConfig struct {
 		ABI *struct {
-			Version     ModuleApiVersion `yaml:"api"`
+			Version     ModuleAPIVersion `yaml:"api"`
 			LibraryPath string           `yaml:"library_path"`
 			Symbol      string           `yaml:"symbol"`
 		} `yaml:"abi,omitempty"`
@@ -54,11 +63,13 @@ type Module struct {
 	} `yaml:"exec"`
 }
 
+// LayerHint is a hint for a layer in a conduit stack.
 type LayerHint struct {
 	Name   string         `yaml:"name"`
 	Params map[string]any `yaml:"params,omitempty"`
 }
 
+// Validate validates the module configuration.
 func (m *Module) Validate() error {
 	if m.ModuleID == "" {
 		return fmt.Errorf("module ID is required")
