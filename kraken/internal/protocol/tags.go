@@ -6,67 +6,76 @@ import (
 	"bytemomo/kraken/internal/domain"
 )
 
-// DeriveTagsFromService derives tags from a service.
+var (
+	// serviceKeywords maps keywords found in service names or products to their corresponding protocol tags.
+	serviceKeywords = map[string]domain.Tag{
+		"mqtt":    "protocol:mqtt",
+		"mosquitto": "protocol:mqtt",
+		"coap":    "protocol:coap",
+		"http":    "protocol:http",
+		"modbus":  "protocol:modbus",
+	}
+
+	// portProtocolTags maps port numbers to a list of tags that should be applied.
+	portProtocolTags = map[uint16][]domain.Tag{
+		80:   {"protocol:http"},
+		443:  {"protocol:http", "supports:tls"},
+		502:  {"protocol:modbus"},
+		1883: {"protocol:mqtt"},
+		5683: {"protocol:coap"},
+		5684: {"protocol:coap", "supports:tls"},
+		8883: {"protocol:mqtt", "supports:tls"},
+	}
+)
+
+// DeriveTagsFromService derives a set of tags for a given target based on its port, protocol, and service information.
+// It uses a data-driven approach to identify protocols and transport details, making it easily extensible.
 func DeriveTagsFromService(t domain.HostPort, proto, svcName, tunnel, product string) []domain.Tag {
-	tagset := map[domain.Tag]struct{}{}
+	tagSet := make(map[domain.Tag]struct{})
 
-	if t.Host == "localhost" || t.Host == "127.0.0.1" || t.Host == "::1" {
-		tagset[domain.Tag("service:local")] = struct{}{}
-	}
-
+	// Add basic transport tags
 	if strings.EqualFold(proto, "udp") {
-		tagset[domain.Tag("transport:udp")] = struct{}{}
+		tagSet["transport:udp"] = struct{}{}
 	} else {
-		tagset[domain.Tag("transport:tcp")] = struct{}{}
-		tagset[domain.Tag("protocol:tcp")] = struct{}{}
+		tagSet["transport:tcp"] = struct{}{}
+		tagSet["protocol:tcp"] = struct{}{}
 	}
 
+	// Add tags based on service name and product keywords
 	svcLower := strings.ToLower(svcName)
 	prodLower := strings.ToLower(product)
-
-	if tunnel == "ssl" || strings.HasPrefix(svcLower, "ssl/") ||
-		t.Port == 443 || t.Port == 8883 || t.Port == 5684 {
-		tagset[domain.Tag("supports:tls")] = struct{}{}
+	for keyword, tag := range serviceKeywords {
+		if containsSvc(svcLower, keyword) || strings.Contains(prodLower, keyword) {
+			tagSet[tag] = struct{}{}
+		}
 	}
 
-	switch {
-	case containsSvc(svcLower, "mqtt") || strings.Contains(prodLower, "mosquitto") || strings.Contains(prodLower, "mqtt"):
-		tagset[domain.Tag("protocol:mqtt")] = struct{}{}
-	case containsSvc(svcLower, "coap"):
-		tagset[domain.Tag("protocol:coap")] = struct{}{}
-	case containsSvc(svcLower, "http"):
-		tagset[domain.Tag("protocol:http")] = struct{}{}
-	case containsSvc(svcLower, "modbus"):
-		tagset[domain.Tag("protocol:modbus")] = struct{}{}
+	// Add tags based on well-known ports
+	if tags, ok := portProtocolTags[t.Port]; ok {
+		for _, tag := range tags {
+			tagSet[tag] = struct{}{}
+		}
 	}
 
-	switch t.Port {
-	case 1883:
-		tagset[domain.Tag("protocol:mqtt")] = struct{}{}
-	case 8883:
-		tagset[domain.Tag("protocol:mqtt")] = struct{}{}
-		tagset[domain.Tag("supports:tls")] = struct{}{}
-	case 5683:
-		tagset[domain.Tag("protocol:coap")] = struct{}{}
-	case 5684:
-		tagset[domain.Tag("protocol:coap")] = struct{}{}
-		tagset[domain.Tag("supports:tls")] = struct{}{}
-	case 502:
-		tagset[domain.Tag("protocol:modbus")] = struct{}{}
-	case 80:
-		tagset[domain.Tag("protocol:http")] = struct{}{}
-	case 443:
-		tagset[domain.Tag("protocol:http")] = struct{}{}
-		tagset[domain.Tag("supports:tls")] = struct{}{}
+	// Add TLS tag based on tunnel information or common TLS ports
+	if tunnel == "ssl" || strings.HasPrefix(svcLower, "ssl/") {
+		tagSet["supports:tls"] = struct{}{}
 	}
 
-	var tags []domain.Tag
-	for tg := range tagset {
-		tags = append(tags, tg)
+	// Add local service tag
+	if t.Host == "localhost" || t.Host == "127.0.0.1" || t.Host == "::1" {
+		tagSet["service:local"] = struct{}{}
+	}
+
+	// Convert set to slice
+	tags := make([]domain.Tag, 0, len(tagSet))
+	for tag := range tagSet {
+		tags = append(tags, tag)
 	}
 	return tags
 }
 
+// containsSvc checks if the service name contains a specific keyword.
 func containsSvc(svcLower, needle string) bool {
 	return svcLower == needle ||
 		strings.Contains(svcLower, needle) ||

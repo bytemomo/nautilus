@@ -10,23 +10,27 @@ import (
 	"bytemomo/kraken/internal/protocol"
 
 	nmap "github.com/Ullaakut/nmap/v3"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
+// Scanner is a wrapper around the nmap scanner. It is responsible for scanning a set of CIDRs and returning a list of classified targets.
 type Scanner struct {
+	Log    *logrus.Entry
 	Config domain.ScannerConfig
 }
 
-func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.ClassifiedTarget, error) {
+// Execute runs the nmap scanner with the configured options.
+func (s *Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.ClassifiedTarget, error) {
 	targets := sanitizeCIDRs(cidrs)
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no valid CIDRs provided")
 	}
 
-	log.WithFields(log.Fields{
+	log := s.Log.WithFields(logrus.Fields{
 		"targets": targets,
 		"ports":   s.Config.Ports,
-	}).Info("Starting nmap scan")
+	})
+	log.Info("Starting nmap scan")
 
 	opts := []nmap.Option{
 		nmap.WithTargets(targets...),
@@ -75,13 +79,13 @@ func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.Classifi
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingSlowest))
 	case "T1": // sneaky
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingSneaky))
-	case "T2": // sneaky
+	case "T2": // polite
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingPolite))
-	case "T3": // sneaky
+	case "T3": // normal
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingNormal))
-	case "T4": // sneaky
+	case "T4": // aggressive
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingAggressive))
-	case "T5": // sneaky
+	case "T5": // fastest
 		opts = append(opts, nmap.WithTimingTemplate(nmap.TimingFastest))
 	default:
 		log.Errorf("Wrong timing for scanner: %s", s.Config.Timing)
@@ -110,15 +114,13 @@ func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.Classifi
 		log.WithField("warnings", *warnings).Warn("Nmap scan produced warnings")
 	}
 
-	log.WithFields(log.Fields{
+	log.WithFields(logrus.Fields{
 		"hosts":   len(result.Hosts),
 		"runtime": result.Stats.Finished.TimeStr,
 		"summary": result.Stats.Finished.Summary,
 	}).Info("Nmap scan complete")
 
 	var out []domain.ClassifiedTarget
-	seen := make(map[string]struct{})
-
 	for _, h := range result.Hosts {
 		host := pickHostAddress(h)
 		if host == "" {
@@ -126,7 +128,6 @@ func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.Classifi
 		}
 
 		for _, p := range h.Ports {
-
 			state := strings.ToLower(p.State.State)
 			if !strings.HasPrefix(state, "open") {
 				continue
@@ -135,7 +136,7 @@ func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.Classifi
 			t := domain.HostPort{Host: host, Port: uint16(p.ID)}
 			tags := protocol.DeriveTagsFromService(t, p.Protocol, p.Service.Name, p.Service.Tunnel, p.Service.Product)
 
-			log.WithFields(log.Fields{
+			log.WithFields(logrus.Fields{
 				"host": host,
 				"port": p.ID,
 				"svc":  p.Service.Name,
@@ -144,7 +145,6 @@ func (s Scanner) Execute(ctx context.Context, cidrs []string) ([]domain.Classifi
 
 			ct := domain.ClassifiedTarget{Target: t, Tags: tags}
 			out = append(out, ct)
-			seen[key(t)] = struct{}{}
 		}
 	}
 	log.WithField("count", len(out)).Info("Finished classifying targets")

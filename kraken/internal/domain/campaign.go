@@ -1,19 +1,21 @@
 package domain
 
-import "time"
-
+// HostPort represents a host and port combination.
 type HostPort struct {
 	Host string
 	Port uint16
 }
 
+// Tag is a string that can be used to tag targets and findings.
 type Tag string
 
+// ClassifiedTarget is a target that has been classified with a set of tags.
 type ClassifiedTarget struct {
 	Target HostPort
 	Tags   []Tag
 }
 
+// Campaign is a collection of modules that are run against a set of targets.
 type Campaign struct {
 	ID                 string         `yaml:"id"`
 	Name               string         `yaml:"name"`
@@ -25,19 +27,7 @@ type Campaign struct {
 	ModulesPath        string         `yaml:"modules_path,omitempty"`
 }
 
-type Finding struct {
-	ID          string         `json:"id"`
-	ModuleID    string         `json:"module_id"`
-	Success     bool           `json:"success"`
-	Title       string         `json:"title"`
-	Severity    string         `json:"severity"`
-	Description string         `json:"description"`
-	Evidence    map[string]any `json:"evidence"`
-	Tags        []Tag          `json:"tags"`
-	Timestamp   time.Time      `json:"timestamp"`
-	Target      HostPort       `json:"target"`
-}
-
+// RunResult is the result of a module run against a target.
 type RunResult struct {
 	Target   HostPort  `json:"target"`
 	Findings []Finding `json:"findings"`

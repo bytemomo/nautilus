@@ -19,8 +19,11 @@ import (
 */
 import "C"
 
+// LoadableModule is an interface for a loadable native module.
 type LoadableModule interface {
+	// Run runs the module.
 	Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error)
+	// Close closes the module.
 	Close() error
 }
 

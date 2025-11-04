@@ -7,22 +7,31 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// NodeType is the type of a node in an attack tree.
 type NodeType string
 
 const (
+	// LEAF is a leaf node in an attack tree.
 	LEAF NodeType = "LEAF"
-	AND  NodeType = "AND"
-	OR   NodeType = "OR"
+	// AND is an AND node in an attack tree.
+	AND NodeType = "AND"
+	// OR is an OR node in an attack tree.
+	OR NodeType = "OR"
 )
 
+// SuccessMode is the mode for determining success of a leaf node.
 type SuccessMode string
 
 const (
-	SuccessModeAny       SuccessMode = "any"
-	SuccessModeAll       SuccessMode = "all"
+	// SuccessModeAny means any finding is enough for success.
+	SuccessModeAny SuccessMode = "any"
+	// SuccessModeAll means all findings must be successful.
+	SuccessModeAll SuccessMode = "all"
+	// SuccessModeThreshold means a certain number of findings must be successful.
 	SuccessModeThreshold SuccessMode = "threshold"
 )
 
+// AttackNode is a node in an attack tree.
 type AttackNode struct {
 	Name     string        `yaml:"name"`
 	Type     NodeType      `yaml:"type"`
@@ -35,6 +44,7 @@ type AttackNode struct {
 	FindingThreshold int         `yaml:"finding_threshold,omitempty"`
 }
 
+// Evaluate evaluates the attack tree against a set of findings.
 func (t *AttackNode) Evaluate(findings []Finding) bool {
 	switch t.Type {
 	case LEAF:
@@ -65,6 +75,7 @@ func (t *AttackNode) Evaluate(findings []Finding) bool {
 	}
 }
 
+// EvaluateLeaf evaluates a leaf node against a set of findings.
 func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 	switch t.FindingMode {
 	case SuccessModeAny:
@@ -113,6 +124,7 @@ func (t *AttackNode) EvaluateLeaf(findings []Finding) bool {
 	}
 }
 
+// RenderTree renders the attack tree as a Mermaid graph.
 func (t *AttackNode) RenderTree() string {
 	var sb strings.Builder
 	sb.WriteString("graph TD\n")
@@ -156,6 +168,7 @@ func (t *AttackNode) RenderTree() string {
 	return sb.String()
 }
 
+// PrintTree prints the attack tree to the console.
 func (t *AttackNode) PrintTree(prefix string) {
 	status := ""
 	if t.Type == LEAF {
