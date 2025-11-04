@@ -21,8 +21,8 @@ import (
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../../pkg/moduleabi/kraken_module_abi.h"
-#include "../../../pkg/moduleabi/kraken_module_abi_v2.h"
+#include "../../pkg/moduleabi/kraken_module_abi.h"
+#include "../../pkg/moduleabi/kraken_module_abi_v2.h"
 
 static void* my_dlopen(const char* p)              { return dlopen(p, RTLD_NOW); }
 static void* my_dlsym(void* h, const char* s)      { return dlsym(h, s); }

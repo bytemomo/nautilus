@@ -14,8 +14,8 @@ import (
 /*
 #include <stdlib.h>
 #include <string.h>
-#include "../../../pkg/moduleabi/kraken_module_abi.h"
-#include "../../../pkg/moduleabi/kraken_module_abi_v2.h"
+#include "../../pkg/moduleabi/kraken_module_abi.h"
+#include "../../pkg/moduleabi/kraken_module_abi_v2.h"
 */
 import "C"
 
