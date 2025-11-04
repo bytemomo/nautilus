@@ -13,6 +13,7 @@ import (
 	"bytemomo/kraken/internal/adapter/yamlconfig"
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/runner"
+	"bytemomo/kraken/internal/runner/adapter"
 	"bytemomo/kraken/internal/scanner"
 
 	"github.com/sirupsen/logrus"
@@ -101,9 +102,9 @@ func setupAndRunScanner(log *logrus.Entry, camp *domain.Campaign, cidrs []string
 func setupAndRunModuleRunner(log *logrus.Entry, camp *domain.Campaign, reporter domain.ResultRepo, classifiedTargets []domain.ClassifiedTarget) ([]domain.RunResult, error) {
 	log.Info("Starting module runner")
 	executors := []runner.ModuleExecutor{
-		runner.NewABIModuleAdapter(),
-		runner.NewCLIModuleAdapter(),
-		// runner.NewGRPCModuleAdapter(),
+		adapter.NewABIModuleAdapter(),
+		adapter.NewCLIModuleAdapter(),
+		// adapter.NewGRPCModuleAdapter(),
 	}
 
 	r := runner.Runner{
