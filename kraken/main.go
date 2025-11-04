@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"bytemomo/kraken/internal/adapter/yamlconfig"
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/runner"
+	"bytemomo/kraken/internal/runner/adapter"
 	"bytemomo/kraken/internal/scanner"
 
 	"github.com/sirupsen/logrus"
@@ -27,108 +28,140 @@ func main() {
 	)
 	flag.Parse()
 
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.SetLevel(logrus.InfoLevel)
+
 	if *campaignPath == "" || *cidrsArg == "" || *help {
 		flag.Usage()
 		os.Exit(2)
 	}
 
-	camp, err := yamlconfig.LoadCampaign(*campaignPath)
+	if err := run(*campaignPath, *cidrsArg, *outDir); err != nil {
+		logrus.WithError(err).Fatal("Failed to run campaign")
+	}
+}
+
+func run(campaignPath, cidrsArg, outDir string) error {
+	log := logrus.WithFields(logrus.Fields{
+		"campaign_path": campaignPath,
+	})
+	log.Info("Starting campaign")
+
+	camp, err := yamlconfig.LoadCampaign(campaignPath)
 	if err != nil {
-		logrus.Fatalf("Cannot load campaign %s\n", err)
+		return fmt.Errorf("could not load campaign: %w", err)
 	}
+	log = log.WithField("campaign_id", camp.ID)
 
-	cidrs := splitCSV(*cidrsArg)
+	cidrs := splitCSV(cidrsArg)
 	if len(cidrs) == 0 {
-		logrus.Fatal("No CIDRs parsed!")
+		return errors.New("no CIDRs specified")
 	}
 
-	resultDir := fmt.Sprintf("%s/%s/%d", *outDir, camp.ID, time.Now().Unix())
+	resultDir := fmt.Sprintf("%s/%s/%d", outDir, camp.ID, time.Now().Unix())
 	jsonReporter := jsonreport.New(resultDir)
 	camp.Runner.ResultDirectory = resultDir
 
 	// Scanner
-	classifiedTargets := setupAndRunScanner(camp, cidrs)
+	classifiedTargets, err := setupAndRunScanner(log, camp, cidrs)
+	if err != nil {
+		return err
+	}
 
 	// Runner
-	results := setupAndRunModuleRunner(camp, jsonReporter, classifiedTargets)
+	results, err := setupAndRunModuleRunner(log, camp, jsonReporter, classifiedTargets)
+	if err != nil {
+		return err
+	}
 
 	// Report
-	report(jsonReporter, results, camp)
+	return report(log, jsonReporter, results, camp)
 }
 
-func setupAndRunScanner(camp *domain.Campaign, cidrs []string) []domain.ClassifiedTarget {
+func setupAndRunScanner(log *logrus.Entry, camp *domain.Campaign, cidrs []string) ([]domain.ClassifiedTarget, error) {
+	log.Info("Starting scanner")
 	scannerConfig := camp.Scanner
 	if scannerConfig == nil {
 		scannerConfig = &domain.ScannerConfig{}
 	}
 
-	scanner := scanner.Scanner{
+	s := scanner.Scanner{
 		Config: *scannerConfig,
 	}
 
 	scannerCtx := context.Background()
-	classified, err := scanner.Execute(scannerCtx, cidrs)
+	classified, err := s.Execute(scannerCtx, cidrs)
 	if err != nil {
-		logrus.Fatalf("Failed network scanning %s\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed network scanning: %w", err)
 	}
 
-	return classified
+	log.WithField("target_count", len(classified)).Info("Scanner finished")
+	return classified, nil
 }
 
-func setupAndRunModuleRunner(camp *domain.Campaign, reporter domain.ResultRepo, classifiedTargets []domain.ClassifiedTarget) []domain.RunResult {
+func setupAndRunModuleRunner(log *logrus.Entry, camp *domain.Campaign, reporter domain.ResultRepo, classifiedTargets []domain.ClassifiedTarget) ([]domain.RunResult, error) {
+	log.Info("Starting module runner")
 	executors := []runner.ModuleExecutor{
-		runner.NewABIModuleAdapter(),
-		runner.NewCLIModuleAdapter(),
-		// runner.NewGRPCModuleAdapter(),
+		adapter.NewABIModuleAdapter(),
+		adapter.NewCLIModuleAdapter(),
+		// adapter.NewGRPCModuleAdapter(),
 	}
 
-	runner := runner.Runner{
+	r := runner.Runner{
 		Executors: executors,
 		Store:     reporter,
 		Config:    camp.Runner,
 	}
 
 	runnerCtx := context.Background()
-	results, err := runner.Execute(runnerCtx, *camp, classifiedTargets)
+	results, err := r.Execute(runnerCtx, *camp, classifiedTargets)
 	if err != nil {
-		logrus.Fatalf("Failed runner execution: %s", err)
+		return nil, fmt.Errorf("failed runner execution: %w", err)
 	}
 
-	return results
+	log.WithField("result_count", len(results)).Info("Module runner finished")
+	return results, nil
 }
 
-func report(reportWriter domain.ReportWriter, results []domain.RunResult, camp *domain.Campaign) {
+func report(log *logrus.Entry, reportWriter domain.ReportWriter, results []domain.RunResult, camp *domain.Campaign) error {
+	log.Info("Starting reporting")
 	path, err := reportWriter.Aggregate(results)
 	if err != nil {
-		log.Fatalf("Cannot report results: %s\n", err)
+		return fmt.Errorf("cannot report results: %w", err)
 	}
 
-	fmt.Println("Report written to:", path)
+	log.WithField("report_path", path).Info("Report written")
 
 	// Attack trees evaluation
 	if camp.AttackTreesDefPath == "" {
-		logrus.Info("Attack tree definition file not specified!")
+		log.Info("Attack tree definition file not specified!")
+		return nil
 	}
 
 	trees, err := yamlconfig.LoadAttackTrees(camp.AttackTreesDefPath)
 	if err != nil {
-		logrus.Fatalf("Could not load attack trees path: %s", err)
+		return fmt.Errorf("could not load attack trees path: %w", err)
 	}
 
 	if len(trees) == 0 {
-		logrus.Info("No attack tree specified!")
+		log.Info("No attack tree specified!")
+		return nil
 	}
 
 	for _, result := range results {
+		log := log.WithFields(logrus.Fields{
+			"target_host": result.Target.Host,
+			"target_port": result.Target.Port,
+		})
 		for _, tree := range trees {
 			if tree.Evaluate(result.Findings) {
-				logrus.Infof("For target [%s:%d] attack tree is evaluated as true: %s", result.Target.Host, result.Target.Port, tree.Name)
+				log.WithField("attack_tree_name", tree.Name).Warning("Attack tree evaluated as true")
 				tree.PrintTree(fmt.Sprintf("Target: %s:%d", result.Target.Host, result.Target.Port))
-				logrus.Infof("%s", tree.RenderTree())
+				log.Infof("%s", tree.RenderTree())
 			}
 		}
 	}
+	return nil
 }
 
 func splitCSV(s string) []string {
