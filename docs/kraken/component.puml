@@ -1,0 +1,109 @@
+@startuml
+!theme toy
+
+title Kraken — Component Diagram 
+/'!pragma layout elk'/
+
+' left to right direction
+' skinparam componentStyle rectangle
+'skinparam linetype ortho
+' skinparam shadowing false
+' skinparam wrapWidth 240
+' skinparam nodesep 40
+' skinparam ranksep 35
+' skinparam packageStyle rectangle
+
+actor "Operator" as ACT
+artifact "campaign.yaml" as YAML <<yaml>>
+
+package "Kraken" as K {
+
+  package "Ingress" as L1 {
+    [Campaign Parser] as PARSE
+    () "ICampaignYAML" as ICampaignYAML
+    () "ICampaignSpec" as ICampaignSpec
+  }
+
+  package "Scanning" as L2 {
+    [Scanner] as SCN
+    () "ITargets" as ITargets
+  }
+
+  package "Execution" as L3 {
+    [Runner] as RUN
+    [Module Executor] as EXEC
+    () "IModuleExecutor" as IModuleExecutor
+    () "IModule" as IModule
+    () "IResults" as IResults
+    () "IModuleAssertions" as IModuleAssertions
+  }
+
+  package "Reporting" as L4 {
+    [JSON Reporter] as REP_JSON <<reporter>>
+    [Markdown Reporter] as REP_MD <<reporter>>
+    () "IReport" as IReport
+  }
+
+  package "Attack Logic" as L5 {
+    [Attack Tree] as ATK
+    () "IAttackReport" as IAttackReport
+  }
+
+  package "Control Plane (Web API)" as L6 {
+    [Web API] as WEB
+    () "IWebCommands" as IWebCommands
+    () "IScannerCommand" as IScannerCmd
+    () "IRunnerCommand" as IRunnerCmd
+    () "IScannerInfo" as IScannerInfo
+    () "IRunnerInfo" as IRunnerInfo
+  }
+}
+
+package "External Modules" as EXT {
+  [ABI Module]  as MOD_ABI  <<module>>
+  [gRPC Module] as MOD_GPR  <<module>>
+  [CLI Module]  as MOD_CLI  <<module>>
+}
+
+
+ICampaignYAML     --- YAML
+ICampaignSpec     --- PARSE
+ITargets          --- SCN
+IModuleExecutor   --- EXEC
+IModule           --- MOD_ABI
+IModule           --- MOD_GPR
+IModule           --- MOD_CLI
+IResults          --- RUN
+IModuleAssertions --- RUN
+IReport           --- REP_JSON
+IReport           --- REP_MD
+IAttackReport     --- ATK
+IWebCommands      --- WEB
+IScannerCmd       --- WEB
+IRunnerCmd        --- WEB
+IScannerInfo      --- SCN
+IRunnerInfo       --- RUN
+
+PARSE  --( ICampaignYAML
+SCN    --( ICampaignSpec
+RUN    --( ICampaignSpec
+RUN    --( ITargets
+RUN    --( IModuleExecutor
+EXEC   --( IModule
+REP_JSON --( IResults
+REP_MD   --( IResults
+ATK    --( IModuleAssertions
+ACT    --( IReport
+ACT    --( IAttackReport
+ACT    --( IWebCommands
+SCN    --( IScannerCmd
+RUN    --( IRunnerCmd
+WEB    --( IScannerInfo
+WEB    --( IRunnerInfo
+
+EXEC -[hidden]-> MOD_ABI
+MOD_ABI -[hidden]-> MOD_GPR
+MOD_GPR -[hidden]-> MOD_CLI
+
+@enduml
+
