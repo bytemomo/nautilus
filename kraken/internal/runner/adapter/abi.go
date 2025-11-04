@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"bytemomo/kraken/internal/domain"
-	"bytemomo/kraken/internal/runner/abi"
+	"bytemomo/kraken/internal/loader"
 	"bytemomo/kraken/internal/transport"
 	cnd "bytemomo/trident/conduit"
 	tridenttransport "bytemomo/trident/conduit/transport"
@@ -15,15 +15,11 @@ import (
 )
 
 // ABIModuleAdapter is a runner for ABI modules.
-type ABIModuleAdapter struct {
-	module *abi.LIBModule
-}
+type ABIModuleAdapter struct{}
 
 // NewABIModuleAdapter creates a new ABI module adapter.
 func NewABIModuleAdapter() *ABIModuleAdapter {
-	return &ABIModuleAdapter{
-		module: abi.New(),
-	}
+	return &ABIModuleAdapter{}
 }
 
 // Supports returns true if the module is an ABI module.
@@ -48,12 +44,6 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 		LibraryPath: m.ExecConfig.ABI.LibraryPath,
 		Symbol:      m.ExecConfig.ABI.Symbol,
 	}
-
-	libPath := abiConfig.LibraryPath
-	libPath = strings.TrimSuffix(libPath, ".so")
-	libPath = strings.TrimSuffix(libPath, ".dylib")
-	libPath = strings.TrimSuffix(libPath, ".dll")
-	abiConfig.LibraryPath = libPath
 
 	abiCtx := context.WithValue(ctx, "abi", abiConfig)
 
@@ -100,7 +90,13 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 		}
 	}
 
-	return a.module.RunWithConduit(abiCtx, mergedParams, t, timeout, conduit)
+	module, err := loader.Load(abiConfig.LibraryPath)
+	if err != nil {
+		return domain.RunResult{}, fmt.Errorf("failed to load module: %w", err)
+	}
+	defer module.Close()
+
+	return module.Run(abiCtx, mergedParams, t, timeout, conduit)
 }
 
 func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Stream], error) {
