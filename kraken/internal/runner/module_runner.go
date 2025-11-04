@@ -13,8 +13,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/pion/dtls/v3"
 )
 
 type ModuleExecutor interface {
@@ -114,20 +112,6 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 			conduit = streamConduit.Underlying()
 			closeConduit = func() { streamConduit.Close() }
 
-		case cnd.KindDatagram:
-			datagramConduit, err := a.buildDatagramConduit(addr, cfg.Stack)
-			if err != nil {
-				return domain.RunResult{Target: t}, fmt.Errorf("failed to build datagram conduit: %w", err)
-			}
-
-			err = datagramConduit.Dial(ctx)
-			if err != nil {
-				return domain.RunResult{Target: t}, fmt.Errorf("failed to dial datagram conduit: %w", err)
-			}
-
-			conduit = datagramConduit.Underlying()
-			closeConduit = func() { datagramConduit.Close() }
-
 		default:
 			return domain.RunResult{Target: t}, fmt.Errorf("unsupported conduit kind: %v", cfg.Kind)
 		}
@@ -156,16 +140,6 @@ func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerH
 	}
 
 	return current, nil
-}
-
-func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Datagram], error) {
-	for _, layer := range stack {
-		if strings.ToLower(layer.Name) == "dtls" {
-			dtlsConfig := a.buildDTLSConfig(layer.Params)
-			return tlscond.NewDtlsClient(addr, dtlsConfig), nil
-		}
-	}
-	return transport.UDP(addr), nil
 }
 
 func (a *ABIModuleAdapter) buildTLSConfig(params map[string]any) *tls.Config {
@@ -201,20 +175,6 @@ func (a *ABIModuleAdapter) buildTLSConfig(params map[string]any) *tls.Config {
 	return cfg
 }
 
-func (a *ABIModuleAdapter) buildDTLSConfig(params map[string]any) *dtls.Config {
-	cfg := &dtls.Config{}
-
-	if params == nil {
-		return cfg
-	}
-
-	if skipVerify, ok := params["skip_verify"].(bool); ok && skipVerify {
-		cfg.InsecureSkipVerify = true
-	}
-
-	return cfg
-}
-
 // GRPC --------------------------------------------------
 
 type GRPCModuleAdapter struct {
@@ -243,27 +203,3 @@ func (a *GRPCModuleAdapter) Run(ctx context.Context, m *domain.Module, params ma
 	cliCtx := context.WithValue(ctx, "grpc", grpcConfig)
 	return a.module.Run(cliCtx, params, t, timeout)
 }
-
-// NATIVE --------------------------------------------------
-
-// type NativeModuleAdapter struct {
-// 	client *native.Client
-// }
-
-// func NewNativeModuleAdapter() *NativeModuleAdapter {
-// 	return &NativeModuleAdapter{
-// 		client: native.New(),
-// 	}
-// }
-
-// func (a *NativeModuleAdapter) Supports(m *domain.Module) bool {
-// 	if m == nil {
-// 		return false
-// 	}
-
-// 	return m.ExecConfig.Native != nil && m.Type == domain.Native
-// }
-
-// func (a *NativeModuleAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-// 	return a.client.Run(cliCtx, params, t, timeout)
-// }
