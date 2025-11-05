@@ -16,6 +16,8 @@ import (
 // TLS Client Conduit
 // =====================================================================================
 
+// TlsClient is a conduit that wraps another stream-based conduit (like TCP)
+// to provide a TLS-encrypted channel. It acts as a client-side TLS decorator.
 type TlsClient struct {
 	inner conduit.Conduit[conduit.Stream]
 	cfg   *tls.Config
@@ -24,8 +26,11 @@ type TlsClient struct {
 	conn *tls.Conn
 }
 
+// tlsStream is a type alias for TlsClient to implement the conduit.Stream interface.
 type tlsStream TlsClient
 
+// NewTlsClient creates a new TLS client conduit.
+// It takes an inner conduit (e.g., a TCP conduit) and a TLS configuration.
 func NewTlsClient(inner conduit.Conduit[conduit.Stream], cfg *tls.Config) conduit.Conduit[conduit.Stream] {
 	return &TlsClient{inner: inner, cfg: cfg}
 }
