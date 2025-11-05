@@ -1,13 +1,15 @@
 package tls
 
 import (
-	cond "bytemomo/trident/conduit"
 	"context"
 	"crypto/tls"
 	"errors"
 	"net"
 	"sync"
 	"time"
+
+	"bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/utils"
 )
 
 // =====================================================================================
@@ -15,7 +17,7 @@ import (
 // =====================================================================================
 
 type TlsClient struct {
-	inner cond.Conduit[cond.Stream]
+	inner conduit.Conduit[conduit.Stream]
 	cfg   *tls.Config
 
 	mu   sync.Mutex
@@ -24,7 +26,7 @@ type TlsClient struct {
 
 type tlsStream TlsClient
 
-func NewTlsClient(inner cond.Conduit[cond.Stream], cfg *tls.Config) cond.Conduit[cond.Stream] {
+func NewTlsClient(inner conduit.Conduit[conduit.Stream], cfg *tls.Config) conduit.Conduit[conduit.Stream] {
 	return &TlsClient{inner: inner, cfg: cfg}
 }
 
@@ -62,13 +64,13 @@ func (t *TlsClient) Close() error {
 	return t.inner.Close()
 }
 
-func (t *TlsClient) Kind() cond.Kind { return cond.KindStream }
+func (t *TlsClient) Kind() conduit.Kind { return conduit.KindStream }
 
 func (t *TlsClient) Stack() []string {
 	return append([]string{"tls"}, t.inner.Stack()...)
 }
 
-func (t *TlsClient) Underlying() cond.Stream { return (*tlsStream)(t) }
+func (t *TlsClient) Underlying() conduit.Stream { return (*tlsStream)(t) }
 
 func (t *tlsStream) c() (*tls.Conn, error) {
 	if t.conn == nil {
@@ -77,7 +79,7 @@ func (t *tlsStream) c() (*tls.Conn, error) {
 	return t.conn, nil
 }
 
-func (t *tlsStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.StreamChunk, error) {
+func (t *tlsStream) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.StreamChunk, error) {
 	c, err := t.c()
 	if err != nil {
 		return nil, err
@@ -87,7 +89,7 @@ func (t *tlsStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Str
 	if opts != nil && opts.MaxBytes > 0 {
 		size = opts.MaxBytes
 	}
-	buf := cond.GetBuf(size)
+	buf := utils.GetBuf(size)
 	b := buf.Bytes()
 
 	start := time.Now()
@@ -101,7 +103,7 @@ func (t *tlsStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Str
 		buf.Release()
 	}
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 6,
@@ -117,15 +119,15 @@ func (t *tlsStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Str
 	}
 
 	if n <= 0 {
-		return &cond.StreamChunk{Data: nil, MD: md}, rerr
+		return &conduit.StreamChunk{Data: nil, MD: md}, rerr
 	}
-	return &cond.StreamChunk{Data: buf, MD: md}, rerr
+	return &conduit.StreamChunk{Data: buf, MD: md}, rerr
 }
 
-func (t *tlsStream) Send(ctx context.Context, p []byte, buf cond.Buffer, _ *cond.SendOptions) (int, cond.Metadata, error) {
+func (t *tlsStream) Send(ctx context.Context, p []byte, buf conduit.Buffer, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := t.c()
 	if err != nil {
-		return 0, cond.Metadata{}, err
+		return 0, conduit.Metadata{}, err
 	}
 
 	var payload []byte
@@ -140,7 +142,7 @@ func (t *tlsStream) Send(ctx context.Context, p []byte, buf cond.Buffer, _ *cond
 	n, werr := c.Write(payload)
 	cancel()
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 6,
@@ -207,11 +209,11 @@ func (t *tlsStream) RemoteAddr() net.Addr {
 }
 
 // =====================================================================================
-// net.Conn adapter around cond.Stream — used only for tls.Client handshake
+// net.Conn adapter around conduit.Stream — used only for tls.Client handshake
 // =====================================================================================
 
 type streamToConn struct {
-	S cond.Stream
+	S conduit.Stream
 
 	mu           sync.Mutex
 	rdl, wdl     time.Time
@@ -245,7 +247,7 @@ func (w *streamToConn) Read(p []byte) (int, error) {
 		ctx, cancel = context.WithDeadline(ctx, dl)
 		defer cancel()
 	}
-	chunk, err := w.S.Recv(ctx, &cond.RecvOptions{MaxBytes: len(p)})
+	chunk, err := w.S.Recv(ctx, &conduit.RecvOptions{MaxBytes: len(p)})
 	if err != nil && (chunk == nil || chunk.Data == nil) {
 		return 0, err
 	}

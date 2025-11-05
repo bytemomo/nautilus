@@ -1,4 +1,4 @@
-package conduit
+package logging
 
 import (
 	"context"
@@ -6,14 +6,16 @@ import (
 	"net"
 	"net/netip"
 	"time"
+
+	"bytemomo/trident/conduit"
 )
 
 type LoggingConduit[V any] struct {
-	inner Conduit[V]
+	inner conduit.Conduit[V]
 	name  string
 }
 
-func NewLoggingConduit[V any](name string, inner Conduit[V]) Conduit[V] {
+func NewLoggingConduit[V any](name string, inner conduit.Conduit[V]) conduit.Conduit[V] {
 	return &LoggingConduit[V]{inner: inner, name: name}
 }
 
@@ -41,7 +43,7 @@ func (l *LoggingConduit[V]) Close() error {
 	return nil
 }
 
-func (l *LoggingConduit[V]) Kind() Kind {
+func (l *LoggingConduit[V]) Kind() conduit.Kind {
 	kind := l.inner.Kind()
 	fmt.Printf("[%s] Kind() -> %v\n", l.name, kind)
 	return kind
@@ -56,13 +58,13 @@ func (l *LoggingConduit[V]) Stack() []string {
 func (l *LoggingConduit[V]) Underlying() V {
 	innerV := l.inner.Underlying()
 	switch v := any(innerV).(type) {
-	case Stream:
+	case conduit.Stream:
 		return any(&loggingStream{inner: v, name: l.name}).(V)
-	case Datagram:
+	case conduit.Datagram:
 		return any(&loggingDatagram{inner: v, name: l.name}).(V)
-	case Network:
+	case conduit.Network:
 		return any(&loggingNetwork{inner: v, name: l.name}).(V)
-	case Frame:
+	case conduit.Frame:
 		return any(&loggingFrame{inner: v, name: l.name}).(V)
 	default:
 		return innerV
@@ -70,11 +72,11 @@ func (l *LoggingConduit[V]) Underlying() V {
 }
 
 type loggingNetwork struct {
-	inner Network
+	inner conduit.Network
 	name  string
 }
 
-func (l *loggingNetwork) Recv(ctx context.Context, opts *RecvOptions) (*IPPacket, error) {
+func (l *loggingNetwork) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.IPPacket, error) {
 	fmt.Printf("[%s] Recv(network)...\n", l.name)
 	start := time.Now()
 	pkt, err := l.inner.Recv(ctx, opts)
@@ -91,7 +93,7 @@ func (l *loggingNetwork) Recv(ctx context.Context, opts *RecvOptions) (*IPPacket
 	return pkt, nil
 }
 
-func (l *loggingNetwork) RecvBatch(ctx context.Context, pkts []*IPPacket, opts *RecvOptions) (int, error) {
+func (l *loggingNetwork) RecvBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.RecvOptions) (int, error) {
 	fmt.Printf("[%s] RecvBatch(network)...\n", l.name)
 	start := time.Now()
 	n, err := l.inner.RecvBatch(ctx, pkts, opts)
@@ -104,7 +106,7 @@ func (l *loggingNetwork) RecvBatch(ctx context.Context, pkts []*IPPacket, opts *
 	return n, nil
 }
 
-func (l *loggingNetwork) Send(ctx context.Context, pkt *IPPacket, opts *SendOptions) (int, Metadata, error) {
+func (l *loggingNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	fmt.Printf("[%s] Send(network)...\n", l.name)
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, pkt, opts)
@@ -121,7 +123,7 @@ func (l *loggingNetwork) Send(ctx context.Context, pkt *IPPacket, opts *SendOpti
 	return n, md, nil
 }
 
-func (l *loggingNetwork) SendBatch(ctx context.Context, pkts []*IPPacket, opts *SendOptions) (int, error) {
+func (l *loggingNetwork) SendBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.SendOptions) (int, error) {
 	fmt.Printf("[%s] SendBatch(network)...\n", l.name)
 	start := time.Now()
 	n, err := l.inner.SendBatch(ctx, pkts, opts)
@@ -158,11 +160,11 @@ func (l *loggingNetwork) IsIPv6() bool {
 }
 
 type loggingFrame struct {
-	inner Frame
+	inner conduit.Frame
 	name  string
 }
 
-func (l *loggingFrame) Recv(ctx context.Context, opts *RecvOptions) (*FramePkt, error) {
+func (l *loggingFrame) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.FramePkt, error) {
 	fmt.Printf("[%s] Recv(frame)...\n", l.name)
 	start := time.Now()
 	pkt, err := l.inner.Recv(ctx, opts)
@@ -179,7 +181,7 @@ func (l *loggingFrame) Recv(ctx context.Context, opts *RecvOptions) (*FramePkt, 
 	return pkt, nil
 }
 
-func (l *loggingFrame) RecvBatch(ctx context.Context, pkts []*FramePkt, opts *RecvOptions) (int, error) {
+func (l *loggingFrame) RecvBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.RecvOptions) (int, error) {
 	fmt.Printf("[%s] RecvBatch(frame)...\n", l.name)
 	start := time.Now()
 	n, err := l.inner.RecvBatch(ctx, pkts, opts)
@@ -192,7 +194,7 @@ func (l *loggingFrame) RecvBatch(ctx context.Context, pkts []*FramePkt, opts *Re
 	return n, nil
 }
 
-func (l *loggingFrame) Send(ctx context.Context, pkt *FramePkt, opts *SendOptions) (int, Metadata, error) {
+func (l *loggingFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	fmt.Printf("[%s] Send(frame)...\n", l.name)
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, pkt, opts)
@@ -209,7 +211,7 @@ func (l *loggingFrame) Send(ctx context.Context, pkt *FramePkt, opts *SendOption
 	return n, md, nil
 }
 
-func (l *loggingFrame) SendBatch(ctx context.Context, pkts []*FramePkt, opts *SendOptions) (int, error) {
+func (l *loggingFrame) SendBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.SendOptions) (int, error) {
 	fmt.Printf("[%s] SendBatch(frame)...\n", l.name)
 	start := time.Now()
 	n, err := l.inner.SendBatch(ctx, pkts, opts)
@@ -235,11 +237,11 @@ func (l *loggingFrame) Interface() *net.Interface {
 
 
 type loggingStream struct {
-	inner Stream
+	inner conduit.Stream
 	name  string
 }
 
-func (l *loggingStream) Recv(ctx context.Context, opts *RecvOptions) (*StreamChunk, error) {
+func (l *loggingStream) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.StreamChunk, error) {
 	fmt.Printf("[%s] Recv(stream)...\n", l.name)
 	start := time.Now()
 	chunk, err := l.inner.Recv(ctx, opts)
@@ -256,7 +258,7 @@ func (l *loggingStream) Recv(ctx context.Context, opts *RecvOptions) (*StreamChu
 	return chunk, nil
 }
 
-func (l *loggingStream) Send(ctx context.Context, p []byte, buf Buffer, opts *SendOptions) (int, Metadata, error) {
+func (l *loggingStream) Send(ctx context.Context, p []byte, buf conduit.Buffer, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	fmt.Printf("[%s] Send(stream)...\n", l.name)
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, p, buf, opts)
@@ -297,11 +299,11 @@ func (l *loggingStream) RemoteAddr() net.Addr {
 }
 
 type loggingDatagram struct {
-	inner Datagram
+	inner conduit.Datagram
 	name  string
 }
 
-func (l *loggingDatagram) Recv(ctx context.Context, opts *RecvOptions) (*DatagramMsg, error) {
+func (l *loggingDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.DatagramMsg, error) {
 	fmt.Printf("[%s] Recv(datagram)...\n", l.name)
 	start := time.Now()
 	msg, err := l.inner.Recv(ctx, opts)
@@ -318,7 +320,7 @@ func (l *loggingDatagram) Recv(ctx context.Context, opts *RecvOptions) (*Datagra
 	return msg, nil
 }
 
-func (l *loggingDatagram) RecvBatch(ctx context.Context, msgs []*DatagramMsg, opts *RecvOptions) (int, error) {
+func (l *loggingDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
 	fmt.Printf("[%s] RecvBatch(datagram)...\n", l.name)
 	start := time.Now()
 	n, err := l.inner.RecvBatch(ctx, msgs, opts)
@@ -331,7 +333,7 @@ func (l *loggingDatagram) RecvBatch(ctx context.Context, msgs []*DatagramMsg, op
 	return n, nil
 }
 
-func (l *loggingDatagram) Send(ctx context.Context, msg *DatagramMsg, opts *SendOptions) (int, Metadata, error) {
+func (l *loggingDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	fmt.Printf("[%s] Send(datagram)...\n", l.name)
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, msg, opts)
@@ -348,7 +350,7 @@ func (l *loggingDatagram) Send(ctx context.Context, msg *DatagramMsg, opts *Send
 	return n, md, nil
 }
 
-func (l *loggingDatagram) SendBatch(ctx context.Context, msgs []*DatagramMsg, opts *SendOptions) (int, error) {
+func (l *loggingDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
 	fmt.Printf("[%s] SendBatch(datagram)...\n", l.name)
 	start := time.Now()
 	n, err := l.inner.SendBatch(ctx, msgs, opts)

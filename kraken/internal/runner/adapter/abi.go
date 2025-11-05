@@ -118,11 +118,18 @@ func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerH
 }
 
 func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Datagram], error) {
+	var current cnd.Conduit[cnd.Datagram] = tridenttransport.UDP(addr)
+
 	for _, layer := range stack {
-		if strings.ToLower(layer.Name) == "dtls" {
+		switch strings.ToLower(layer.Name) {
+		case "udp":
+			continue
+		case "dtls":
 			dtlsConfig := transport.BuildDTLSConfig(layer.Params)
-			return tlscond.NewDtlsClient(addr, dtlsConfig), nil
+			current = tlscond.NewDtlsClient(current, dtlsConfig)
+		default:
+			return nil, fmt.Errorf("unknown stream layer: %s", layer.Name)
 		}
 	}
-	return tridenttransport.UDP(addr), nil
+	return current, nil
 }

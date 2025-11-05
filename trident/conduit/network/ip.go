@@ -11,7 +11,8 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 
-	cond "bytemomo/trident/conduit"
+	"bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/utils"
 )
 
 type IpConduit struct {
@@ -30,7 +31,7 @@ type ipNetwork IpConduit
 // IPRaw creates a raw IP network-level conduit.
 // proto: IP protocol number (e.g., 1 ICMP, 17 UDP, 253/254 experimental)
 // raddr: optional default destination (netip.Addr{}) for none
-func IPRaw(proto int, raddr netip.Addr) cond.Conduit[cond.Network] {
+func IPRaw(proto int, raddr netip.Addr) conduit.Conduit[conduit.Network] {
 	return &IpConduit{v6: raddr.Is6(), proto: proto, raddr: raddr}
 }
 
@@ -77,7 +78,7 @@ func (i *IpConduit) Close() error {
 	return nil
 }
 
-func (i *IpConduit) Kind() cond.Kind { return cond.KindNetwork }
+func (i *IpConduit) Kind() conduit.Kind { return conduit.KindNetwork }
 func (i *IpConduit) Stack() []string {
 	if i.v6 {
 		return []string{"ip6"}
@@ -85,7 +86,7 @@ func (i *IpConduit) Stack() []string {
 	return []string{"ip4"}
 }
 
-func (i *IpConduit) Underlying() cond.Network { return (*ipNetwork)(i) }
+func (i *IpConduit) Underlying() conduit.Network { return (*ipNetwork)(i) }
 
 func (i *ipNetwork) pkt() (net.PacketConn, error) {
 	if i.pc == nil {
@@ -97,13 +98,13 @@ func (i *ipNetwork) IsIPv6() bool          { return i.v6 }
 func (i *ipNetwork) LocalAddr() netip.Addr { return i.laddr }
 func (i *ipNetwork) Proto() int            { return i.proto }
 
-func (i *ipNetwork) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.IPPacket, error) {
+func (i *ipNetwork) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.IPPacket, error) {
 	pc, err := i.pkt()
 	if err != nil {
 		return nil, err
 	}
 
-	buf := cond.GetBuf(1500)
+	buf := utils.GetBuf(1500)
 	b := buf.Bytes()
 
 	start := time.Now()
@@ -123,37 +124,37 @@ func (i *ipNetwork) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.IPP
 		} else {
 			buf.Release()
 		}
-		md := cond.Metadata{Start: start, End: time.Now(), Proto: i.proto}
-		nip := cond.ToNetip(addr)
-		return &cond.IPPacket{Data: buf, Src: nip, Dst: i.laddr, Proto: i.proto, V6: i.v6, MD: md}, ctx.Err()
+		md := conduit.Metadata{Start: start, End: time.Now(), Proto: i.proto}
+		nip := utils.ToNetip(addr)
+		return &conduit.IPPacket{Data: buf, Src: nip, Dst: i.laddr, Proto: i.proto, V6: i.v6, MD: md}, ctx.Err()
 	case <-done:
 		if n > 0 {
 			buf.ShrinkTo(n)
 		} else {
 			buf.Release()
 		}
-		md := cond.Metadata{Start: start, End: time.Now(), Proto: i.proto}
-		nip := cond.ToNetip(addr)
-		return &cond.IPPacket{Data: buf, Src: nip, Dst: i.laddr, Proto: i.proto, V6: i.v6, MD: md}, rerr
+		md := conduit.Metadata{Start: start, End: time.Now(), Proto: i.proto}
+		nip := utils.ToNetip(addr)
+		return &conduit.IPPacket{Data: buf, Src: nip, Dst: i.laddr, Proto: i.proto, V6: i.v6, MD: md}, rerr
 	}
 }
 
-func (i *ipNetwork) RecvBatch(ctx context.Context, pkts []*cond.IPPacket, opts *cond.RecvOptions) (int, error) {
+func (i *ipNetwork) RecvBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.RecvOptions) (int, error) {
 	// Not implemented
 	return 0, errors.New("not implemented")
 }
 
-func (i *ipNetwork) Send(ctx context.Context, pkt *cond.IPPacket, opts *cond.SendOptions) (int, cond.Metadata, error) {
+func (i *ipNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	pc, err := i.pkt()
 	if err != nil {
-		return 0, cond.Metadata{}, err
+		return 0, conduit.Metadata{}, err
 	}
 	dst := pkt.Dst
 	if !dst.IsValid() {
 		dst = i.raddr
 	}
 	if !dst.IsValid() {
-		return 0, cond.Metadata{}, errors.New("ip: destination required")
+		return 0, conduit.Metadata{}, errors.New("ip: destination required")
 	}
 	var raddr net.Addr = &net.IPAddr{IP: dst.AsSlice()}
 	start := time.Now()
@@ -165,15 +166,15 @@ func (i *ipNetwork) Send(ctx context.Context, pkt *cond.IPPacket, opts *cond.Sen
 	case <-ctx.Done():
 		_ = pc.SetWriteDeadline(time.Now().Add(-time.Second))
 		<-done
-		md := cond.Metadata{Start: start, End: time.Now(), Proto: i.proto}
+		md := conduit.Metadata{Start: start, End: time.Now(), Proto: i.proto}
 		return n, md, ctx.Err()
 	case <-done:
-		md := cond.Metadata{Start: start, End: time.Now(), Proto: i.proto}
+		md := conduit.Metadata{Start: start, End: time.Now(), Proto: i.proto}
 		return n, md, werr
 	}
 }
 
-func (i *ipNetwork) SendBatch(ctx context.Context, pkts []*cond.IPPacket, opts *cond.SendOptions) (int, error) {
+func (i *ipNetwork) SendBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.SendOptions) (int, error) {
 	// Not implemented
 	return 0, errors.New("not implemented")
 }

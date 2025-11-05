@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	cond "bytemomo/trident/conduit"
+	"bytemomo/trident/conduit"
 	dl "bytemomo/trident/conduit/datalink"
+	"bytemomo/trident/conduit/utils"
 )
 
 func TestMain(m *testing.M) {
@@ -77,9 +78,9 @@ func TestEthernetConduit_SendRecv(t *testing.T) {
 
 	// Send a frame
 	payload := []byte("hello world")
-	buf := cond.GetBuf(len(payload))
+	buf := utils.GetBuf(len(payload))
 	copy(buf.Bytes(), payload)
-	pkt := &cond.FramePkt{
+	pkt := &conduit.FramePkt{
 		Data:      buf,
 		Dst:       veth1.HardwareAddr,
 		EtherType: 0x88a4,

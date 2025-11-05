@@ -9,7 +9,8 @@ import (
 
 	packetpkg "github.com/mdlayher/packet"
 
-	cond "bytemomo/trident/conduit"
+	"bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/utils"
 )
 
 const (
@@ -27,7 +28,7 @@ type EthernetConduit struct {
 
 type ethFrame EthernetConduit
 
-func Ethernet(ifaceName string, defaultDst net.HardwareAddr, etherType uint16) cond.Conduit[cond.Frame] {
+func Ethernet(ifaceName string, defaultDst net.HardwareAddr, etherType uint16) conduit.Conduit[conduit.Frame] {
 	return &EthernetConduit{
 		ifc:       &net.Interface{Name: ifaceName},
 		dst:       defaultDst,
@@ -76,9 +77,9 @@ func (e *EthernetConduit) Close() error {
 	return nil
 }
 
-func (e *EthernetConduit) Kind() cond.Kind { return cond.KindFrame }
+func (e *EthernetConduit) Kind() conduit.Kind { return conduit.KindFrame }
 func (e *EthernetConduit) Stack() []string { return []string{"eth"} }
-func (e *EthernetConduit) Underlying() cond.Frame { return (*ethFrame)(e) }
+func (e *EthernetConduit) Underlying() conduit.Frame { return (*ethFrame)(e) }
 
 func (e *ethFrame) c() (*packetpkg.Conn, error) {
 	if e.conn == nil {
@@ -96,13 +97,13 @@ func (e *ethFrame) SetDeadline(t time.Time) error {
 }
 func (e *ethFrame) Interface() *net.Interface { return e.ifc }
 
-func (e *ethFrame) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.FramePkt, error) {
+func (e *ethFrame) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.FramePkt, error) {
 	c, err := e.c()
 	if err != nil {
 		return nil, err
 	}
 
-	buf := cond.GetBuf(1500)
+	buf := utils.GetBuf(1500)
 	b := buf.Bytes()
 
 	start := time.Now()
@@ -118,18 +119,18 @@ func (e *ethFrame) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Fram
 		_ = c.SetReadDeadline(time.Now().Add(-time.Second))
 		<-done
 		_ = addr
-		md := cond.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
+		md := conduit.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
 		src, dst, et := parseEthernetHeader(b[:n])
-		return &cond.FramePkt{Data: buf, Src: src, Dst: dst, EtherType: et, IfIndex: e.ifc.Index, MD: md}, ctx.Err()
+		return &conduit.FramePkt{Data: buf, Src: src, Dst: dst, EtherType: et, IfIndex: e.ifc.Index, MD: md}, ctx.Err()
 	case <-done:
 		_ = addr
-		md := cond.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
+		md := conduit.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
 		src, dst, et := parseEthernetHeader(b[:n])
-		return &cond.FramePkt{Data: buf, Src: src, Dst: dst, EtherType: et, IfIndex: e.ifc.Index, MD: md}, rerr
+		return &conduit.FramePkt{Data: buf, Src: src, Dst: dst, EtherType: et, IfIndex: e.ifc.Index, MD: md}, rerr
 	}
 }
 
-func (e *ethFrame) RecvBatch(ctx context.Context, pkts []*cond.FramePkt, opts *cond.RecvOptions) (int, error) {
+func (e *ethFrame) RecvBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.RecvOptions) (int, error) {
 	count := 0
 	var err error
 	for i := range pkts {
@@ -145,10 +146,10 @@ func (e *ethFrame) RecvBatch(ctx context.Context, pkts []*cond.FramePkt, opts *c
 	return count, nil
 }
 
-func (e *ethFrame) Send(ctx context.Context, pkt *cond.FramePkt, opts *cond.SendOptions) (int, cond.Metadata, error) {
+func (e *ethFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := e.c()
 	if err != nil {
-		return 0, cond.Metadata{}, err
+		return 0, conduit.Metadata{}, err
 	}
 	dst := pkt.Dst
 	if dst == nil {
@@ -159,7 +160,7 @@ func (e *ethFrame) Send(ctx context.Context, pkt *cond.FramePkt, opts *cond.Send
 		etherType = e.etherType
 	}
 	if len(dst) != 6 {
-		return 0, cond.Metadata{}, errors.New("eth: dst MAC required")
+		return 0, conduit.Metadata{}, errors.New("eth: dst MAC required")
 	}
 	src := e.ifc.HardwareAddr
 	frame := buildEthernetFrame(src, dst, etherType, pkt.Data.Bytes())
@@ -176,15 +177,15 @@ func (e *ethFrame) Send(ctx context.Context, pkt *cond.FramePkt, opts *cond.Send
 	case <-ctx.Done():
 		_ = c.SetWriteDeadline(time.Now().Add(-time.Second))
 		<-done
-		md := cond.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
+		md := conduit.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
 		return n, md, ctx.Err()
 	case <-done:
-		md := cond.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
+		md := conduit.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
 		return n, md, werr
 	}
 }
 
-func (e *ethFrame) SendBatch(ctx context.Context, pkts []*cond.FramePkt, opts *cond.SendOptions) (int, error) {
+func (e *ethFrame) SendBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.SendOptions) (int, error) {
 	sent := 0
 	for _, p := range pkts {
 		_, _, err := e.Send(ctx, p, opts)

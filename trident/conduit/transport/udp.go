@@ -1,13 +1,15 @@
 package transport
 
 import (
-	cond "bytemomo/trident/conduit"
 	"context"
 	"errors"
 	"net"
 	"net/netip"
 	"sync"
 	"time"
+
+	"bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/utils"
 )
 
 // =====================================================================================
@@ -24,7 +26,7 @@ type UdpConduit struct {
 
 type udpDatagram UdpConduit
 
-func UDP(addr string) cond.Conduit[cond.Datagram] { return &UdpConduit{addr: addr} }
+func UDP(addr string) conduit.Conduit[conduit.Datagram] { return &UdpConduit{addr: addr} }
 
 func (u *UdpConduit) Dial(ctx context.Context) error {
 	u.mu.Lock()
@@ -56,13 +58,13 @@ func (u *UdpConduit) Close() error {
 	return nil
 }
 
-func (u *UdpConduit) Kind() cond.Kind { return cond.KindDatagram }
+func (u *UdpConduit) Kind() conduit.Kind { return conduit.KindDatagram }
 func (u *UdpConduit) Stack() []string { return []string{"udp"} }
 
-func (u *UdpConduit) Underlying() cond.Datagram { return (*udpDatagram)(u) }
+func (u *UdpConduit) Underlying() conduit.Datagram { return (*udpDatagram)(u) }
 
 // =====================================================================================
-// udpDatagram implements cond.Datagram
+// udpDatagram implements conduit.Datagram
 // =====================================================================================
 
 func (u *udpDatagram) pkt() (*net.UDPConn, error) {
@@ -72,7 +74,7 @@ func (u *udpDatagram) pkt() (*net.UDPConn, error) {
 	return u.c, nil
 }
 
-func (u *udpDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.DatagramMsg, error) {
+func (u *udpDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.DatagramMsg, error) {
 	c, err := u.pkt()
 	if err != nil {
 		return nil, err
@@ -83,7 +85,7 @@ func (u *udpDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.D
 		size = opts.MaxBytes
 	}
 
-	buf := cond.GetBuf(size)
+	buf := utils.GetBuf(size)
 	b := buf.Bytes()
 
 	start := time.Now()
@@ -119,7 +121,7 @@ func (u *udpDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.D
 		src = u.peer
 	}
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 17, // UDP
@@ -131,13 +133,13 @@ func (u *udpDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.D
 	}
 
 	if n <= 0 {
-		return &cond.DatagramMsg{Data: nil, Src: src, Dst: local, MD: md}, rerr
+		return &conduit.DatagramMsg{Data: nil, Src: src, Dst: local, MD: md}, rerr
 	}
 
-	return &cond.DatagramMsg{Data: buf, Src: src, Dst: local, MD: md}, rerr
+	return &conduit.DatagramMsg{Data: buf, Src: src, Dst: local, MD: md}, rerr
 }
 
-func (u *udpDatagram) RecvBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.RecvOptions) (int, error) {
+func (u *udpDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
 	count := 0
 	var err error
 	for i := range msgs {
@@ -153,10 +155,10 @@ func (u *udpDatagram) RecvBatch(ctx context.Context, msgs []*cond.DatagramMsg, o
 	return count, nil
 }
 
-func (u *udpDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.SendOptions) (int, cond.Metadata, error) {
+func (u *udpDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := u.pkt()
 	if err != nil {
-		return 0, cond.Metadata{}, err
+		return 0, conduit.Metadata{}, err
 	}
 
 	var payload []byte
@@ -171,7 +173,7 @@ func (u *udpDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.S
 		dst = u.peer
 	}
 	if !dst.IsValid() {
-		return 0, cond.Metadata{}, errors.New("udp: destination not specified and socket is unconnected")
+		return 0, conduit.Metadata{}, errors.New("udp: destination not specified and socket is unconnected")
 	}
 
 	start := time.Now()
@@ -181,7 +183,7 @@ func (u *udpDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.S
 	cancel()
 
 	local := udpAddrToAddrPortFromAddr(c.LocalAddr())
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 17, // UDP
@@ -194,7 +196,7 @@ func (u *udpDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.S
 	return n, md, werr
 }
 
-func (u *udpDatagram) SendBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.SendOptions) (int, error) {
+func (u *udpDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
 	c, err := u.pkt()
 	if err != nil {
 		return 0, err

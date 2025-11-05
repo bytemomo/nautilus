@@ -1,4 +1,4 @@
-package conduit
+package utils
 
 import (
 	"context"
@@ -70,7 +70,7 @@ func ToNetip(a net.Addr) netip.Addr {
 }
 
 // =====================================================================================
-// Minimal pooled Buffer implementation (delete if you already have one in cond)
+// Minimal pooled Buffer implementation
 // =====================================================================================
 
 type pooledBuf struct {
@@ -111,5 +111,3 @@ func (p *pooledBuf) Release() {
 	p.b = p.b[:0]
 	bufPool.Put(p)
 }
-
-var _ Buffer = (*pooledBuf)(nil)
