@@ -121,9 +121,14 @@ func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.Laye
 	var current cnd.Conduit[cnd.Datagram] = tridenttransport.UDP(addr)
 
 	for _, layer := range stack {
-		if strings.ToLower(layer.Name) == "dtls" {
+		switch strings.ToLower(layer.Name) {
+		case "udp":
+			continue
+		case "dtls":
 			dtlsConfig := transport.BuildDTLSConfig(layer.Params)
 			current = tlscond.NewDtlsClient(current, dtlsConfig)
+		default:
+			return nil, fmt.Errorf("unknown stream layer: %s", layer.Name)
 		}
 	}
 	return current, nil

@@ -8,14 +8,16 @@ import (
 	"unsafe"
 
 	"bytemomo/kraken/internal/domain"
+
 	cnd "bytemomo/trident/conduit"
+	utils "bytemomo/trident/conduit/utils"
 )
 
 /*
 #include <stdlib.h>
 #include <string.h>
-#include "../../../pkg/moduleabi/kraken_module_abi.h"
-#include "../../../pkg/moduleabi/kraken_module_abi_v2.h"
+#include "../../pkg/moduleabi/kraken_module_abi.h"
+#include "../../pkg/moduleabi/kraken_module_abi_v2.h"
 */
 import "C"
 
@@ -73,7 +75,7 @@ func go_conduit_send(conn C.KrakenConnectionHandle, data *C.uint8_t, length C.si
 			defer cancel()
 		}
 
-		buf := cnd.GetBuf(len(goData))
+		buf := utils.GetBuf(len(goData))
 		copy(buf.Bytes(), goData)
 		msg := &cnd.DatagramMsg{
 			Data: buf,

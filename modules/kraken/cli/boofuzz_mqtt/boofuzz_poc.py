@@ -1,4 +1,4 @@
-#!/Users/cosimo.giraldi/repos/nautilus/.venv/bin/python3
+#!/home/momo/repos/uni/nautilus/.venv/bin/python3
 
 import sys
 import json

@@ -50,13 +50,13 @@ scanner:
 tasks:
     - id: "mqtt-boofuzz"
       required_tags: ["protocol:mqtt"]
-      max_duration: 30m
-      type: native
+      max_duration: 5s
+      type: cli
       exec:
           # The orchestrator will to set the --output-dir parameter automatically
           # so that the outputs of boofuzz will be placed in the right directory.
           cli:
-              exec: "/Users/cosimo.giraldi/repos/nautilus/modules/kraken/cli/boofuzz_mqtt/boofuzz_poc.py"
+              exec: "/home/momo/repos/uni/nautilus/modules/kraken/cli/boofuzz_mqtt/boofuzz_poc.py"
               command: "fuzz"
           # Params will be translated in arguments, entry, e.g.:
           #     --test-case-index: 10-20

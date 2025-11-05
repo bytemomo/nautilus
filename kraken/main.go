@@ -105,7 +105,7 @@ func setupAndRunModuleRunner(log *logrus.Entry, camp *domain.Campaign, reporter 
 	executors := []runner.ModuleExecutor{
 		adapter.NewABIModuleAdapter(),
 		adapter.NewCLIModuleAdapter(),
-		// adapter.NewGRPCModuleAdapter(),
+		adapter.NewGRPCModuleAdapter(),
 	}
 
 	r := runner.Runner{
@@ -158,8 +158,7 @@ func report(log *logrus.Entry, reportWriter domain.ReportWriter, results []domai
 		for _, tree := range trees {
 			if tree.Evaluate(result.Findings) {
 				log.WithField("attack_tree_name", tree.Name).Warning("Attack tree evaluated as true")
-				tree.PrintTree(fmt.Sprintf("Target: %s:%d", result.Target.Host, result.Target.Port))
-				log.Infof("%s", tree.RenderTree())
+				fmt.Printf("Code to render attack tree:\n%s", tree.RenderTree())
 			}
 		}
 	}
