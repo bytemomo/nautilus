@@ -16,6 +16,9 @@ import (
 // UDP Conduit
 // =====================================================================================
 
+// UdpConduit implements the conduit.Conduit interface for "connected" UDP sockets.
+// A connected UDP socket has a fixed peer address and can use Send/Recv without
+// specifying the destination on each call.
 type UdpConduit struct {
 	addr string
 
@@ -24,8 +27,11 @@ type UdpConduit struct {
 	peer netip.AddrPort
 }
 
+// udpDatagram is a type alias for UdpConduit to implement the conduit.Datagram interface.
 type udpDatagram UdpConduit
 
+// UDP returns a new UDP datagram conduit for the given network address.
+// The address should be in the form "host:port".
 func UDP(addr string) conduit.Conduit[conduit.Datagram] { return &UdpConduit{addr: addr} }
 
 func (u *UdpConduit) Dial(ctx context.Context) error {

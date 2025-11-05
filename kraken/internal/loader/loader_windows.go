@@ -16,6 +16,8 @@ import (
 )
 
 /*
+#cgo CFLAGS: -DWIN32_LEAN_AND_MEAN
+#cgo CFLAGS: -I${SRCDIR}/../../pkg/moduleabi
 #include <windows.h>
 #include <stdlib.h>
 #include "../../pkg/moduleabi/kraken_module_abi.h"
@@ -46,7 +48,6 @@ static inline void call_kraken_free_v2(KrakenFreeV2Fn f, void* p) { f(p); }
 int64_t go_conduit_send(KrakenConnectionHandle conn, uint8_t* data, size_t len, uint32_t timeout_ms);
 int64_t go_conduit_recv(KrakenConnectionHandle conn, uint8_t* buffer, size_t buffer_size, uint32_t timeout_ms);
 KrakenConnectionInfo* go_conduit_get_info(KrakenConnectionHandle conn);
-
 */
 import "C"
 
