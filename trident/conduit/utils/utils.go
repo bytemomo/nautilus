@@ -70,7 +70,7 @@ func ToNetip(a net.Addr) netip.Addr {
 }
 
 // =====================================================================================
-// Minimal pooled Buffer implementation (delete if you already have one in cond)
+// Minimal pooled Buffer implementation
 // =====================================================================================
 
 type pooledBuf struct {
