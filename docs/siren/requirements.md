@@ -1,16 +1,4 @@
-# 🧜 Siren — System Requisites (MITM Testing Proxy)
-
-## Architecture Overview
-
-Siren is a configurable MITM proxy that transparently sits between clients and
-servers. It accepts client connections (stdlib listeners) and dials upstream
-servers using **Trident** conduits (TCP/TLS/UDP/DTLS/L2/L3).
-
-A rule-driven **Intercept Engine** can log, delay, drop, duplicate, throttle,
-modify, or corrupt traffic; **Spoof** helpers position the proxy on-path
-(ARP/DNS); a **Recorder** captures traffic.
-
----
+# 🧜 Siren — System Requisites
 
 ## 1) Architectural Requirements
 
