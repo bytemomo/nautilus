@@ -16,6 +16,8 @@ import (
 // TCP Conduit
 // =====================================================================================
 
+// TcpConduit implements the conduit.Conduit interface for TCP connections.
+// It manages the lifecycle of a net.Conn and provides a Stream interface for I/O.
 type TcpConduit struct {
 	addr string
 
@@ -27,22 +29,36 @@ type TcpConduit struct {
 	immediateClose  bool
 }
 
+// tcpStream is a type alias for TcpConduit to implement the conduit.Stream interface.
+// This separation prevents the conduit methods (Dial, Close, etc.) from being
+// directly exposed on the Stream interface.
 type tcpStream TcpConduit
 
+// TCPOption is a functional option for configuring a TcpConduit.
 type TCPOption func(*TcpConduit)
 
+// WithKeepAlive sets the TCP keep-alive period for the connection.
+// If period is 0, keep-alives are disabled.
 func WithKeepAlive(period time.Duration) TCPOption {
 	return func(t *TcpConduit) { t.keepAlive = period }
 }
 
+// WithLingerUntilPeer controls the behavior of Close().
+// If true (the default), Close() will call CloseWrite() and wait for the peer
+// to close its end, effectively lingering until all data is acknowledged.
+// If false, Close() closes the connection immediately.
 func WithLingerUntilPeer(v bool) TCPOption {
 	return func(t *TcpConduit) { t.lingerUntilPeer = v }
 }
 
+// WithImmediateCloseOnClose forces Close() to immediately close the connection,
+// bypassing any lingering behavior. This is a more forceful way to terminate.
 func WithImmediateCloseOnClose(v bool) TCPOption {
 	return func(t *TcpConduit) { t.immediateClose = v }
 }
 
+// TCP returns a new TCP stream conduit for the given network address.
+// The address should be in the form "host:port".
 func TCP(addr string, opts ...TCPOption) conduit.Conduit[conduit.Stream] {
 	t := &TcpConduit{
 		addr:            addr,

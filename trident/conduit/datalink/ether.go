@@ -18,6 +18,9 @@ const (
 	ethPAll           = 0x0003 // ETH_P_ALL
 )
 
+// EthernetConduit is a conduit that operates at the Ethernet frame level (Layer 2).
+// It allows sending and receiving raw Ethernet frames on a specific network interface.
+// This requires elevated privileges to run.
 type EthernetConduit struct {
 	ifc       *net.Interface
 	mu        sync.Mutex
@@ -28,6 +31,11 @@ type EthernetConduit struct {
 
 type ethFrame EthernetConduit
 
+// Ethernet creates a new Ethernet datalink-level conduit.
+//
+// ifaceName is the name of the network interface to bind to (e.g., "eth0").
+// defaultDst is the default destination MAC address for Send operations.
+// etherType specifies the EtherType to listen for. If 0, all EtherTypes are captured.
 func Ethernet(ifaceName string, defaultDst net.HardwareAddr, etherType uint16) conduit.Conduit[conduit.Frame] {
 	return &EthernetConduit{
 		ifc:       &net.Interface{Name: ifaceName},

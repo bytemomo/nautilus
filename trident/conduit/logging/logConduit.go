@@ -10,11 +10,19 @@ import (
 	"bytemomo/trident/conduit"
 )
 
+// LoggingConduit is a decorator that wraps any conduit to provide detailed logging
+// of its operations. This is useful for debugging network interactions.
+// It uses the standard fmt package for output, but could be adapted for any
+// structured logging library.
 type LoggingConduit[V any] struct {
 	inner conduit.Conduit[V]
 	name  string
 }
 
+// NewLoggingConduit creates a new logging conduit decorator.
+//
+// name provides a descriptive name for the connection, used as a prefix in log messages.
+// inner is the conduit to be wrapped.
 func NewLoggingConduit[V any](name string, inner conduit.Conduit[V]) conduit.Conduit[V] {
 	return &LoggingConduit[V]{inner: inner, name: name}
 }

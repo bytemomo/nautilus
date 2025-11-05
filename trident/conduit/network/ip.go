@@ -15,6 +15,9 @@ import (
 	"bytemomo/trident/conduit/utils"
 )
 
+// IpConduit is a conduit that operates at the raw IP packet level (Layer 3).
+// It allows sending and receiving IP packets for a specific protocol number.
+// This requires elevated privileges to run.
 type IpConduit struct {
 	mu    sync.Mutex
 	v6    bool
@@ -28,9 +31,14 @@ type IpConduit struct {
 
 type ipNetwork IpConduit
 
-// IPRaw creates a raw IP network-level conduit.
-// proto: IP protocol number (e.g., 1 ICMP, 17 UDP, 253/254 experimental)
-// raddr: optional default destination (netip.Addr{}) for none
+// IPRaw creates a new raw IP network-level conduit.
+//
+// proto specifies the IP protocol number (e.g., 1 for ICMP, 6 for TCP, 17 for UDP).
+// See https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+//
+// raddr is an optional default destination address. If zero, a destination
+// must be provided in each Send call. The address family of raddr (IPv4 or IPv6)
+// determines the socket type.
 func IPRaw(proto int, raddr netip.Addr) conduit.Conduit[conduit.Network] {
 	return &IpConduit{v6: raddr.Is6(), proto: proto, raddr: raddr}
 }
