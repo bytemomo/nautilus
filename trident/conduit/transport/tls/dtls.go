@@ -18,7 +18,8 @@ import (
 // DTLS Client Conduit
 // =====================================================================================
 
-// DtlsClient is a conduit that wraps another datagram conduit to provide a DTLS secure channel.
+// DtlsClient is a conduit that wraps another datagram conduit (like UDP)
+// to provide a DTLS-encrypted channel. It acts as a client-side DTLS decorator.
 type DtlsClient struct {
 	inner conduit.Conduit[conduit.Datagram]
 	cfg   *dtls.Config
@@ -30,52 +31,55 @@ type DtlsClient struct {
 type dtlsDatagram DtlsClient
 
 // NewDtlsClient creates a new DTLS client conduit.
+// It takes an inner conduit (e.g., a UDP conduit) and a DTLS configuration.
 func NewDtlsClient(inner conduit.Conduit[conduit.Datagram], cfg *dtls.Config) conduit.Conduit[conduit.Datagram] {
 	return &DtlsClient{inner: inner, cfg: cfg}
 }
 
-// Dial establishes the DTLS connection.
-func (d *DtlsClient) Dial(ctx context.Context) error {
-	if err := d.inner.Dial(ctx); err != nil {
-		return err
+// Dial first dials the inner conduit, and then performs a DTLS handshake over it.
+func (d *DtlsClient) Dial(ctx context.Context) (err error) {
+	err = d.inner.Dial(ctx)
+	if err == nil {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.conn == nil {
+			packetConn := &datagramToPacketConn{D: d.inner.Underlying()}
+			var dtlsConn *dtls.Conn
+			dtlsConn, err = dtls.Client(packetConn, addrPortToUDPAddr(d.inner.Underlying().RemoteAddr()), d.cfg)
+			if err == nil {
+				d.conn = dtlsConn
+			}
+		}
 	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.conn != nil {
-		return nil
-	}
-
-	packetConn := &datagramToPacketConn{D: d.inner.Underlying()}
-	dtlsConn, err := dtls.Client(packetConn, addrPortToUDPAddr(d.inner.Underlying().RemoteAddr()), d.cfg)
-	if err != nil {
-		return err
-	}
-
-	d.conn = dtlsConn
-	return nil
+	return
 }
 
-// Close closes the DTLS connection and the underlying conduit.
-func (d *DtlsClient) Close() error {
+// Close closes both the DTLS connection and the inner conduit.
+func (d *DtlsClient) Close() (err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
 	if d.conn != nil {
-		_ = d.conn.Close()
+		err = d.conn.Close()
 		d.conn = nil
 	}
-	return d.inner.Close()
+
+	if err == nil {
+		err = d.inner.Close()
+	}
+
+	return
 }
 
-// Kind returns the kind of the conduit.
+// Kind returns the conduit's kind, which is KindDatagram.
 func (d *DtlsClient) Kind() conduit.Kind { return conduit.KindDatagram }
 
-// Stack returns the stack of the conduit.
+// Stack returns the protocol stack, prepending "dtls" to the inner stack.
 func (d *DtlsClient) Stack() []string {
 	return append([]string{"dtls"}, d.inner.Stack()...)
 }
 
-// Underlying returns the underlying datagram conduit.
+// Underlying returns the Datagram interface for I/O operations.
 func (d *DtlsClient) Underlying() conduit.Datagram { return (*dtlsDatagram)(d) }
 
 // =====================================================================================

@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Itoa is a fast, allocation-free integer-to-string conversion function.
 func Itoa(i int) string {
 	if i == 0 {
 		return "0"
@@ -30,6 +31,7 @@ func Itoa(i int) string {
 	return string(b[p:])
 }
 
+// AddrString safely converts a net.Addr to its string representation.
 func AddrString(a net.Addr) string {
 	if a == nil {
 		return ""
@@ -37,6 +39,7 @@ func AddrString(a net.Addr) string {
 	return a.String()
 }
 
+// DeadlineFromContext extracts the deadline from a context, returning a zero time if not set.
 func DeadlineFromContext(ctx context.Context) time.Time {
 	if dl, ok := ctx.Deadline(); ok {
 		return dl
@@ -44,6 +47,7 @@ func DeadlineFromContext(ctx context.Context) time.Time {
 	return time.Time{}
 }
 
+// Tern is a generic ternary operator.
 func Tern[T any](cond bool, a, b T) T {
 	if cond {
 		return a
@@ -51,6 +55,7 @@ func Tern[T any](cond bool, a, b T) T {
 	return b
 }
 
+// ToNetip converts a net.Addr to a netip.Addr, returning a zero value if conversion fails.
 func ToNetip(a net.Addr) netip.Addr {
 	switch v := a.(type) {
 	case *net.IPAddr:
@@ -73,41 +78,48 @@ func ToNetip(a net.Addr) netip.Addr {
 // Minimal pooled Buffer implementation
 // =====================================================================================
 
-type pooledBuf struct {
-	b   []byte
-	cap int
+// PooledBuf is a simple, non-thread-safe buffer implementation that uses a sync.Pool
+// to reduce allocations. It is intended for use with the conduit interfaces.
+type PooledBuf struct {
+	B   []byte
+	Cap int
 }
 
 var bufPool = sync.Pool{
-	New: func() any { return &pooledBuf{b: make([]byte, 32*1024), cap: 32 * 1024} },
+	New: func() any { return &PooledBuf{B: make([]byte, 32*1024), Cap: 32 * 1024} },
 }
 
-func GetBuf(min int) *pooledBuf {
-	p := bufPool.Get().(*pooledBuf)
-	if cap(p.b) < min {
-		p.b = make([]byte, min)
-		p.cap = min
+// GetBuf retrieves a buffer from the pool, ensuring it has at least `min` capacity.
+func GetBuf(min int) *PooledBuf {
+	p := bufPool.Get().(*PooledBuf)
+	if cap(p.B) < min {
+		p.B = make([]byte, min)
+		p.Cap = min
 	} else {
-		p.b = p.b[:min]
+		p.B = p.B[:min]
 	}
 	return p
 }
 
-func (p *pooledBuf) Bytes() []byte { return p.b }
+// Bytes returns the byte slice of the buffer.
+func (p *PooledBuf) Bytes() []byte { return p.B }
 
-func (p *pooledBuf) Grow(n int) []byte {
-	if cap(p.b) < n {
-		p.b = make([]byte, n)
-		p.cap = n
+// Grow ensures the buffer has at least `n` capacity, growing it if necessary.
+func (p *PooledBuf) Grow(n int) []byte {
+	if cap(p.B) < n {
+		p.B = make([]byte, n)
+		p.Cap = n
 	} else {
-		p.b = p.b[:n]
+		p.B = p.B[:n]
 	}
-	return p.b
+	return p.B
 }
 
-func (p *pooledBuf) ShrinkTo(n int) { p.b = p.b[:n] }
+// ShrinkTo reduces the buffer's length to `n`, without reallocating.
+func (p *PooledBuf) ShrinkTo(n int) { p.B = p.B[:n] }
 
-func (p *pooledBuf) Release() {
-	p.b = p.b[:0]
+// Release returns the buffer to the pool.
+func (p *PooledBuf) Release() {
+	p.B = p.B[:0]
 	bufPool.Put(p)
 }
