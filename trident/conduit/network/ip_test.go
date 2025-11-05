@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	cond "bytemomo/trident/conduit"
+	"bytemomo/trident/conduit"
 	net "bytemomo/trident/conduit/network"
+	"bytemomo/trident/conduit/utils"
 )
 
 func TestMain(m *testing.M) {
@@ -80,9 +81,9 @@ func TestIpConduit_SendRecv(t *testing.T) {
 
 	// Send a packet
 	payload := []byte("hello world")
-	buf := cond.GetBuf(len(payload))
+	buf := utils.GetBuf(len(payload))
 	copy(buf.Bytes(), payload)
-	pkt := &cond.IPPacket{
+	pkt := &conduit.IPPacket{
 		Data: buf,
 		Dst:  raddr,
 	}

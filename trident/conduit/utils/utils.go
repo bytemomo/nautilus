@@ -1,4 +1,4 @@
-package conduit
+package utils
 
 import (
 	"context"
@@ -111,5 +111,3 @@ func (p *pooledBuf) Release() {
 	p.b = p.b[:0]
 	bufPool.Put(p)
 }
-
-var _ Buffer = (*pooledBuf)(nil)

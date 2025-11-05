@@ -1,10 +1,6 @@
 package tls_test
 
 import (
-	cond "bytemomo/trident/conduit"
-	tr "bytemomo/trident/conduit/transport"
-	tlswrap "bytemomo/trident/conduit/transport/tls"
-
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -18,6 +14,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"bytemomo/trident/conduit"
+	tr "bytemomo/trident/conduit/transport"
+	tlswrap "bytemomo/trident/conduit/transport/tls"
 
 	"github.com/pion/dtls/v3"
 )
@@ -51,7 +51,7 @@ func TestTLS_Stream_Echo(t *testing.T) {
 		t.Fatalf("proto=%d want 6", md.Proto)
 	}
 
-	chunk, err := s.Recv(ctx, &cond.RecvOptions{MaxBytes: 64})
+	chunk, err := s.Recv(ctx, &conduit.RecvOptions{MaxBytes: 64})
 	if err != nil {
 		t.Fatalf("recv: %v", err)
 	}
@@ -72,7 +72,8 @@ func TestDTLS_Datagram_Echo(t *testing.T) {
 	addr, stop, dcfg := startDTLSEcho(t)
 	defer stop()
 
-	dtlsC := tlswrap.NewDtlsClient(addr, &dtls.Config{
+	inner := tr.UDP(addr)
+	dtlsC := tlswrap.NewDtlsClient(inner, &dtls.Config{
 		InsecureSkipVerify:   true,
 		MTU:                  1200,
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
@@ -91,7 +92,7 @@ func TestDTLS_Datagram_Echo(t *testing.T) {
 	defer tb.Release()
 
 	dstAP, _ := netip.ParseAddrPort(addr)
-	msg := &cond.DatagramMsg{Data: tb, Dst: dstAP}
+	msg := &conduit.DatagramMsg{Data: tb, Dst: dstAP}
 	n, md, err := d.Send(ctx, msg, nil)
 	if err != nil {
 		t.Fatalf("send: %v", err)
@@ -103,7 +104,7 @@ func TestDTLS_Datagram_Echo(t *testing.T) {
 		t.Fatalf("proto=%d want 17", md.Proto)
 	}
 
-	resp, err := d.Recv(ctx, &cond.RecvOptions{MaxBytes: 64})
+	resp, err := d.Recv(ctx, &conduit.RecvOptions{MaxBytes: 64})
 	if err != nil {
 		t.Fatalf("recv: %v", err)
 	}
@@ -126,7 +127,7 @@ func TestTLS_DTLS_Parallel(t *testing.T) {
 	wg.Wait()
 }
 
-// --- tiny test buffer (implements cond.Buffer) ---
+// --- tiny test buffer (implements conduit.Buffer) ---
 type testBuf struct{ b []byte }
 
 func (tb *testBuf) Bytes() []byte     { return tb.b }

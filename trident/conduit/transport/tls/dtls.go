@@ -1,13 +1,15 @@
 package tls
 
 import (
-	cond "bytemomo/trident/conduit"
 	"context"
 	"errors"
 	"net"
 	"net/netip"
 	"sync"
 	"time"
+
+	"bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/utils"
 
 	"github.com/pion/dtls/v3"
 )
@@ -16,9 +18,10 @@ import (
 // DTLS Client Conduit
 // =====================================================================================
 
+// DtlsClient is a conduit that wraps another datagram conduit to provide a DTLS secure channel.
 type DtlsClient struct {
-	addr string
-	cfg  *dtls.Config
+	inner conduit.Conduit[conduit.Datagram]
+	cfg   *dtls.Config
 
 	mu   sync.Mutex
 	conn *dtls.Conn
@@ -26,34 +29,34 @@ type DtlsClient struct {
 
 type dtlsDatagram DtlsClient
 
-func NewDtlsClient(addr string, cfg *dtls.Config) cond.Conduit[cond.Datagram] {
-	return &DtlsClient{addr: addr, cfg: cfg}
+// NewDtlsClient creates a new DTLS client conduit.
+func NewDtlsClient(inner conduit.Conduit[conduit.Datagram], cfg *dtls.Config) conduit.Conduit[conduit.Datagram] {
+	return &DtlsClient{inner: inner, cfg: cfg}
 }
 
+// Dial establishes the DTLS connection.
 func (d *DtlsClient) Dial(ctx context.Context) error {
+	if err := d.inner.Dial(ctx); err != nil {
+		return err
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.conn != nil {
 		return nil
 	}
 
-	raddr, err := net.ResolveUDPAddr("udp", d.addr)
+	packetConn := &datagramToPacketConn{D: d.inner.Underlying()}
+	dtlsConn, err := dtls.Client(packetConn, addrPortToUDPAddr(d.inner.Underlying().RemoteAddr()), d.cfg)
 	if err != nil {
 		return err
 	}
 
-	// TODO: Change dtls coduit API to take a net.PacketConn so that has an equivalent API
-	// to the tls conduit
-
-	c, err := dtls.Dial("udp", raddr, d.cfg)
-	if err != nil {
-		return err
-	}
-
-	d.conn = c
+	d.conn = dtlsConn
 	return nil
 }
 
+// Close closes the DTLS connection and the underlying conduit.
 func (d *DtlsClient) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -61,19 +64,22 @@ func (d *DtlsClient) Close() error {
 		_ = d.conn.Close()
 		d.conn = nil
 	}
-	return nil
+	return d.inner.Close()
 }
 
-func (d *DtlsClient) Kind() cond.Kind { return cond.KindDatagram }
+// Kind returns the kind of the conduit.
+func (d *DtlsClient) Kind() conduit.Kind { return conduit.KindDatagram }
 
+// Stack returns the stack of the conduit.
 func (d *DtlsClient) Stack() []string {
-	return []string{"dtls", "udp"}
+	return append([]string{"dtls"}, d.inner.Stack()...)
 }
 
-func (d *DtlsClient) Underlying() cond.Datagram { return (*dtlsDatagram)(d) }
+// Underlying returns the underlying datagram conduit.
+func (d *DtlsClient) Underlying() conduit.Datagram { return (*dtlsDatagram)(d) }
 
 // =====================================================================================
-// dtlsDatagram implements cond.Datagram over *dtls.Conn
+// dtlsDatagram implements conduit.Datagram over *dtls.Conn
 // =====================================================================================
 
 func (d *dtlsDatagram) c() (*dtls.Conn, error) {
@@ -83,36 +89,21 @@ func (d *dtlsDatagram) c() (*dtls.Conn, error) {
 	return d.conn, nil
 }
 
-func armDeadline(ctx context.Context, c net.Conn, isRead bool) (cancel func()) {
-	dl, ok := ctx.Deadline()
-	if !ok {
-		return func() {}
-	}
-
-	if isRead {
-		_ = c.SetReadDeadline(dl)
-		return func() { _ = c.SetReadDeadline(time.Time{}) }
-	}
-	_ = c.SetWriteDeadline(dl)
-	return func() { _ = c.SetWriteDeadline(time.Time{}) }
-}
-
-func (d *dtlsDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.DatagramMsg, error) {
+func (d *dtlsDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.DatagramMsg, error) {
 	c, err := d.c()
 	if err != nil {
 		return nil, err
 	}
 
-	// Buffer sizing
 	size := 64 * 1024
 	if opts != nil && opts.MaxBytes > 0 {
 		size = opts.MaxBytes
 	}
-	buf := cond.GetBuf(size)
+	buf := utils.GetBuf(size)
 	b := buf.Bytes()
 
 	start := time.Now()
-	cancel := armDeadline(ctx, c, true)
+	cancel := armDeadlinee(ctx, c, true)
 	n, rerr := c.Read(b)
 	cancel()
 
@@ -125,7 +116,7 @@ func (d *dtlsDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.
 	local := addrToAddrPort(c.LocalAddr())
 	remote := addrToAddrPort(c.RemoteAddr())
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 17, // UDP (DTLS over UDP)
@@ -141,12 +132,12 @@ func (d *dtlsDatagram) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.
 	}
 
 	if n <= 0 {
-		return &cond.DatagramMsg{Data: nil, Src: remote, Dst: local, MD: md}, rerr
+		return &conduit.DatagramMsg{Data: nil, Src: remote, Dst: local, MD: md}, rerr
 	}
-	return &cond.DatagramMsg{Data: buf, Src: remote, Dst: local, MD: md}, rerr
+	return &conduit.DatagramMsg{Data: buf, Src: remote, Dst: local, MD: md}, rerr
 }
 
-func (d *dtlsDatagram) RecvBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.RecvOptions) (int, error) {
+func (d *dtlsDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
 	count := 0
 	var err error
 	for i := range msgs {
@@ -162,10 +153,10 @@ func (d *dtlsDatagram) RecvBatch(ctx context.Context, msgs []*cond.DatagramMsg, 
 	return count, nil
 }
 
-func (d *dtlsDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.SendOptions) (int, cond.Metadata, error) {
+func (d *dtlsDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := d.c()
 	if err != nil {
-		return 0, cond.Metadata{}, err
+		return 0, conduit.Metadata{}, err
 	}
 	var payload []byte
 	if msg != nil && msg.Data != nil {
@@ -173,14 +164,14 @@ func (d *dtlsDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.
 	}
 
 	start := time.Now()
-	cancel := armDeadline(ctx, c, false)
+	cancel := armDeadlinee(ctx, c, false)
 	n, werr := c.Write(payload)
 	cancel()
 
 	local := addrToAddrPort(c.LocalAddr())
 	remote := addrToAddrPort(c.RemoteAddr())
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 17, // UDP
@@ -193,7 +184,7 @@ func (d *dtlsDatagram) Send(ctx context.Context, msg *cond.DatagramMsg, _ *cond.
 	return n, md, werr
 }
 
-func (d *dtlsDatagram) SendBatch(ctx context.Context, msgs []*cond.DatagramMsg, opts *cond.SendOptions) (int, error) {
+func (d *dtlsDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
 	sent := 0
 	for _, m := range msgs {
 		_, _, err := d.Send(ctx, m, opts)
@@ -230,6 +221,96 @@ func (d *dtlsDatagram) RemoteAddr() netip.AddrPort {
 		return netip.AddrPort{}
 	}
 	return addrToAddrPort(c.RemoteAddr())
+}
+
+// =====================================================================================
+// net.PacketConn adapter around conduit.Datagram — used only for dtls.Client handshake
+// =====================================================================================
+
+type datagramToPacketConn struct {
+	D conduit.Datagram
+
+	mu           sync.Mutex
+	rdl, wdl     time.Time
+	bothDeadline time.Time
+}
+
+func (d *datagramToPacketConn) deadline(isRead bool) (time.Time, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	dl := d.bothDeadline
+	if isRead {
+		if !d.rdl.IsZero() {
+			dl = d.rdl
+		}
+	} else {
+		if !d.wdl.IsZero() {
+			dl = d.wdl
+		}
+	}
+	if dl.IsZero() {
+		return time.Time{}, false
+	}
+	return dl, true
+}
+
+func (d *datagramToPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	ctx := context.Background()
+	if dl, ok := d.deadline(true); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, dl)
+		defer cancel()
+	}
+	msg, err := d.D.Recv(ctx, &conduit.RecvOptions{MaxBytes: len(p)})
+	if err != nil && (msg == nil || msg.Data == nil) {
+		return 0, nil, err
+	}
+	n := 0
+	if msg != nil && msg.Data != nil {
+		b := msg.Data.Bytes()
+		if len(b) > len(p) {
+			b = b[:len(p)]
+		}
+		n = copy(p, b)
+		msg.Data.Release()
+	}
+	return n, addrPortToUDPAddr(msg.Src), err
+}
+
+func (d *datagramToPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	ctx := context.Background()
+	if dl, ok := d.deadline(false); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, dl)
+		defer cancel()
+	}
+
+	udpAddr, _ := addr.(*net.UDPAddr)
+	dst := addrToAddrPort(udpAddr)
+	msg := &conduit.DatagramMsg{
+		Data: utils.GetBuf(len(p)),
+		Dst:  dst,
+	}
+
+	n, _, err := d.D.Send(ctx, msg, nil)
+	return n, err
+}
+
+func (d *datagramToPacketConn) Close() error                 { return nil }
+func (d *datagramToPacketConn) LocalAddr() net.Addr          { return addrPortToUDPAddr(d.D.LocalAddr()) }
+func (d *datagramToPacketConn) SetDeadline(t time.Time) error { return d.D.SetDeadline(t) }
+func (d *datagramToPacketConn) SetReadDeadline(t time.Time) error {
+	d.mu.Lock()
+	d.rdl = t
+	d.mu.Unlock()
+	return d.D.SetDeadline(t)
+}
+func (d *datagramToPacketConn) SetWriteDeadline(t time.Time) error {
+	d.mu.Lock()
+	d.wdl = t
+	d.mu.Unlock()
+	return d.D.SetDeadline(t)
 }
 
 // =====================================================================================

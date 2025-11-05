@@ -8,7 +8,8 @@ import (
 	"sync"
 	"time"
 
-	cond "bytemomo/trident/conduit"
+	"bytemomo/trident/conduit"
+	"bytemomo/trident/conduit/utils"
 )
 
 // =====================================================================================
@@ -42,7 +43,7 @@ func WithImmediateCloseOnClose(v bool) TCPOption {
 	return func(t *TcpConduit) { t.immediateClose = v }
 }
 
-func TCP(addr string, opts ...TCPOption) cond.Conduit[cond.Stream] {
+func TCP(addr string, opts ...TCPOption) conduit.Conduit[conduit.Stream] {
 	t := &TcpConduit{
 		addr:            addr,
 		lingerUntilPeer: true,
@@ -90,12 +91,12 @@ func (t *TcpConduit) Close() error {
 	return c.Close()
 }
 
-func (t *TcpConduit) Kind() cond.Kind         { return cond.KindStream }
-func (t *TcpConduit) Stack() []string         { return []string{"tcp"} }
-func (t *TcpConduit) Underlying() cond.Stream { return (*tcpStream)(t) }
+func (t *TcpConduit) Kind() conduit.Kind           { return conduit.KindStream }
+func (t *TcpConduit) Stack() []string           { return []string{"tcp"} }
+func (t *TcpConduit) Underlying() conduit.Stream { return (*tcpStream)(t) }
 
 // =====================================================================================
-// tcpStream implements cond.Stream
+// tcpStream implements conduit.Stream
 // =====================================================================================
 
 func (t *tcpStream) conn() (net.Conn, error) {
@@ -132,7 +133,7 @@ func armDeadline(ctx context.Context, c net.Conn, isRead bool) (cancel func()) {
 	return func() { _ = c.SetWriteDeadline(time.Time{}) }
 }
 
-func (t *tcpStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.StreamChunk, error) {
+func (t *tcpStream) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.StreamChunk, error) {
 	c, err := t.conn()
 	if err != nil {
 		return nil, err
@@ -142,7 +143,7 @@ func (t *tcpStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Str
 	if opts != nil && opts.MaxBytes > 0 {
 		size = opts.MaxBytes
 	}
-	buf := cond.GetBuf(size)
+	buf := utils.GetBuf(size)
 	b := buf.Bytes()
 
 	start := time.Now()
@@ -156,7 +157,7 @@ func (t *tcpStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Str
 		buf.Release()
 	}
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 6, // TCP
@@ -184,15 +185,15 @@ func (t *tcpStream) Recv(ctx context.Context, opts *cond.RecvOptions) (*cond.Str
 	}
 
 	if n <= 0 {
-		return &cond.StreamChunk{Data: nil, MD: md}, rerr
+		return &conduit.StreamChunk{Data: nil, MD: md}, rerr
 	}
-	return &cond.StreamChunk{Data: buf, MD: md}, rerr
+	return &conduit.StreamChunk{Data: buf, MD: md}, rerr
 }
 
-func (t *tcpStream) Send(ctx context.Context, p []byte, buf cond.Buffer, _ *cond.SendOptions) (int, cond.Metadata, error) {
+func (t *tcpStream) Send(ctx context.Context, p []byte, buf conduit.Buffer, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := t.conn()
 	if err != nil {
-		return 0, cond.Metadata{}, err
+		return 0, conduit.Metadata{}, err
 	}
 
 	var payload []byte
@@ -207,7 +208,7 @@ func (t *tcpStream) Send(ctx context.Context, p []byte, buf cond.Buffer, _ *cond
 	n, werr := c.Write(payload)
 	cancel()
 
-	md := cond.Metadata{
+	md := conduit.Metadata{
 		Start: start,
 		End:   time.Now(),
 		Proto: 6, // TCP
