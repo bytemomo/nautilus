@@ -63,11 +63,11 @@ func TestTCP_RecvSend_Echo(t *testing.T) {
 }
 
 func TestTCP_PersistentLoop(t *testing.T) {
-	addr, stop := startTCPEchoLoop(t)
+	addr, stop := startTCPEcho(t)
 	defer stop()
 
 	c := tr.TCP(addr)
-	ctx := loopCtx(t, 10*time.Second)
+	ctx := mustCtx(t, 10*time.Second)
 	if err := c.Dial(ctx); err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -169,11 +169,11 @@ func TestUDP_RecvSend_Echo(t *testing.T) {
 }
 
 func TestUDP_PersistentLoop(t *testing.T) {
-	addr, stop := startUDPEchoLoop(t)
+	addr, stop := startUDPEcho(t)
 	defer stop()
 
 	c := tr.UDP(addr)
-	ctx := loopCtx(t, 10*time.Second)
+	ctx := mustCtx(t, 10*time.Second)
 	if err := c.Dial(ctx); err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestUDP_PersistentLoop(t *testing.T) {
 
 	for i := 0; i < iters; i++ {
 		payload := fmt.Appendf([]byte{}, "udp-msg-%06d", i)
-		tb := &loopBuf{b: append([]byte(nil), payload...)} // copy for safety
+		tb := &testBuf{b: append([]byte(nil), payload...)} // copy for safety
 
 		msg := &cond.DatagramMsg{Data: tb}
 		wctx, wcancel := context.WithTimeout(ctx, 2*time.Second)
@@ -273,71 +273,6 @@ func startTCPEcho(t *testing.T) (addr string, stop func()) {
 }
 
 func startUDPEcho(t *testing.T) (addr string, stop func()) {
-	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen udp: %v", err)
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		buf := make([]byte, 64<<10)
-		for {
-			n, a, err := pc.ReadFrom(buf)
-			if err != nil {
-				return
-			}
-			_, _ = pc.WriteTo(buf[:n], a)
-		}
-	}()
-	return pc.LocalAddr().String(), func() { _ = pc.Close(); <-done }
-}
-
-type loopBuf struct{ b []byte }
-
-func (lb *loopBuf) Bytes() []byte     { return lb.b }
-func (lb *loopBuf) Grow(n int) []byte { lb.b = make([]byte, n); return lb.b }
-func (lb *loopBuf) Release()          {}
-
-func loopCtx(t *testing.T, d time.Duration) context.Context {
-	t.Helper()
-	ctx, _ := context.WithTimeout(context.Background(), d)
-	return ctx
-}
-
-func startTCPEchoLoop(t *testing.T) (addr string, stop func()) {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen tcp: %v", err)
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func(cc net.Conn) {
-				defer cc.Close()
-				buf := make([]byte, 64<<10)
-				for {
-					n, err := cc.Read(buf)
-					if n > 0 {
-						_, _ = cc.Write(buf[:n])
-					}
-					if err != nil {
-						return
-					}
-				}
-			}(c)
-		}
-	}()
-	return ln.Addr().String(), func() { _ = ln.Close(); <-done }
-}
-
-func startUDPEchoLoop(t *testing.T) (addr string, stop func()) {
 	t.Helper()
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {

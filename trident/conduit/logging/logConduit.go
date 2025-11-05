@@ -2,12 +2,12 @@ package logging
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"time"
 
 	"bytemomo/trident/conduit"
+	"github.com/sirupsen/logrus"
 )
 
 // LoggingConduit is a decorator that wraps any conduit to provide detailed logging
@@ -16,7 +16,7 @@ import (
 // structured logging library.
 type LoggingConduit[V any] struct {
 	inner conduit.Conduit[V]
-	name  string
+	log   *logrus.Entry
 }
 
 // NewLoggingConduit creates a new logging conduit decorator.
@@ -24,42 +24,43 @@ type LoggingConduit[V any] struct {
 // name provides a descriptive name for the connection, used as a prefix in log messages.
 // inner is the conduit to be wrapped.
 func NewLoggingConduit[V any](name string, inner conduit.Conduit[V]) conduit.Conduit[V] {
-	return &LoggingConduit[V]{inner: inner, name: name}
+	log := logrus.WithField("conduit", name)
+	return &LoggingConduit[V]{inner: inner, log: log}
 }
 
 func (l *LoggingConduit[V]) Dial(ctx context.Context) error {
-	fmt.Printf("[%s] Dialing...\n", l.name)
+	l.log.Debug("Dialing...")
 	start := time.Now()
 	err := l.inner.Dial(ctx)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Dial failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Dial failed")
 		return err
 	}
-	fmt.Printf("[%s] Dial successful in %s\n", l.name, duration)
+	l.log.WithField("duration", duration).Info("Dial successful")
 	return nil
 }
 
 func (l *LoggingConduit[V]) Close() error {
-	fmt.Printf("[%s] Closing...\n", l.name)
+	l.log.Debug("Closing...")
 	err := l.inner.Close()
 	if err != nil {
-		fmt.Printf("[%s] Close failed: %v\n", l.name, err)
+		l.log.WithError(err).Error("Close failed")
 		return err
 	}
-	fmt.Printf("[%s] Closed.\n", l.name)
+	l.log.Info("Closed.")
 	return nil
 }
 
 func (l *LoggingConduit[V]) Kind() conduit.Kind {
 	kind := l.inner.Kind()
-	fmt.Printf("[%s] Kind() -> %v\n", l.name, kind)
+	l.log.WithField("kind", kind).Debug("Kind()")
 	return kind
 }
 
 func (l *LoggingConduit[V]) Stack() []string {
 	stack := l.inner.Stack()
-	fmt.Printf("[%s] Stack() -> %v\n", l.name, stack)
+	l.log.WithField("stack", stack).Debug("Stack()")
 	return stack
 }
 
@@ -67,13 +68,13 @@ func (l *LoggingConduit[V]) Underlying() V {
 	innerV := l.inner.Underlying()
 	switch v := any(innerV).(type) {
 	case conduit.Stream:
-		return any(&loggingStream{inner: v, name: l.name}).(V)
+		return any(&loggingStream{inner: v, log: l.log}).(V)
 	case conduit.Datagram:
-		return any(&loggingDatagram{inner: v, name: l.name}).(V)
+		return any(&loggingDatagram{inner: v, log: l.log}).(V)
 	case conduit.Network:
-		return any(&loggingNetwork{inner: v, name: l.name}).(V)
+		return any(&loggingNetwork{inner: v, log: l.log}).(V)
 	case conduit.Frame:
-		return any(&loggingFrame{inner: v, name: l.name}).(V)
+		return any(&loggingFrame{inner: v, log: l.log}).(V)
 	default:
 		return innerV
 	}
@@ -81,309 +82,356 @@ func (l *LoggingConduit[V]) Underlying() V {
 
 type loggingNetwork struct {
 	inner conduit.Network
-	name  string
+	log   *logrus.Entry
 }
 
 func (l *loggingNetwork) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.IPPacket, error) {
-	fmt.Printf("[%s] Recv(network)...\n", l.name)
+	l.log.Trace("Recv(network)...")
 	start := time.Now()
 	pkt, err := l.inner.Recv(ctx, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Recv(network) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Recv(network) failed")
 		return nil, err
 	}
 	if pkt != nil && pkt.Data != nil {
-		fmt.Printf("[%s] Recv(network) successful in %s: %d bytes from %s\n", l.name, duration, len(pkt.Data.Bytes()), pkt.Src)
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    len(pkt.Data.Bytes()),
+			"src":      pkt.Src,
+		}).Info("Recv(network) successful")
 	} else {
-		fmt.Printf("[%s] Recv(network) successful in %s: empty packet\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Recv(network) successful: empty packet")
 	}
 	return pkt, nil
 }
 
 func (l *loggingNetwork) RecvBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.RecvOptions) (int, error) {
-	fmt.Printf("[%s] RecvBatch(network)...\n", l.name)
+	l.log.Trace("RecvBatch(network)...")
 	start := time.Now()
 	n, err := l.inner.RecvBatch(ctx, pkts, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] RecvBatch(network) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("RecvBatch(network) failed")
 		return 0, err
 	}
-	fmt.Printf("[%s] RecvBatch(network) successful in %s: %d packets\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"count":    n,
+	}).Info("RecvBatch(network) successful")
 	return n, nil
 }
 
 func (l *loggingNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
-	fmt.Printf("[%s] Send(network)...\n", l.name)
+	l.log.Trace("Send(network)...")
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, pkt, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Send(network) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Send(network) failed")
 		return 0, md, err
 	}
 	if pkt != nil && pkt.Data != nil {
-		fmt.Printf("[%s] Send(network) successful in %s: %d bytes to %s\n", l.name, duration, n, pkt.Dst)
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    n,
+			"dst":      pkt.Dst,
+		}).Info("Send(network) successful")
 	} else {
-		fmt.Printf("[%s] Send(network) successful in %s: empty packet\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Send(network) successful: empty packet")
 	}
 	return n, md, nil
 }
 
 func (l *loggingNetwork) SendBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.SendOptions) (int, error) {
-	fmt.Printf("[%s] SendBatch(network)...\n", l.name)
+	l.log.Trace("SendBatch(network)...")
 	start := time.Now()
 	n, err := l.inner.SendBatch(ctx, pkts, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] SendBatch(network) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("SendBatch(network) failed")
 		return 0, err
 	}
-	fmt.Printf("[%s] SendBatch(network) successful in %s: %d packets\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"count":    n,
+	}).Info("SendBatch(network) successful")
 	return n, nil
 }
 
 func (l *loggingNetwork) SetDeadline(t time.Time) error {
-	fmt.Printf("[%s] SetDeadline(network) -> %s\n", l.name, t)
+	l.log.WithField("deadline", t).Trace("SetDeadline(network)")
 	return l.inner.SetDeadline(t)
 }
 
 func (l *loggingNetwork) LocalAddr() netip.Addr {
 	addr := l.inner.LocalAddr()
-	fmt.Printf("[%s] LocalAddr(network) -> %s\n", l.name, addr)
+	l.log.WithField("addr", addr).Trace("LocalAddr(network)")
 	return addr
 }
 
 func (l *loggingNetwork) Proto() int {
 	proto := l.inner.Proto()
-	fmt.Printf("[%s] Proto(network) -> %d\n", l.name, proto)
+	l.log.WithField("proto", proto).Trace("Proto(network)")
 	return proto
 }
 
 func (l *loggingNetwork) IsIPv6() bool {
 	isIPv6 := l.inner.IsIPv6()
-	fmt.Printf("[%s] IsIPv6(network) -> %t\n", l.name, isIPv6)
+	l.log.WithField("is_ipv6", isIPv6).Trace("IsIPv6(network)")
 	return isIPv6
 }
 
 type loggingFrame struct {
 	inner conduit.Frame
-	name  string
+	log   *logrus.Entry
 }
 
 func (l *loggingFrame) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.FramePkt, error) {
-	fmt.Printf("[%s] Recv(frame)...\n", l.name)
+	l.log.Trace("Recv(frame)...")
 	start := time.Now()
 	pkt, err := l.inner.Recv(ctx, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Recv(frame) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Recv(frame) failed")
 		return nil, err
 	}
 	if pkt != nil && pkt.Data != nil {
-		fmt.Printf("[%s] Recv(frame) successful in %s: %d bytes from %s\n", l.name, duration, len(pkt.Data.Bytes()), pkt.Src)
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    len(pkt.Data.Bytes()),
+			"src":      pkt.Src,
+		}).Info("Recv(frame) successful")
 	} else {
-		fmt.Printf("[%s] Recv(frame) successful in %s: empty frame\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Recv(frame) successful: empty frame")
 	}
 	return pkt, nil
 }
 
 func (l *loggingFrame) RecvBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.RecvOptions) (int, error) {
-	fmt.Printf("[%s] RecvBatch(frame)...\n", l.name)
+	l.log.Trace("RecvBatch(frame)...")
 	start := time.Now()
 	n, err := l.inner.RecvBatch(ctx, pkts, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] RecvBatch(frame) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("RecvBatch(frame) failed")
 		return 0, err
 	}
-	fmt.Printf("[%s] RecvBatch(frame) successful in %s: %d frames\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"count":    n,
+	}).Info("RecvBatch(frame) successful")
 	return n, nil
 }
 
 func (l *loggingFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
-	fmt.Printf("[%s] Send(frame)...\n", l.name)
+	l.log.Trace("Send(frame)...")
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, pkt, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Send(frame) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Send(frame) failed")
 		return 0, md, err
 	}
 	if pkt != nil && pkt.Data != nil {
-		fmt.Printf("[%s] Send(frame) successful in %s: %d bytes to %s\n", l.name, duration, n, pkt.Dst)
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    n,
+			"dst":      pkt.Dst,
+		}).Info("Send(frame) successful")
 	} else {
-		fmt.Printf("[%s] Send(frame) successful in %s: empty frame\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Send(frame) successful: empty frame")
 	}
 	return n, md, nil
 }
 
 func (l *loggingFrame) SendBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.SendOptions) (int, error) {
-	fmt.Printf("[%s] SendBatch(frame)...\n", l.name)
+	l.log.Trace("SendBatch(frame)...")
 	start := time.Now()
 	n, err := l.inner.SendBatch(ctx, pkts, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] SendBatch(frame) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("SendBatch(frame) failed")
 		return 0, err
 	}
-	fmt.Printf("[%s] SendBatch(frame) successful in %s: %d frames\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"count":    n,
+	}).Info("SendBatch(frame) successful")
 	return n, nil
 }
 
 func (l *loggingFrame) SetDeadline(t time.Time) error {
-	fmt.Printf("[%s] SetDeadline(frame) -> %s\n", l.name, t)
+	l.log.WithField("deadline", t).Trace("SetDeadline(frame)")
 	return l.inner.SetDeadline(t)
 }
 
 func (l *loggingFrame) Interface() *net.Interface {
 	intf := l.inner.Interface()
-	fmt.Printf("[%s] Interface(frame) -> %v\n", l.name, intf)
+	l.log.WithField("interface", intf).Trace("Interface(frame)")
 	return intf
 }
 
-
 type loggingStream struct {
 	inner conduit.Stream
-	name  string
+	log   *logrus.Entry
 }
 
 func (l *loggingStream) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.StreamChunk, error) {
-	fmt.Printf("[%s] Recv(stream)...\n", l.name)
+	l.log.Trace("Recv(stream)...")
 	start := time.Now()
 	chunk, err := l.inner.Recv(ctx, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Recv(stream) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Recv(stream) failed")
 		return nil, err
 	}
 	if chunk != nil && chunk.Data != nil {
-		fmt.Printf("[%s] Recv(stream) successful in %s: %d bytes\n", l.name, duration, len(chunk.Data.Bytes()))
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    len(chunk.Data.Bytes()),
+		}).Info("Recv(stream) successful")
 	} else {
-		fmt.Printf("[%s] Recv(stream) successful in %s: empty chunk\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Recv(stream) successful: empty chunk")
 	}
 	return chunk, nil
 }
 
 func (l *loggingStream) Send(ctx context.Context, p []byte, buf conduit.Buffer, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
-	fmt.Printf("[%s] Send(stream)...\n", l.name)
+	l.log.Trace("Send(stream)...")
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, p, buf, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Send(stream) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Send(stream) failed")
 		return 0, md, err
 	}
-	fmt.Printf("[%s] Send(stream) successful in %s: %d bytes\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"bytes":    n,
+	}).Info("Send(stream) successful")
 	return n, md, nil
 }
 
 func (l *loggingStream) Close() error {
-	fmt.Printf("[%s] Close(stream)...\n", l.name)
+	l.log.Debug("Close(stream)...")
 	return l.inner.Close()
 }
 
 func (l *loggingStream) CloseWrite() error {
-	fmt.Printf("[%s] CloseWrite(stream)...\n", l.name)
+	l.log.Debug("CloseWrite(stream)...")
 	return l.inner.CloseWrite()
 }
 
 func (l *loggingStream) SetDeadline(t time.Time) error {
-	fmt.Printf("[%s] SetDeadline(stream) -> %s\n", l.name, t)
+	l.log.WithField("deadline", t).Trace("SetDeadline(stream)")
 	return l.inner.SetDeadline(t)
 }
 
 func (l *loggingStream) LocalAddr() net.Addr {
 	addr := l.inner.LocalAddr()
-	fmt.Printf("[%s] LocalAddr(stream) -> %s\n", l.name, addr)
+	l.log.WithField("addr", addr).Trace("LocalAddr(stream)")
 	return addr
 }
 
 func (l *loggingStream) RemoteAddr() net.Addr {
 	addr := l.inner.RemoteAddr()
-	fmt.Printf("[%s] RemoteAddr(stream) -> %s\n", l.name, addr)
+	l.log.WithField("addr", addr).Trace("RemoteAddr(stream)")
 	return addr
 }
 
 type loggingDatagram struct {
 	inner conduit.Datagram
-	name  string
+	log   *logrus.Entry
 }
 
 func (l *loggingDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*conduit.DatagramMsg, error) {
-	fmt.Printf("[%s] Recv(datagram)...\n", l.name)
+	l.log.Trace("Recv(datagram)...")
 	start := time.Now()
 	msg, err := l.inner.Recv(ctx, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Recv(datagram) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Recv(datagram) failed")
 		return nil, err
 	}
 	if msg != nil && msg.Data != nil {
-		fmt.Printf("[%s] Recv(datagram) successful in %s: %d bytes from %s\n", l.name, duration, len(msg.Data.Bytes()), msg.Src)
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    len(msg.Data.Bytes()),
+			"src":      msg.Src,
+		}).Info("Recv(datagram) successful")
 	} else {
-		fmt.Printf("[%s] Recv(datagram) successful in %s: empty message\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Recv(datagram) successful: empty message")
 	}
 	return msg, nil
 }
 
 func (l *loggingDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
-	fmt.Printf("[%s] RecvBatch(datagram)...\n", l.name)
+	l.log.Trace("RecvBatch(datagram)...")
 	start := time.Now()
 	n, err := l.inner.RecvBatch(ctx, msgs, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] RecvBatch(datagram) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("RecvBatch(datagram) failed")
 		return 0, err
 	}
-	fmt.Printf("[%s] RecvBatch(datagram) successful in %s: %d messages\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"count":    n,
+	}).Info("RecvBatch(datagram) successful")
 	return n, nil
 }
 
 func (l *loggingDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
-	fmt.Printf("[%s] Send(datagram)...\n", l.name)
+	l.log.Trace("Send(datagram)...")
 	start := time.Now()
 	n, md, err := l.inner.Send(ctx, msg, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] Send(datagram) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("Send(datagram) failed")
 		return 0, md, err
 	}
 	if msg != nil && msg.Data != nil {
-		fmt.Printf("[%s] Send(datagram) successful in %s: %d bytes to %s\n", l.name, duration, n, msg.Dst)
+		l.log.WithFields(logrus.Fields{
+			"duration": duration,
+			"bytes":    n,
+			"dst":      msg.Dst,
+		}).Info("Send(datagram) successful")
 	} else {
-		fmt.Printf("[%s] Send(datagram) successful in %s: empty message\n", l.name, duration)
+		l.log.WithField("duration", duration).Debug("Send(datagram) successful: empty message")
 	}
 	return n, md, nil
 }
 
 func (l *loggingDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
-	fmt.Printf("[%s] SendBatch(datagram)...\n", l.name)
+	l.log.Trace("SendBatch(datagram)...")
 	start := time.Now()
 	n, err := l.inner.SendBatch(ctx, msgs, opts)
 	duration := time.Since(start)
 	if err != nil {
-		fmt.Printf("[%s] SendBatch(datagram) failed in %s: %v\n", l.name, duration, err)
+		l.log.WithError(err).WithField("duration", duration).Error("SendBatch(datagram) failed")
 		return 0, err
 	}
-	fmt.Printf("[%s] SendBatch(datagram) successful in %s: %d messages\n", l.name, duration, n)
+	l.log.WithFields(logrus.Fields{
+		"duration": duration,
+		"count":    n,
+	}).Info("SendBatch(datagram) successful")
 	return n, nil
 }
 
 func (l *loggingDatagram) SetDeadline(t time.Time) error {
-	fmt.Printf("[%s] SetDeadline(datagram) -> %s\n", l.name, t)
+	l.log.WithField("deadline", t).Trace("SetDeadline(datagram)")
 	return l.inner.SetDeadline(t)
 }
 
 func (l *loggingDatagram) LocalAddr() netip.AddrPort {
 	addr := l.inner.LocalAddr()
-	fmt.Printf("[%s] LocalAddr(datagram) -> %s\n", l.name, addr)
+	l.log.WithField("addr", addr).Trace("LocalAddr(datagram)")
 	return addr
 }
 
 func (l *loggingDatagram) RemoteAddr() netip.AddrPort {
 	addr := l.inner.RemoteAddr()
-	fmt.Printf("[%s] RemoteAddr(datagram) -> %s\n", l.name, addr)
+	l.log.WithField("addr", addr).Trace("RemoteAddr(datagram)")
 	return addr
 }

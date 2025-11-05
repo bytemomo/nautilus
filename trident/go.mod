@@ -10,6 +10,7 @@ require (
 require (
 	github.com/mdlayher/socket v0.2.1 // indirect
 	github.com/pion/transport/v3 v3.0.7 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 )
 
