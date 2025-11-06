@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"bytemomo/kraken/internal/adapter/jsonreport"
+	"bytemomo/kraken/internal/adapter/logger"
 	"bytemomo/kraken/internal/adapter/yamlconfig"
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/runner"
@@ -28,13 +29,12 @@ func main() {
 	)
 	flag.Parse()
 
-	logrus.SetFormatter(&logrus.JSONFormatter{})
-	logrus.SetLevel(logrus.InfoLevel)
-
 	if *campaignPath == "" || *cidrsArg == "" || *help {
 		flag.Usage()
 		os.Exit(2)
 	}
+
+	logger.SetLoggerToStructured(logrus.InfoLevel, fmt.Sprintf("%s/kraken.log", *outDir))
 
 	if err := run(*campaignPath, *cidrsArg, *outDir); err != nil {
 		logrus.WithError(err).Fatal("Failed to run campaign")
@@ -62,19 +62,16 @@ func run(campaignPath, cidrsArg, outDir string) error {
 	jsonReporter := jsonreport.New(resultDir)
 	camp.Runner.ResultDirectory = resultDir
 
-	// Scanner
 	classifiedTargets, err := setupAndRunScanner(log, camp, cidrs)
 	if err != nil {
 		return err
 	}
 
-	// Runner
 	results, err := setupAndRunModuleRunner(log, camp, jsonReporter, classifiedTargets)
 	if err != nil {
 		return err
 	}
 
-	// Report
 	return report(log, jsonReporter, results, camp)
 }
 
@@ -158,7 +155,7 @@ func report(log *logrus.Entry, reportWriter domain.ReportWriter, results []domai
 		for _, tree := range trees {
 			if tree.Evaluate(result.Findings) {
 				log.WithField("attack_tree_name", tree.Name).Warning("Attack tree evaluated as true")
-				fmt.Printf("Code to render attack tree:\n%s", tree.RenderTree())
+				// fmt.Printf("Code to render attack tree:\n%s", tree.RenderTree())
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"bytemomo/kraken/internal/loader"
 	"bytemomo/kraken/internal/transport"
 	cnd "bytemomo/trident/conduit"
+	tridentlog "bytemomo/trident/conduit/logging"
 	tridenttransport "bytemomo/trident/conduit/transport"
 	tlscond "bytemomo/trident/conduit/transport/tls"
 )
@@ -114,7 +115,8 @@ func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerH
 		}
 	}
 
-	return current, nil
+	logCurrent := tridentlog.NewLoggingConduit(addr, current)
+	return logCurrent, nil
 }
 
 func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Datagram], error) {
@@ -131,5 +133,7 @@ func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.Laye
 			return nil, fmt.Errorf("unknown stream layer: %s", layer.Name)
 		}
 	}
-	return current, nil
+
+	logCurrent := tridentlog.NewLoggingConduit(addr, current)
+	return logCurrent, nil
 }
