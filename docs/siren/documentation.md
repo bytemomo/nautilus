@@ -1,70 +1,121 @@
 # Siren
 
-Siren is a configurable MITM proxy that transparently sits between clients and
-servers. It accepts client connections (stdlib listeners) and dials upstream
-servers using **Trident** conduits (TCP/TLS/UDP/DTLS/L2/L3).
-
-A rule-driven **Intercept Engine** can log, delay, drop, duplicate, throttle,
-modify, or corrupt traffic; **Spoof** helpers position the proxy on-path
-(ARP/DNS); a **Recorder** captures traffic.
+Siren is a transparent MITM agent that now runs fully in the Linux kernel using
+eBPF + XDP for packet interception. Packets are copied into a userspace ring
+buffer where the Go intercept engine evaluates rules, logging, recording or
+injecting actions. Decisions such as “drop this flow” are pushed back into the
+kernel via BPF maps which allows Siren to stay invisible to the clients.
 
 ## Key Features
 
-- **Multi-Protocol Support**: TCP, TLS, UDP, DTLS via Trident conduits
-- **Traffic Manipulation**: Intercept, modify, delay, drop, or inject packets
-- **Rule-Based Testing**: YAML configuration for test scenarios
-- **Network Positioning**: ARP/DNS spoofing helpers for transparent proxying
-- **Traffic Recording**: Capture and analyze all proxied traffic
-- **Fault Injection**: Simulate network failures, corrupted data, protocol violations
-- **TLS Interception**: Man-in-the-middle TLS connections with custom certificates
+- **Kernel-level interception**: eBPF/XDP program copies packet metadata/payload
+  with < 1 µs overhead and can drop flows directly in the kernel.
+- **Rule-based engine**: YAML rules feed the classic intercept engine (regex,
+  payload matching, throttling metadata, etc.).
+- **Manipulators**: Optional user-defined processors (implemented in Go) can
+  augment or replace rule results.
+- **Recorder**: Structured JSON output of every intercepted packet/decision.
+- **Simple deployment**: Only needs the interface name and root privileges to
+  attach the XDP program; no iptables or LD_PRELOAD tricks.
 
-Future:
+> [!WARNING]
+> Only Linux hosts with kernel ≥ 5.4 are supported right now. The code relies on
+> XDP and the eBPF ring-buffer helpers which are unavailable on older kernels.
 
-- **eBPF Support**: Instead of relying on trident conduits use eBPF to make it faster
-  and really transparent, it will use XDP and eBP to enhance the Intercept engine.
-
-    > [!WARNING]
-    > In the case this approach is taken the siren agent will be able to be installed
-    > only on Linux (kernel version >= 3.18) machines.
-
-    > [!NOTE]
-    > On the future will be compatible also on windows
-    > when [ebpf for windows](github.com/microsoft/ebpf-for-windows) comes out of
-    > alpha stage.
+> [!NOTE]
+> The previous user-space proxy (Trident-based) has been removed to keep the
+> scope small. Reintroducing it would require re-adding the old proxy package.
 
 ## Architecture
 
 ```text
-┌─────────┐         ┌───────────────────────────┐         ┌─────────┐
-│ Client  │────────▶│   Siren                   │────────▶│ Server  │
-└─────────┘         │  ┌─────────────────────┐  │         └─────────┘
-                    │  │  Intercept Engine   │  │
-                    │  │  - Log traffic      │  │
-                    │  │  - Modify payloads  │  │
-                    │  │  - Delay packets    │  │
-                    │  │  - Drop packets     │  │
-                    │  │  - Inject faults    │  │
-                    │  └─────────────────────┘  │
-                    └───────────────────────────┘
+┌──────────┐       ┌─────────────────────────────┐        ┌──────────┐
+│ Client   │──────▶│    NIC + XDP (siren_xdp)    │───────▶│ Server   │
+└──────────┘       └─────────────────────────────┘        └──────────┘
+                        │                  ▲
+                        │  ring buffer     │ flow actions
+                        ▼                  │
+                 ┌─────────────────────────────────┐
+                 │    Userspace Siren runtime      │
+                 │  - Intercept engine             │
+                 │  - Manipulators                 │
+                 │  - Recorder                     │
+                 └─────────────────────────────────┘
 ```
 
 ### Components
 
-1. **proxy**: Core proxy implementations
-    - `stream_proxy.go`: TCP/TLS stream proxy
-    - `datagram_proxy.go`: UDP/DTLS datagram proxy
-    - `proxy.go`: Common proxy interfaces
-2. **intercept**: Traffic interception and manipulation
-    - `engine.go`: Rule evaluation engine
-    - `rules.go`: Rule definitions and matchers
-    - `actions.go`: Actions (drop, delay, modify, corrupt, etc.)
-3. **spoof**: Network positioning utilities
-    - `arp.go`: ARP spoofing for L2 positioning
-    - `dns.go`: DNS spoofing for transparent redirection
-    - `in_line.go`: Classical proxy that is legitemaly inline
-4. **recorder**: Traffic capture and analysis
-    - `recorder.go`: Traffic recording to disk
-    - `pcap.go`: PCAP export support
-5. **config**: Configuration management
-    - `config.go`: YAML configuration parser
-    - `scenarios.go`: Pre-defined test scenarios
+1. **ebpf/program**: `xdp_proxy.c` compiled into `xdp_proxy.bpf.o`. Exports a ring
+   buffer (`events`) and an LRU map (`flow_actions`) used to enforce drops.
+2. **ebpf.Manager**: Loads the embedded object, attaches it to the requested NIC,
+   manages the ring buffer reader, and exposes helpers to install flow actions.
+3. **ebpf.Runtime**: Drains packets, translates them into `core.TrafficContext`,
+   passes everything through the rule engine + manipulators and pushes the result
+   back to the Manager (e.g., program a drop).
+4. **intercept**: Unchanged rule evaluation engine and action primitives.
+5. **proxy/recorder/pkg**: Shared infrastructure for stats, manipulators, logging
+   and structured recordings.
+
+## Building the eBPF object
+
+The repository ships with a pre-built object (`siren/ebpf/program/xdp_proxy.bpf.o`)
+so `go build ./siren` works out-of-the-box. When you change `xdp_proxy.c` you must
+recompile manually:
+
+```sh
+go generate ./siren/ebpf
+```
+
+Requirements:
+
+- Clang/LLVM ≥ 11
+- Kernel headers (`linux/types.h`, etc.)
+- Root or capabilities to attach XDP (run Siren with sudo)
+
+## Configuration
+
+```yaml
+name: demo
+description: Demo rule-set
+ebpf:
+    interface: eth0
+    drop_action_duration: 5s
+    targets:
+        - "ip:192.0.2.10"
+        - "ip_port:192.0.2.10:1883"
+        - "mac:aa:bb:cc:dd:ee:ff"
+        - "ethercat:0x1234"
+recording:
+    enabled: true
+    output: /tmp/siren.pcap
+    format: pcap
+rules:
+    - name: drop-telnet
+      match:
+          payload_regex: "USER root"
+      action:
+          type: drop
+```
+
+`drop_action_duration` controls how long the kernel will keep dropping packets for
+a matching 5‑tuple. Rules still have access to delay/duplicate/modify actions; at
+the moment only `drop` is enforced inside XDP, other actions are logged.
+
+`targets` accepts the following selectors (all strings):
+
+- `ip:<address>` — capture IPv4 traffic to/from that address.
+- `ip_port:<address>:<port>` — restrict to a single TCP/UDP port.
+- `mac:<mac>` — match Ethernet address irrespective of IP.
+- `ethercat:<slave_id>` — match EtherCAT frames by slave ID.
+
+If the list is omitted or empty, Siren captures every frame on the interface.
+
+## Running Siren
+
+```sh
+sudo ./siren -config siren/config/example-ebpf.yaml
+```
+
+Use `ethtool -K <iface> rxvlan off gro off` if the NIC refuses to attach XDP.
+Siren writes captured frames into the configured PCAP file, so you can open them
+directly in Wireshark, while logging rule matches to stdout.

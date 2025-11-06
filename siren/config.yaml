@@ -1,0 +1,44 @@
+name: iot-lab
+description: Default IoT client interception profile
+
+ebpf:
+    interface: eth0
+    drop_action_duration: 5s
+    targets:
+        - "ip:192.168.10.50" # PLC
+        - "ip_port:192.168.10.60:502" # Modbus gateway
+        - "ip_port:192.168.10.70:1883" # MQTT broker
+        - "mac:02:42:ac:11:00:02" # Sensor bridge
+
+rules:
+    - name: drop-telnet-defaults
+      match:
+          payload_regex: "(?i)password:\\s*(admin|root)"
+      action:
+          type: drop
+          metadata:
+              drop_duration: "30s"
+
+    - name: log-modbus-write
+      match:
+          payload_regex: "\\x10\\x00\\x00\\x00\\x06" # Function code 16
+      action:
+          type: log
+          level: warn
+          message: "Modbus write multiple registers observed"
+
+    - name: delay-mqtt
+      match:
+          payload_regex: "(?i)mqtt"
+      action:
+          type: delay
+          duration: 200ms
+          jitter: 50ms
+
+recording:
+    enabled: true
+    output: captures/iot-lab.pcap
+    format: pcap
+    include_payload: true
+    flush_interval: 3s
+    max_file_size: 200MB

@@ -26,14 +26,14 @@ type Proxy interface {
 type ProxyStats struct {
 	mu sync.RWMutex
 
-	ActiveConnections   int
-	TotalConnections    uint64
-	BytesProxied        uint64
-	PacketsProxied      uint64
-	PacketsDropped      uint64
-	PacketsModified     uint64
-	RulesMatched        uint64
-	StartTime           time.Time
+	ActiveConnections int
+	TotalConnections  uint64
+	BytesProxied      uint64
+	PacketsProxied    uint64
+	PacketsDropped    uint64
+	PacketsModified   uint64
+	RulesMatched      uint64
+	StartTime         time.Time
 }
 
 func NewProxyStats() *ProxyStats {
@@ -199,6 +199,9 @@ func (tp *TrafficProcessor) Process(ctx context.Context, tc *core.TrafficContext
 			Size:         len(result.ModifiedPayload),
 			Dropped:      result.Drop,
 			Modified:     result.ModifiedPayload != nil && len(result.ModifiedPayload) != len(tc.Payload),
+			Data:         tc.Frame,
+			OriginalLen:  len(tc.Frame),
+			Metadata:     result.Metadata,
 		})
 	}
 

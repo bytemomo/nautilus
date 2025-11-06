@@ -12,24 +12,25 @@ import (
 
 // Config represents the complete Siren configuration
 type Config struct {
-	Name         string                `yaml:"name" json:"name"`
-	Description  string                `yaml:"description,omitempty" json:"description,omitempty"`
-	Proxy        *ProxyConfig          `yaml:"proxy" json:"proxy"`
-	Rules        []*intercept.Rule     `yaml:"rules,omitempty" json:"rules,omitempty"`
-	Manipulators []*ManipulatorConfig  `yaml:"manipulators,omitempty" json:"manipulators,omitempty"`
-	Recording    *RecordingConfig      `yaml:"recording,omitempty" json:"recording,omitempty"`
-	Spoof        *SpoofConfig          `yaml:"spoof,omitempty" json:"spoof,omitempty"`
-	API          *APIConfig            `yaml:"api,omitempty" json:"api,omitempty"`
+	Name         string               `yaml:"name" json:"name"`
+	Description  string               `yaml:"description,omitempty" json:"description,omitempty"`
+	Ebpf         *EbpfConfig          `yaml:"ebpf,omitempty" json:"ebpf,omitempty"`
+	Proxy        *ProxyConfig         `yaml:"proxy" json:"proxy"`
+	Rules        []*intercept.Rule    `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Manipulators []*ManipulatorConfig `yaml:"manipulators,omitempty" json:"manipulators,omitempty"`
+	Recording    *RecordingConfig     `yaml:"recording,omitempty" json:"recording,omitempty"`
+	Spoof        *SpoofConfig         `yaml:"spoof,omitempty" json:"spoof,omitempty"`
+	API          *APIConfig           `yaml:"api,omitempty" json:"api,omitempty"`
 }
 
 // ProxyConfig configures the proxy behavior
 type ProxyConfig struct {
-	Listen            string        `yaml:"listen" json:"listen"`
-	Target            string        `yaml:"target" json:"target"`
-	Protocol          string        `yaml:"protocol" json:"protocol"`
-	MaxConnections    int           `yaml:"max_connections,omitempty" json:"max_connections,omitempty"`
-	ConnectionTimeout string        `yaml:"connection_timeout,omitempty" json:"connection_timeout,omitempty"`
-	BufferSize        int           `yaml:"buffer_size,omitempty" json:"buffer_size,omitempty"`
+	Listen            string         `yaml:"listen" json:"listen"`
+	Target            string         `yaml:"target" json:"target"`
+	Protocol          string         `yaml:"protocol" json:"protocol"`
+	MaxConnections    int            `yaml:"max_connections,omitempty" json:"max_connections,omitempty"`
+	ConnectionTimeout string         `yaml:"connection_timeout,omitempty" json:"connection_timeout,omitempty"`
+	BufferSize        int            `yaml:"buffer_size,omitempty" json:"buffer_size,omitempty"`
 	Conduit           *ConduitConfig `yaml:"conduit,omitempty" json:"conduit,omitempty"`
 	TLS               *TLSConfig     `yaml:"tls,omitempty" json:"tls,omitempty"`
 	DTLS              *DTLSConfig    `yaml:"dtls,omitempty" json:"dtls,omitempty"`
@@ -106,6 +107,13 @@ type APIConfig struct {
 	Listen  string `yaml:"listen" json:"listen"`
 }
 
+// EbpfConfig controls eBPF mode.
+type EbpfConfig struct {
+	Interface          string   `yaml:"interface" json:"interface"`
+	DropActionDuration string   `yaml:"drop_action_duration,omitempty" json:"drop_action_duration,omitempty"`
+	Targets            []string `yaml:"targets,omitempty" json:"targets,omitempty"`
+}
+
 // LoadConfig loads configuration from a YAML file
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -141,41 +149,11 @@ func SaveConfig(config *Config, path string) error {
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
-	if c.Ebpf != nil && c.Ebpf.Enabled {
-		if c.Ebpf.Interface == "" {
-			return fmt.Errorf("ebpf.interface is required when ebpf is enabled")
-		}
-		return nil // If eBPF is enabled, we don't need to validate the proxy config
+	if c.Ebpf == nil {
+		return fmt.Errorf("ebpf configuration is required")
 	}
-
-	if c.Proxy == nil {
-		return fmt.Errorf("proxy configuration is required")
-	}
-
-	if c.Proxy.Listen == "" {
-		return fmt.Errorf("proxy.listen is required")
-	}
-
-	if c.Proxy.Target == "" {
-		return fmt.Errorf("proxy.target is required")
-	}
-
-	if c.Proxy.Protocol == "" {
-		c.Proxy.Protocol = "tcp"
-	}
-
-	switch c.Proxy.Protocol {
-	case "tcp", "tls", "udp", "dtls":
-	default:
-		return fmt.Errorf("invalid protocol: %s (must be tcp, tls, udp, or dtls)", c.Proxy.Protocol)
-	}
-
-	if c.Proxy.MaxConnections == 0 {
-		c.Proxy.MaxConnections = 1000
-	}
-
-	if c.Proxy.BufferSize == 0 {
-		c.Proxy.BufferSize = 32 * 1024
+	if c.Ebpf.Interface == "" {
+		return fmt.Errorf("ebpf.interface is required")
 	}
 
 	if len(c.Rules) > 0 {
@@ -242,6 +220,18 @@ func (r *RecordingConfig) GetMaxFileSize() int64 {
 	default:
 		return num
 	}
+}
+
+// GetDropDuration returns the parsed duration for flow drops.
+func (e *EbpfConfig) GetDropDuration() time.Duration {
+	if e == nil || e.DropActionDuration == "" {
+		return 10 * time.Second
+	}
+	d, err := time.ParseDuration(e.DropActionDuration)
+	if err != nil {
+		return 10 * time.Second
+	}
+	return d
 }
 
 // DefaultConfig returns a default configuration

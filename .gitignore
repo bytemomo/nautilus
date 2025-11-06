@@ -48,7 +48,9 @@
 !siren/README.md
 
 !siren/*
+!siren/**/*.c
 !siren/**/*.go
+!siren/**/*.yaml
 
 # Trident
 !trident/

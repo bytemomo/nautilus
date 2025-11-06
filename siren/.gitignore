@@ -1,0 +1,6 @@
+# Generated eBPF objects
+ebpf/program/*.bpf.o
+
+# Capture outputs
+captures/
+*.pcap
