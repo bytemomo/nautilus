@@ -4,11 +4,11 @@ description: Default IoT client interception profile
 ebpf:
     interface: eth0
     drop_action_duration: 5s
-    targets:
-        - "ip:192.168.10.50" # PLC
-        - "ip_port:192.168.10.60:502" # Modbus gateway
-        - "ip_port:192.168.10.70:1883" # MQTT broker
-        - "mac:02:42:ac:11:00:02" # Sensor bridge
+    # targets:
+    #     - "ip:192.168.10.50" # PLC
+    #     - "ip_port:192.168.10.60:502" # Modbus gateway
+    #     - "ip_port:192.168.10.70:1883" # MQTT broker
+    #     - "mac:02:42:ac:11:00:02" # Sensor bridge
 
 rules:
     - name: drop-telnet-defaults
@@ -37,7 +37,7 @@ rules:
 
 recording:
     enabled: true
-    output: captures/iot-lab.pcap
+    output: siren-results/captures/iot-lab.pcap
     format: pcap
     include_payload: true
     flush_interval: 3s
