@@ -153,7 +153,7 @@ module folder.
 
 Ideally each agents has integrations and unit testing.
 
-## trident
+### trident
 
 Trident library has tests for each underlying type of conduit, the test for tcp,
 tls, udp and dtls can be run as user.
@@ -170,7 +170,7 @@ future idea, to make everything more easy and smooth to use is to run them in
 a safe environment like an isolated namespace or a container with the right
 capabilities.
 
-## kraken
+### kraken
 
 As with **trident** the tests for kraken can be run with the following:
 
@@ -180,8 +180,8 @@ go test ./kraken/...
 
 > [!WARNING]
 > The problem with kraken tests is that they are not nearly as completed.
-> Also kraken should
+> Also kraken should have integration tests.
 
-## siren
+### siren
 
 % TODO
