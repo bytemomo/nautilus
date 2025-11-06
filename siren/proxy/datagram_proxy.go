@@ -4,15 +4,18 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
 	"bytemomo/siren/intercept"
+	"bytemomo/siren/pkg/core"
+	"bytemomo/siren/pkg/manipulator"
+	"bytemomo/siren/pkg/sirenerr"
 	"bytemomo/siren/recorder"
 	"bytemomo/trident/conduit"
+
+	"github.com/sirupsen/logrus"
 )
 
 // DatagramProxy handles UDP/DTLS datagram-based connections
@@ -22,6 +25,7 @@ type DatagramProxy struct {
 	conduit   conduit.Conduit[conduit.Datagram]
 	processor *TrafficProcessor
 	stats     *ProxyStats
+	log       *logrus.Entry
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -37,10 +41,10 @@ type DatagramSession struct {
 	ID            string
 	ClientAddr    net.Addr
 	ServerAddr    net.Addr
-	Stats         *ConnectionStats
+	Stats         *core.ConnectionStats
 	StartTime     time.Time
 	LastActivity  time.Time
-	State         ConnectionState
+	State         core.ConnectionState
 	mu            sync.RWMutex
 }
 
@@ -51,38 +55,39 @@ func NewDatagramProxy(
 	conduit conduit.Conduit[conduit.Datagram],
 	engine *intercept.Engine,
 	rec *recorder.Recorder,
+	log *logrus.Entry,
+	manipulators []manipulator.Manipulator,
 ) *DatagramProxy {
 	stats := NewProxyStats()
 	return &DatagramProxy{
 		config:    config,
 		conn:      conn,
 		conduit:   conduit,
-		processor: NewTrafficProcessor(engine, rec, stats),
+		processor: NewTrafficProcessor(engine, rec, stats, log, manipulators),
 		stats:     stats,
+		log:       log,
 	}
 }
 
 // Start begins accepting datagrams and proxying traffic
 func (dp *DatagramProxy) Start(ctx context.Context) error {
+	op := "proxy.DatagramProxy.Start"
 	dp.mu.Lock()
 	if dp.running {
 		dp.mu.Unlock()
-		return fmt.Errorf("proxy already running")
+		return sirenerr.E(op, "proxy already running", 0, nil)
 	}
 	dp.running = true
 	dp.ctx, dp.cancel = context.WithCancel(ctx)
 	dp.mu.Unlock()
 
-	if dp.config.EnableLogging {
-		log.Printf("[DatagramProxy] Starting on %s -> %s", dp.conn.LocalAddr(), dp.config.TargetAddr)
-	}
+	dp.log.Infof("Starting on %s -> %s", dp.conn.LocalAddr(), dp.config.TargetAddr)
 
-	// Dial server conduit once
 	dialCtx, dialCancel := context.WithTimeout(dp.ctx, 10*time.Second)
 	defer dialCancel()
 
 	if err := dp.conduit.Dial(dialCtx); err != nil {
-		return fmt.Errorf("failed to dial server: %w", err)
+		return sirenerr.E(op, "failed to dial server", 0, err)
 	}
 
 	dp.wg.Add(2)
@@ -102,28 +107,20 @@ func (dp *DatagramProxy) Stop() error {
 	dp.running = false
 	dp.mu.Unlock()
 
-	if dp.config.EnableLogging {
-		log.Printf("[DatagramProxy] Stopping...")
-	}
+	dp.log.Info("Stopping...")
 
-	// Close connections
 	if err := dp.conn.Close(); err != nil {
-		log.Printf("[DatagramProxy] Error closing listener: %v", err)
+		dp.log.Errorf("Error closing listener: %v", err)
 	}
 
 	if err := dp.conduit.Close(); err != nil {
-		log.Printf("[DatagramProxy] Error closing conduit: %v", err)
+		dp.log.Errorf("Error closing conduit: %v", err)
 	}
 
-	// Cancel context
 	dp.cancel()
-
-	// Wait for goroutines
 	dp.wg.Wait()
 
-	if dp.config.EnableLogging {
-		log.Printf("[DatagramProxy] Stopped")
-	}
+	dp.log.Info("Stopped")
 
 	return nil
 }
@@ -133,7 +130,6 @@ func (dp *DatagramProxy) Stats() *ProxyStats {
 	return dp.stats
 }
 
-// receiveFromClients receives datagrams from clients and forwards to server
 func (dp *DatagramProxy) receiveFromClients() {
 	defer dp.wg.Done()
 
@@ -146,16 +142,13 @@ func (dp *DatagramProxy) receiveFromClients() {
 		default:
 		}
 
-		// Read from client
 		n, clientAddr, err := dp.conn.ReadFrom(buffer)
 		if err != nil {
 			select {
 			case <-dp.ctx.Done():
 				return
 			default:
-				if dp.config.EnableLogging {
-					log.Printf("[DatagramProxy] Read error from client: %v", err)
-				}
+				dp.log.Errorf("Read error from client: %v", err)
 				continue
 			}
 		}
@@ -164,36 +157,28 @@ func (dp *DatagramProxy) receiveFromClients() {
 			continue
 		}
 
-		// Get or create session
 		session := dp.getOrCreateSession(clientAddr)
 		session.UpdateActivity()
 
-		// Process through interception engine
-		tc := &TrafficContext{
+		tc := &core.TrafficContext{
 			Conn:      dp.sessionToConnection(session),
-			Direction: ClientToServer,
+			Direction: core.ClientToServer,
 			Payload:   buffer[:n],
 			Size:      n,
 		}
 
 		result, err := dp.processor.Process(dp.ctx, tc)
 		if err != nil {
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Processing error: %v", session.ID[:8], err)
-			}
+			dp.log.WithField("sessionID", session.ID[:8]).Errorf("Processing error: %v", err)
 			continue
 		}
 
-		// Handle disconnect action
 		if result.Disconnect {
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Disconnect triggered by rule", session.ID[:8])
-			}
+			dp.log.WithField("sessionID", session.ID[:8]).Info("Disconnect triggered by rule")
 			dp.removeSession(session.ID)
 			continue
 		}
 
-		// Handle delay action
 		if result.Delay > 0 {
 			select {
 			case <-time.After(result.Delay):
@@ -202,21 +187,16 @@ func (dp *DatagramProxy) receiveFromClients() {
 			}
 		}
 
-		// Handle drop action
 		if result.Drop {
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Packet dropped (%d bytes)", session.ID[:8], n)
-			}
+			dp.log.WithField("sessionID", session.ID[:8]).Infof("Packet dropped (%d bytes)", n)
 			continue
 		}
 
-		// Send to server
 		payload := result.ModifiedPayload
 		if payload == nil {
 			payload = buffer[:n]
 		}
 
-		// Handle duplicate action
 		sendCount := 1
 		if result.Duplicate > 0 {
 			sendCount = result.Duplicate + 1
@@ -224,13 +204,11 @@ func (dp *DatagramProxy) receiveFromClients() {
 
 		for i := 0; i < sendCount; i++ {
 			if err := dp.sendToServer(session, payload); err != nil {
-				if dp.config.EnableLogging {
-					log.Printf("[DatagramProxy][%s] Send to server error: %v", session.ID[:8], err)
-				}
+				dp.log.WithField("sessionID", session.ID[:8]).Errorf("Send to server error: %v", err)
 				break
 			}
 
-			session.Stats.RecordBytes(ClientToServer, len(payload))
+			session.Stats.RecordBytes(core.ClientToServer, len(payload))
 			dp.stats.RecordBytes(uint64(len(payload)))
 
 			if i > 0 && result.Delay > 0 {
@@ -244,7 +222,6 @@ func (dp *DatagramProxy) receiveFromClients() {
 	}
 }
 
-// receiveFromServer receives datagrams from server and forwards to clients
 func (dp *DatagramProxy) receiveFromServer() {
 	defer dp.wg.Done()
 
@@ -257,7 +234,6 @@ func (dp *DatagramProxy) receiveFromServer() {
 		default:
 		}
 
-		// Receive from server using Trident
 		msg, err := datagram.Recv(dp.ctx, &conduit.RecvOptions{
 			MaxBytes: dp.config.BufferSize,
 		})
@@ -267,9 +243,7 @@ func (dp *DatagramProxy) receiveFromServer() {
 			case <-dp.ctx.Done():
 				return
 			default:
-				if dp.config.EnableLogging {
-					log.Printf("[DatagramProxy] Recv error from server: %v", err)
-				}
+				dp.log.Errorf("Recv error from server: %v", err)
 				continue
 			}
 		}
@@ -286,31 +260,24 @@ func (dp *DatagramProxy) receiveFromServer() {
 			continue
 		}
 
-		// Find session by server address (simplified - in reality you'd need better session tracking)
-		// For UDP, we need to track which client initiated the connection
-		// This is a simplified implementation
 		var targetSession *DatagramSession
 		dp.sessions.Range(func(key, value interface{}) bool {
 			session := value.(*DatagramSession)
-			// In a real implementation, you'd match based on NAT table or session tracking
 			targetSession = session
-			return false // Take first session for now
+			return false
 		})
 
 		if targetSession == nil {
 			msg.Data.Release()
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy] No session found for server response")
-			}
+			dp.log.Warn("No session found for server response")
 			continue
 		}
 
 		targetSession.UpdateActivity()
 
-		// Process through interception engine
-		tc := &TrafficContext{
+		tc := &core.TrafficContext{
 			Conn:      dp.sessionToConnection(targetSession),
-			Direction: ServerToClient,
+			Direction: core.ServerToClient,
 			Payload:   payload,
 			Size:      n,
 			Metadata:  &msg.MD,
@@ -319,23 +286,17 @@ func (dp *DatagramProxy) receiveFromServer() {
 		result, err := dp.processor.Process(dp.ctx, tc)
 		if err != nil {
 			msg.Data.Release()
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Processing error: %v", targetSession.ID[:8], err)
-			}
+			dp.log.WithField("sessionID", targetSession.ID[:8]).Errorf("Processing error: %v", err)
 			continue
 		}
 
-		// Handle disconnect action
 		if result.Disconnect {
 			msg.Data.Release()
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Disconnect triggered by rule", targetSession.ID[:8])
-			}
+			dp.log.WithField("sessionID", targetSession.ID[:8]).Info("Disconnect triggered by rule")
 			dp.removeSession(targetSession.ID)
 			continue
 		}
 
-		// Handle delay action
 		if result.Delay > 0 {
 			select {
 			case <-time.After(result.Delay):
@@ -345,22 +306,17 @@ func (dp *DatagramProxy) receiveFromServer() {
 			}
 		}
 
-		// Handle drop action
 		if result.Drop {
 			msg.Data.Release()
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Packet dropped (%d bytes)", targetSession.ID[:8], n)
-			}
+			dp.log.WithField("sessionID", targetSession.ID[:8]).Infof("Packet dropped (%d bytes)", n)
 			continue
 		}
 
-		// Send to client
 		sendPayload := result.ModifiedPayload
 		if sendPayload == nil {
 			sendPayload = payload
 		}
 
-		// Handle duplicate action
 		sendCount := 1
 		if result.Duplicate > 0 {
 			sendCount = result.Duplicate + 1
@@ -369,13 +325,11 @@ func (dp *DatagramProxy) receiveFromServer() {
 		for i := 0; i < sendCount; i++ {
 			sent, err := dp.conn.WriteTo(sendPayload, targetSession.ClientAddr)
 			if err != nil {
-				if dp.config.EnableLogging {
-					log.Printf("[DatagramProxy][%s] Send to client error: %v", targetSession.ID[:8], err)
-				}
+				dp.log.WithField("sessionID", targetSession.ID[:8]).Errorf("Send to client error: %v", err)
 				break
 			}
 
-			targetSession.Stats.RecordBytes(ServerToClient, sent)
+			targetSession.Stats.RecordBytes(core.ServerToClient, sent)
 			dp.stats.RecordBytes(uint64(sent))
 
 			if i > 0 && result.Delay > 0 {
@@ -392,11 +346,9 @@ func (dp *DatagramProxy) receiveFromServer() {
 	}
 }
 
-// sendToServer sends a datagram to the server using Trident
 func (dp *DatagramProxy) sendToServer(session *DatagramSession, payload []byte) error {
 	datagram := dp.conduit.Underlying()
 
-	// Get buffer from pool
 	buf := conduit.GetBuf(len(payload))
 	copy(buf.Bytes(), payload)
 
@@ -409,45 +361,40 @@ func (dp *DatagramProxy) sendToServer(session *DatagramSession, payload []byte) 
 	return err
 }
 
-// getOrCreateSession gets an existing session or creates a new one
 func (dp *DatagramProxy) getOrCreateSession(clientAddr net.Addr) *DatagramSession {
 	sessionKey := clientAddr.String()
 
-	// Try to load existing session
 	if val, ok := dp.sessions.Load(sessionKey); ok {
 		return val.(*DatagramSession)
 	}
 
-	// Create new session
 	sessionID := generateDatagramSessionID()
 	now := time.Now()
 
 	session := &DatagramSession{
 		ID:           sessionID,
 		ClientAddr:   clientAddr,
-		ServerAddr:   nil, // Set when we know it
-		Stats:        &ConnectionStats{StartTime: now},
+		ServerAddr:   nil,
+		Stats:        &core.ConnectionStats{StartTime: now},
 		StartTime:    now,
 		LastActivity: now,
-		State:        StateEstablished,
+		State:        core.StateEstablished,
 	}
 
-	// Try to store it
 	actual, loaded := dp.sessions.LoadOrStore(sessionKey, session)
 	if loaded {
 		return actual.(*DatagramSession)
 	}
 
 	dp.stats.AddConnection()
-
-	if dp.config.EnableLogging {
-		log.Printf("[DatagramProxy][%s] New session from %s", sessionID[:8], clientAddr)
-	}
+	dp.log.WithFields(logrus.Fields{
+		"sessionID":  sessionID[:8],
+		"client_ip":  clientAddr,
+	}).Info("New session")
 
 	return session
 }
 
-// removeSession removes a session
 func (dp *DatagramProxy) removeSession(sessionID string) {
 	dp.sessions.Range(func(key, value interface{}) bool {
 		session := value.(*DatagramSession)
@@ -455,23 +402,20 @@ func (dp *DatagramProxy) removeSession(sessionID string) {
 			dp.sessions.Delete(key)
 			dp.stats.RemoveConnection()
 
-			if dp.config.EnableLogging {
-				log.Printf("[DatagramProxy][%s] Session closed. Duration: %v, C->S: %d bytes, S->C: %d bytes",
-					sessionID[:8],
-					time.Since(session.StartTime),
-					session.Stats.BytesClientServer,
-					session.Stats.BytesServerClient,
-				)
-			}
+			dp.log.WithFields(logrus.Fields{
+				"sessionID":  sessionID[:8],
+				"duration":   time.Since(session.StartTime),
+				"c_to_s":     session.Stats.BytesClientServer,
+				"s_to_c":     session.Stats.BytesServerClient,
+			}).Info("Session closed")
 			return false
 		}
 		return true
 	})
 }
 
-// sessionToConnection converts a DatagramSession to a Connection for compatibility
-func (dp *DatagramProxy) sessionToConnection(session *DatagramSession) *Connection {
-	return &Connection{
+func (dp *DatagramProxy) sessionToConnection(session *DatagramSession) *core.Connection {
+	return &core.Connection{
 		ID:           session.ID,
 		ClientAddr:   session.ClientAddr,
 		ServerAddr:   session.ServerAddr,
@@ -483,21 +427,18 @@ func (dp *DatagramProxy) sessionToConnection(session *DatagramSession) *Connecti
 	}
 }
 
-// UpdateActivity updates the last activity time
 func (s *DatagramSession) UpdateActivity() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.LastActivity = time.Now()
 }
 
-// generateDatagramSessionID generates a unique session identifier
 func generateDatagramSessionID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// GetAllSessions returns all active sessions
 func (dp *DatagramProxy) GetAllSessions() []*DatagramSession {
 	var sessions []*DatagramSession
 	dp.sessions.Range(func(key, value interface{}) bool {

@@ -4,16 +4,19 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"time"
 
 	"bytemomo/siren/intercept"
+	"bytemomo/siren/pkg/core"
+	"bytemomo/siren/pkg/manipulator"
+	"bytemomo/siren/pkg/sirenerr"
 	"bytemomo/siren/recorder"
 	"bytemomo/trident/conduit"
+
+	"github.com/sirupsen/logrus"
 )
 
 // StreamProxy handles TCP/TLS stream-based connections
@@ -23,12 +26,13 @@ type StreamProxy struct {
 	conduit   conduit.Conduit[conduit.Stream]
 	processor *TrafficProcessor
 	stats     *ProxyStats
+	log       *logrus.Entry
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	connections sync.Map // map[string]*Connection
+	connections sync.Map
 	mu          sync.RWMutex
 	running     bool
 }
@@ -40,31 +44,33 @@ func NewStreamProxy(
 	conduit conduit.Conduit[conduit.Stream],
 	engine *intercept.Engine,
 	rec *recorder.Recorder,
+	log *logrus.Entry,
+	manipulators []manipulator.Manipulator,
 ) *StreamProxy {
 	stats := NewProxyStats()
 	return &StreamProxy{
 		config:    config,
 		listener:  listener,
 		conduit:   conduit,
-		processor: NewTrafficProcessor(engine, rec, stats),
+		processor: NewTrafficProcessor(engine, rec, stats, log, manipulators),
 		stats:     stats,
+		log:       log,
 	}
 }
 
 // Start begins accepting connections and proxying traffic
 func (sp *StreamProxy) Start(ctx context.Context) error {
+	op := "proxy.StreamProxy.Start"
 	sp.mu.Lock()
 	if sp.running {
 		sp.mu.Unlock()
-		return fmt.Errorf("proxy already running")
+		return sirenerr.E(op, "proxy already running", 0, nil)
 	}
 	sp.running = true
 	sp.ctx, sp.cancel = context.WithCancel(ctx)
 	sp.mu.Unlock()
 
-	if sp.config.EnableLogging {
-		log.Printf("[StreamProxy] Starting on %s -> %s", sp.listener.Addr(), sp.config.TargetAddr)
-	}
+	sp.log.Infof("Starting on %s -> %s", sp.listener.Addr(), sp.config.TargetAddr)
 
 	sp.wg.Add(1)
 	go sp.acceptLoop()
@@ -82,24 +88,16 @@ func (sp *StreamProxy) Stop() error {
 	sp.running = false
 	sp.mu.Unlock()
 
-	if sp.config.EnableLogging {
-		log.Printf("[StreamProxy] Stopping...")
-	}
+	sp.log.Info("Stopping...")
 
-	// Stop accepting new connections
 	if err := sp.listener.Close(); err != nil {
-		log.Printf("[StreamProxy] Error closing listener: %v", err)
+		sp.log.Errorf("Error closing listener: %v", err)
 	}
 
-	// Cancel context to stop all goroutines
 	sp.cancel()
-
-	// Wait for all connections to finish
 	sp.wg.Wait()
 
-	if sp.config.EnableLogging {
-		log.Printf("[StreamProxy] Stopped")
-	}
+	sp.log.Info("Stopped")
 
 	return nil
 }
@@ -109,7 +107,6 @@ func (sp *StreamProxy) Stats() *ProxyStats {
 	return sp.stats
 }
 
-// acceptLoop accepts incoming client connections
 func (sp *StreamProxy) acceptLoop() {
 	defer sp.wg.Done()
 
@@ -120,18 +117,13 @@ func (sp *StreamProxy) acceptLoop() {
 			case <-sp.ctx.Done():
 				return
 			default:
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy] Accept error: %v", err)
-				}
+				sp.log.Errorf("Accept error: %v", err)
 				continue
 			}
 		}
 
-		// Check connection limit
 		if sp.stats.ActiveConnections >= sp.config.MaxConnections {
-			if sp.config.EnableLogging {
-				log.Printf("[StreamProxy] Connection limit reached, rejecting %s", clientConn.RemoteAddr())
-			}
+			sp.log.Warnf("Connection limit reached, rejecting %s", clientConn.RemoteAddr())
 			clientConn.Close()
 			continue
 		}
@@ -141,14 +133,12 @@ func (sp *StreamProxy) acceptLoop() {
 	}
 }
 
-// handleConnection handles a single client connection
 func (sp *StreamProxy) handleConnection(clientConn net.Conn) {
 	defer sp.wg.Done()
 
-	// Generate connection ID
 	connID := generateConnectionID()
+	connLog := sp.log.WithField("connID", connID[:8])
 
-	// Create connection object
 	conn := NewConnection(
 		connID,
 		clientConn.RemoteAddr(),
@@ -156,93 +146,80 @@ func (sp *StreamProxy) handleConnection(clientConn net.Conn) {
 		"stream",
 	)
 
-	// Register connection
 	sp.connections.Store(connID, conn)
 	sp.stats.AddConnection()
 
 	defer func() {
-		conn.SetState(StateClosed)
+		conn.State = core.StateClosed
 		conn.Stats.EndTime = time.Now()
 		sp.connections.Delete(connID)
 		sp.stats.RemoveConnection()
 		clientConn.Close()
 
-		if sp.config.EnableLogging {
-			log.Printf("[StreamProxy][%s] Connection closed. Duration: %v, C->S: %d bytes, S->C: %d bytes, Dropped: %d, Modified: %d",
-				connID[:8],
-				conn.Stats.Duration(),
-				conn.Stats.BytesClientServer,
-				conn.Stats.BytesServerClient,
-				conn.Stats.Dropped,
-				conn.Stats.Modified,
-			)
-		}
+		connLog.WithFields(logrus.Fields{
+			"duration":   conn.Stats.Duration(),
+			"client_ip":  conn.ClientAddr,
+			"server_ip":  conn.ServerAddr,
+			"c_to_s":     conn.Stats.BytesClientServer,
+			"s_to_c":     conn.Stats.BytesServerClient,
+			"dropped":    conn.Stats.Dropped,
+			"modified":   conn.Stats.Modified,
+		}).Info("Connection closed")
 	}()
 
-	// Set connection timeout if configured
 	if sp.config.ConnectionTimeout > 0 {
 		clientConn.SetDeadline(time.Now().Add(sp.config.ConnectionTimeout))
 	}
 
-	// Create a new conduit instance for this connection (clone the prototype)
 	serverConduit := sp.cloneConduit()
 
-	// Dial server using Trident conduit
 	dialCtx, dialCancel := context.WithTimeout(sp.ctx, 10*time.Second)
 	defer dialCancel()
 
 	if err := serverConduit.Dial(dialCtx); err != nil {
-		if sp.config.EnableLogging {
-			log.Printf("[StreamProxy][%s] Failed to dial server: %v", connID[:8], err)
-		}
+		connLog.Errorf("Failed to dial server: %v", err)
 		return
 	}
 
 	serverStream := serverConduit.Underlying()
 	conn.ServerAddr = serverStream.RemoteAddr()
-	conn.SetState(StateEstablished)
+	conn.State = core.StateEstablished
 
 	defer serverConduit.Close()
 
-	if sp.config.EnableLogging {
-		log.Printf("[StreamProxy][%s] Connection established: %s -> %s (stack: %v)",
-			connID[:8],
-			clientConn.RemoteAddr(),
-			serverStream.RemoteAddr(),
-			serverConduit.Stack(),
-		)
-	}
+	connLog.WithFields(logrus.Fields{
+		"client_ip":  clientConn.RemoteAddr(),
+		"server_ip":  serverStream.RemoteAddr(),
+		"stack":      serverConduit.Stack(),
+	}).Info("Connection established")
 
-	// Create context for this connection
+
 	connCtx, connCancel := context.WithCancel(sp.ctx)
 	defer connCancel()
 
-	// Bidirectional proxy
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Client -> Server
 	go func() {
 		defer wg.Done()
-		sp.proxyFromNetConn(connCtx, conn, clientConn, serverStream, ClientToServer)
+		sp.proxyFromNetConn(connCtx, conn, clientConn, serverStream, core.ClientToServer, connLog)
 	}()
 
-	// Server -> Client
 	go func() {
 		defer wg.Done()
-		sp.proxyFromStream(connCtx, conn, serverStream, serverStream, ServerToClient)
+		sp.proxyFromStream(connCtx, conn, serverStream, clientConn, core.ServerToClient, connLog)
 	}()
 
 	wg.Wait()
 }
 
-// proxyFromNetConn proxies from net.Conn to conduit.Stream
 func (sp *StreamProxy) proxyFromNetConn(
 	ctx context.Context,
-	conn *Connection,
+	conn *core.Connection,
 	src net.Conn,
 	dst conduit.Stream,
-	direction Direction,
+	direction core.Direction,
+	log *logrus.Entry,
 ) {
 	buffer := make([]byte, sp.config.BufferSize)
 
@@ -253,13 +230,11 @@ func (sp *StreamProxy) proxyFromNetConn(
 		default:
 		}
 
-		// Read from source
 		n, err := src.Read(buffer)
 		if n > 0 {
-			conn.UpdateActivity()
+			conn.LastActivity = time.Now()
 
-			// Process through interception engine
-			tc := &TrafficContext{
+			tc := &core.TrafficContext{
 				Conn:      conn,
 				Direction: direction,
 				Payload:   buffer[:n],
@@ -268,21 +243,15 @@ func (sp *StreamProxy) proxyFromNetConn(
 
 			result, procErr := sp.processor.Process(ctx, tc)
 			if procErr != nil {
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Processing error: %v", conn.ID[:8], procErr)
-				}
+				log.Errorf("Processing error: %v", procErr)
 				return
 			}
 
-			// Handle disconnect action
 			if result.Disconnect {
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Disconnect triggered by rule", conn.ID[:8])
-				}
+				log.Info("Disconnect triggered by rule")
 				return
 			}
 
-			// Handle delay action
 			if result.Delay > 0 {
 				select {
 				case <-time.After(result.Delay):
@@ -291,21 +260,16 @@ func (sp *StreamProxy) proxyFromNetConn(
 				}
 			}
 
-			// Handle drop action
 			if result.Drop {
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Packet dropped (%d bytes)", conn.ID[:8], n)
-				}
+				log.Infof("Packet dropped (%d bytes)", n)
 				continue
 			}
 
-			// Send to destination
 			payload := result.ModifiedPayload
 			if payload == nil {
 				payload = buffer[:n]
 			}
 
-			// Handle duplicate action
 			sendCount := 1
 			if result.Duplicate > 0 {
 				sendCount = result.Duplicate + 1
@@ -314,9 +278,7 @@ func (sp *StreamProxy) proxyFromNetConn(
 			for i := 0; i < sendCount; i++ {
 				sent, _, sendErr := dst.Send(ctx, payload, nil, nil)
 				if sendErr != nil {
-					if sp.config.EnableLogging {
-						log.Printf("[StreamProxy][%s] Send error: %v", conn.ID[:8], sendErr)
-					}
+					log.Errorf("Send error: %v", sendErr)
 					return
 				}
 
@@ -335,22 +297,20 @@ func (sp *StreamProxy) proxyFromNetConn(
 
 		if err != nil {
 			if err != io.EOF {
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Read error: %v", conn.ID[:8], err)
-				}
+				log.Errorf("Read error: %v", err)
 			}
 			return
 		}
 	}
 }
 
-// proxyFromStream proxies from conduit.Stream to conduit.Stream
 func (sp *StreamProxy) proxyFromStream(
 	ctx context.Context,
-	conn *Connection,
+	conn *core.Connection,
 	src conduit.Stream,
-	dst conduit.Stream,
-	direction Direction,
+	dst net.Conn,
+	direction core.Direction,
+	log *logrus.Entry,
 ) {
 	for {
 		select {
@@ -359,16 +319,13 @@ func (sp *StreamProxy) proxyFromStream(
 		default:
 		}
 
-		// Receive from source using Trident
 		chunk, err := src.Recv(ctx, &conduit.RecvOptions{
 			MaxBytes: sp.config.BufferSize,
 		})
 
 		if err != nil {
 			if err != io.EOF && err != context.Canceled {
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Recv error: %v", conn.ID[:8], err)
-				}
+				log.Errorf("Recv error: %v", err)
 			}
 			return
 		}
@@ -381,10 +338,9 @@ func (sp *StreamProxy) proxyFromStream(
 		n := len(payload)
 
 		if n > 0 {
-			conn.UpdateActivity()
+			conn.LastActivity = time.Now()
 
-			// Process through interception engine
-			tc := &TrafficContext{
+			tc := &core.TrafficContext{
 				Conn:      conn,
 				Direction: direction,
 				Payload:   payload,
@@ -395,22 +351,16 @@ func (sp *StreamProxy) proxyFromStream(
 			result, procErr := sp.processor.Process(ctx, tc)
 			if procErr != nil {
 				chunk.Data.Release()
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Processing error: %v", conn.ID[:8], procErr)
-				}
+				log.Errorf("Processing error: %v", procErr)
 				return
 			}
 
-			// Handle disconnect action
 			if result.Disconnect {
 				chunk.Data.Release()
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Disconnect triggered by rule", conn.ID[:8])
-				}
+				log.Info("Disconnect triggered by rule")
 				return
 			}
 
-			// Handle delay action
 			if result.Delay > 0 {
 				select {
 				case <-time.After(result.Delay):
@@ -420,33 +370,26 @@ func (sp *StreamProxy) proxyFromStream(
 				}
 			}
 
-			// Handle drop action
 			if result.Drop {
 				chunk.Data.Release()
-				if sp.config.EnableLogging {
-					log.Printf("[StreamProxy][%s] Packet dropped (%d bytes)", conn.ID[:8], n)
-				}
+				log.Infof("Packet dropped (%d bytes)", n)
 				continue
 			}
 
-			// Send to destination
 			sendPayload := result.ModifiedPayload
 			if sendPayload == nil {
 				sendPayload = payload
 			}
 
-			// Handle duplicate action
 			sendCount := 1
 			if result.Duplicate > 0 {
 				sendCount = result.Duplicate + 1
 			}
 
 			for i := 0; i < sendCount; i++ {
-				sent, _, sendErr := dst.Send(ctx, sendPayload, nil, nil)
+				sent, sendErr := dst.Write(sendPayload)
 				if sendErr != nil {
-					if sp.config.EnableLogging {
-						log.Printf("[StreamProxy][%s] Send error: %v", conn.ID[:8], sendErr)
-					}
+					log.Errorf("Write error: %v", sendErr)
 					chunk.Data.Release()
 					return
 				}
@@ -469,38 +412,28 @@ func (sp *StreamProxy) proxyFromStream(
 	}
 }
 
-// cloneConduit creates a new instance of the conduit for each connection
-// This is a simplified version - in practice, you'd need to recreate the conduit
-// with the same configuration but as a new instance
 func (sp *StreamProxy) cloneConduit() conduit.Conduit[conduit.Stream] {
-	// Note: This is a placeholder. In the actual implementation, you would
-	// need to reconstruct the conduit based on the original configuration.
-	// For now, we assume the conduit can be reused or cloned properly.
-	// This might require storing the conduit factory/builder instead.
 	return sp.conduit
 }
 
-// generateConnectionID generates a unique connection identifier
 func generateConnectionID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// GetConnection retrieves a connection by ID
-func (sp *StreamProxy) GetConnection(id string) (*Connection, bool) {
+func (sp *StreamProxy) GetConnection(id string) (*core.Connection, bool) {
 	val, ok := sp.connections.Load(id)
 	if !ok {
 		return nil, false
 	}
-	return val.(*Connection), true
+	return val.(*core.Connection), true
 }
 
-// GetAllConnections returns all active connections
-func (sp *StreamProxy) GetAllConnections() []*Connection {
-	var conns []*Connection
+func (sp *StreamProxy) GetAllConnections() []*core.Connection {
+	var conns []*core.Connection
 	sp.connections.Range(func(key, value interface{}) bool {
-		conns = append(conns, value.(*Connection))
+		conns = append(conns, value.(*core.Connection))
 		return true
 	})
 	return conns

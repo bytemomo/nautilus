@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/netip"
 	"time"
+
+	"bytemomo/siren/pkg/utils"
 )
 
 // Kind identifies the operational layer of a Conduit.
@@ -107,6 +109,11 @@ type Buffer interface {
 	Grow(n int) []byte
 	// Release returns the buffer to its pool for reuse.
 	Release()
+}
+
+// GetBuf retrieves a buffer from the pool with at least the given size.
+func GetBuf(size int) Buffer {
+	return utils.GetBuf(size)
 }
 
 // ------------------------------------------------------------------------------------
