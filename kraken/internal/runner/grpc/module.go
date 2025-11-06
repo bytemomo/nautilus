@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/contextkeys"
 
 	modulepb "bytemomo/kraken/pkg/modulepb"
 
@@ -24,7 +25,7 @@ func (c *GRPCModule) Supports(transport string) bool {
 }
 
 func (c *GRPCModule) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	grpcConfig := ctx.Value("grpc").(*domain.GRPCConfig)
+	grpcConfig := ctx.Value(contextkeys.GRPCConfig).(*domain.GRPCConfig)
 
 	endpoint := grpcConfig.Server
 	if endpoint == "" {

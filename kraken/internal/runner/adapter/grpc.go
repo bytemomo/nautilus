@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/contextkeys"
 	"bytemomo/kraken/internal/runner/grpc"
 )
 
@@ -35,6 +36,6 @@ func (a *GRPCModuleAdapter) Run(ctx context.Context, m *domain.Module, params ma
 		Server: m.ExecConfig.GRPC.ServerAddr,
 	}
 
-	grpcCtx := context.WithValue(ctx, "grpc", grpcConfig)
+	grpcCtx := context.WithValue(ctx, contextkeys.GRPCConfig, grpcConfig)
 	return a.module.Run(grpcCtx, params, t, timeout)
 }
