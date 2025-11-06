@@ -168,6 +168,25 @@ func TestUDP_RecvSend_Echo(t *testing.T) {
 	_ = c.Close()
 }
 
+func TestUDP_SendNilMessage(t *testing.T) {
+	addr, stop := startUDPEcho(t)
+	defer stop()
+
+	c := tr.UDP(addr)
+	ctx := mustCtx(t, 3*time.Second)
+	if err := c.Dial(ctx); err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	d := c.Underlying()
+
+	if _, _, err := d.Send(ctx, nil, nil); err == nil {
+		t.Fatalf("expected error when sending nil message")
+	} else if err.Error() != "udp: message is nil" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUDP_PersistentLoop(t *testing.T) {
 	addr, stop := startUDPEcho(t)
 	defer stop()
