@@ -8,6 +8,7 @@ import (
 
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/loader"
+	"bytemomo/kraken/internal/runner/contextkeys"
 	"bytemomo/kraken/internal/transport"
 	cnd "bytemomo/trident/conduit"
 	tridentlog "bytemomo/trident/conduit/logging"
@@ -46,7 +47,7 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 		Symbol:      m.ExecConfig.ABI.Symbol,
 	}
 
-	abiCtx := context.WithValue(ctx, "abi", abiConfig)
+	abiCtx := context.WithValue(ctx, contextkeys.ABIConfig, abiConfig)
 
 	var conduit interface{}
 	var closeConduit func()

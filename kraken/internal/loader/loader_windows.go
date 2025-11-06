@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/contextkeys"
 	cnd "bytemomo/trident/conduit"
 )
 
@@ -56,7 +57,7 @@ type nativeModule struct {
 }
 
 func (m *nativeModule) Run(ctx context.Context, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
-	abiConfig := ctx.Value("abi").(*domain.ABIConfig)
+	abiConfig := ctx.Value(contextkeys.ABIConfig).(*domain.ABIConfig)
 
 	symbol := abiConfig.Symbol
 	if symbol == "" {

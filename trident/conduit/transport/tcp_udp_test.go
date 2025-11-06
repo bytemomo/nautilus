@@ -15,9 +15,10 @@ import (
 // --- tiny test buffer (implements cond.Buffer) ---
 type testBuf struct{ b []byte }
 
-func (tb *testBuf) Bytes() []byte     { return tb.b }
-func (tb *testBuf) Grow(n int) []byte { tb.b = make([]byte, n); return tb.b }
-func (tb *testBuf) Release()          { /* no-op for tests */ }
+func (tb *testBuf) Bytes() []byte       { return tb.b }
+func (tb *testBuf) Grow(n int) []byte   { tb.b = make([]byte, n); return tb.b }
+func (tb *testBuf) Shrink(n int) []byte { tb.b = make([]byte, n); return tb.b }
+func (tb *testBuf) Release()            { /* no-op for tests */ }
 
 // --- TCP test ---
 func TestTCP_RecvSend_Echo(t *testing.T) {
@@ -166,6 +167,25 @@ func TestUDP_RecvSend_Echo(t *testing.T) {
 
 	_ = d.SetDeadline(time.Now().Add(50 * time.Millisecond))
 	_ = c.Close()
+}
+
+func TestUDP_SendNilMessage(t *testing.T) {
+	addr, stop := startUDPEcho(t)
+	defer stop()
+
+	c := tr.UDP(addr)
+	ctx := mustCtx(t, 3*time.Second)
+	if err := c.Dial(ctx); err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	d := c.Underlying()
+
+	if _, _, err := d.Send(ctx, nil, nil); err == nil {
+		t.Fatalf("expected error when sending nil message")
+	} else if err.Error() != "udp: message is nil" {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestUDP_PersistentLoop(t *testing.T) {

@@ -162,13 +162,17 @@ func (u *udpDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg
 }
 
 func (u *udpDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
+	if msg == nil {
+		return 0, conduit.Metadata{}, errors.New("udp: message is nil")
+	}
+
 	c, err := u.pkt()
 	if err != nil {
 		return 0, conduit.Metadata{}, err
 	}
 
 	var payload []byte
-	if msg != nil && msg.Data != nil {
+	if msg.Data != nil {
 		payload = msg.Data.Bytes()
 	} else {
 		payload = nil

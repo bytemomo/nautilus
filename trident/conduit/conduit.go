@@ -1,6 +1,7 @@
 package conduit
 
 import (
+	"bytemomo/trident/conduit/utils"
 	"context"
 	"net"
 	"net/netip"
@@ -105,8 +106,15 @@ type Buffer interface {
 	Bytes() []byte
 	// Grow increases the buffer's capacity by at least n bytes.
 	Grow(n int) []byte
+	// Shrink decreases the buffer's capacity by n bytes.
+	Shrink(n int) []byte
 	// Release returns the buffer to its pool for reuse.
 	Release()
+}
+
+// GetBuf retrieves a buffer from the pool with at least the given size.
+func GetBuf(size int) Buffer {
+	return utils.GetBuf(size)
 }
 
 // ------------------------------------------------------------------------------------

@@ -130,9 +130,10 @@ func TestTLS_DTLS_Parallel(t *testing.T) {
 // --- tiny test buffer (implements conduit.Buffer) ---
 type testBuf struct{ b []byte }
 
-func (tb *testBuf) Bytes() []byte     { return tb.b }
-func (tb *testBuf) Grow(n int) []byte { tb.b = make([]byte, n); return tb.b }
-func (tb *testBuf) Release()          {}
+func (tb *testBuf) Bytes() []byte       { return tb.b }
+func (tb *testBuf) Grow(n int) []byte   { tb.b = make([]byte, n); return tb.b }
+func (tb *testBuf) Shrink(n int) []byte { tb.b = make([]byte, n); return tb.b }
+func (tb *testBuf) Release()            {}
 
 // --- helpers ---
 func mustCtx(t *testing.T, dur time.Duration) context.Context {
@@ -228,7 +229,7 @@ func startDTLSEcho(t *testing.T) (addr string, stop func(), cfg *dtls.Config) {
 	}
 
 	cfg = &dtls.Config{
-		Certificates:          []tls.Certificate{cert},
+		Certificates:         []tls.Certificate{cert},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 		MTU:                  1200,
 	}

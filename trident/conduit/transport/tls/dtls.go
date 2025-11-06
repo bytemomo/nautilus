@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"bytemomo/trident/conduit"
-	"bytemomo/trident/conduit/utils"
 
 	"github.com/pion/dtls/v3"
 )
@@ -103,7 +102,7 @@ func (d *dtlsDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*co
 	if opts != nil && opts.MaxBytes > 0 {
 		size = opts.MaxBytes
 	}
-	buf := utils.GetBuf(size)
+	buf := conduit.GetBuf(size)
 	b := buf.Bytes()
 
 	start := time.Now()
@@ -112,7 +111,7 @@ func (d *dtlsDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*co
 	cancel()
 
 	if n > 0 {
-		buf.ShrinkTo(n)
+		buf.Shrink(n)
 	} else {
 		buf.Release()
 	}
@@ -293,7 +292,7 @@ func (d *datagramToPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	udpAddr, _ := addr.(*net.UDPAddr)
 	dst := addrToAddrPort(udpAddr)
 	msg := &conduit.DatagramMsg{
-		Data: utils.GetBuf(len(p)),
+		Data: conduit.GetBuf(len(p)),
 		Dst:  dst,
 	}
 
@@ -301,8 +300,8 @@ func (d *datagramToPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return n, err
 }
 
-func (d *datagramToPacketConn) Close() error                 { return nil }
-func (d *datagramToPacketConn) LocalAddr() net.Addr          { return addrPortToUDPAddr(d.D.LocalAddr()) }
+func (d *datagramToPacketConn) Close() error                  { return nil }
+func (d *datagramToPacketConn) LocalAddr() net.Addr           { return addrPortToUDPAddr(d.D.LocalAddr()) }
 func (d *datagramToPacketConn) SetDeadline(t time.Time) error { return d.D.SetDeadline(t) }
 func (d *datagramToPacketConn) SetReadDeadline(t time.Time) error {
 	d.mu.Lock()
