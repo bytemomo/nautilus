@@ -14,19 +14,12 @@ import (
 type Config struct {
 	Name         string                `yaml:"name" json:"name"`
 	Description  string                `yaml:"description,omitempty" json:"description,omitempty"`
-	Ebpf         *EbpfConfig           `yaml:"ebpf,omitempty" json:"ebpf,omitempty"`
 	Proxy        *ProxyConfig          `yaml:"proxy" json:"proxy"`
 	Rules        []*intercept.Rule     `yaml:"rules,omitempty" json:"rules,omitempty"`
 	Manipulators []*ManipulatorConfig  `yaml:"manipulators,omitempty" json:"manipulators,omitempty"`
 	Recording    *RecordingConfig      `yaml:"recording,omitempty" json:"recording,omitempty"`
 	Spoof        *SpoofConfig          `yaml:"spoof,omitempty" json:"spoof,omitempty"`
 	API          *APIConfig            `yaml:"api,omitempty" json:"api,omitempty"`
-}
-
-// EbpfConfig configures the eBPF interception.
-type EbpfConfig struct {
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
-	Interface string `yaml:"interface" json:"interface"`
 }
 
 // ProxyConfig configures the proxy behavior

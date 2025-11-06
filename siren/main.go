@@ -11,17 +11,18 @@ import (
 	"time"
 
 	"bytemomo/siren/config"
-	"bytemomo/siren/pkg/core"
-	"bytemomo/siren/pkg/ebpf"
+	"bytemomo/siren/intercept"
 	"bytemomo/siren/pkg/logger"
 	"bytemomo/siren/pkg/manipulator"
 	"bytemomo/siren/pkg/sirenerr"
+	"bytemomo/siren/proxy"
+	"bytemomo/siren/recorder"
 	"bytemomo/siren/spoof"
+	"bytemomo/trident/conduit/transport"
+	tlscond "bytemomo/trident/conduit/transport/tls"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
+	"github.com/pion/dtls/v3"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 )
 
 const version = "0.1.0"
@@ -83,10 +84,9 @@ func main() {
 		}
 	}
 
-	if cfg.Ebpf != nil && cfg.Ebpf.Enabled {
-		ebpfManager, err := ebpf.NewManager(cfg.Ebpf.Interface, log.WithField("component", "ebpf"))
-		if err != nil {
-			log.Fatalf("Failed to create eBPF manager: %v", err)
+	go func() {
+		if err := runProxy(ctx, cfg, log); err != nil {
+			log.Fatalf("Proxy error: %v", err)
 		}
 		if err := ebpfManager.Start(); err != nil {
 			log.Fatalf("Failed to start eBPF manager: %v", err)
@@ -112,100 +112,6 @@ func main() {
 	cancel()
 
 	time.Sleep(2 * time.Second)
-}
-
-func processPacket(ctx context.Context, packet gopacket.Packet, manipulators []*config.ManipulatorConfig, ifaceName string) error {
-	op := "main.processPacket"
-	var direction core.Direction
-
-	ipLayer := packet.Layer(layers.LayerTypeIPv4)
-	if ipLayer == nil {
-		return nil
-	}
-	ip, _ := ipLayer.(*layers.IPv4)
-
-	if ip.DstIP.IsLoopback() {
-		direction = core.ClientToServer
-	} else {
-		direction = core.ServerToClient
-	}
-
-	var payload []byte
-	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-		tcp, _ := tcpLayer.(*layers.TCP)
-		payload = tcp.Payload
-	} else if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
-		udp, _ := udpLayer.(*layers.UDP)
-		payload = udp.Payload
-	} else {
-		return nil
-	}
-
-	tc := &core.TrafficContext{
-		Direction: direction,
-		Payload:   payload,
-		Size:      len(payload),
-	}
-	pr := &core.ProcessingResult{
-		ModifiedPayload: payload,
-	}
-
-	for _, mcfg := range manipulators {
-		m, err := manipulator.Get(mcfg.Name)
-		if err != nil {
-			return sirenerr.E(op, fmt.Sprintf("failed to get manipulator: %s", mcfg.Name), 0, err)
-		}
-		if err := m.Configure(mcfg.Params); err != nil {
-			return sirenerr.E(op, fmt.Sprintf("failed to configure manipulator: %s", mcfg.Name), 0, err)
-		}
-		pr, err = m.Process(ctx, tc, pr)
-		if err != nil {
-			return sirenerr.E(op, fmt.Sprintf("failed to process manipulator: %s", mcfg.Name), 0, err)
-		}
-	}
-
-	if pr.ModifiedPayload != nil {
-		if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-			tcp, _ := tcpLayer.(*layers.TCP)
-			tcp.Payload = pr.ModifiedPayload
-		} else if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
-			udp, _ := udpLayer.(*layers.UDP)
-			udp.Payload = pr.ModifiedPayload
-		}
-
-		buffer := gopacket.NewSerializeBuffer()
-		opts := gopacket.SerializeOptions{
-			FixLengths:       true,
-			ComputeChecksums: true,
-		}
-		if err := gopacket.SerializePacket(buffer, opts, packet); err != nil {
-			return sirenerr.E(op, "failed to serialize packet", 0, err)
-		}
-
-		iface, err := net.InterfaceByName(ifaceName)
-		if err != nil {
-			return sirenerr.E(op, "failed to get interface", 0, err)
-		}
-
-		fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
-		if err != nil {
-			return sirenerr.E(op, "failed to create raw socket", 0, err)
-		}
-		defer unix.Close(fd)
-
-		addr := unix.SockaddrLinklayer{
-			Ifindex: iface.Index,
-		}
-		if err := unix.Sendto(fd, buffer.Bytes(), 0, &addr); err != nil {
-			return sirenerr.E(op, "failed to send packet", 0, err)
-		}
-	}
-
-	return nil
-}
-
-func htons(i uint16) uint16 {
-	return (i<<8)&0xff00 | i>>8
 }
 
 func startARPSpoof(ctx context.Context, cfg *config.ARPSpoofConfig, log *logrus.Logger) (*spoof.ARPSpoofer, error) {
@@ -264,6 +170,250 @@ func startDNSSpoof(ctx context.Context, cfg *config.DNSSpoofConfig, log *logrus.
 
 	log.Infof("[DNS Spoof] Active on %s, %d overrides configured", cfg.Listen, len(cfg.Overrides))
 	return spoofer, nil
+}
+
+func runProxy(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
+	op := "main.runProxy"
+	var engine *intercept.Engine
+	var err error
+
+	if len(cfg.Rules) > 0 {
+		ruleSet := &intercept.RuleSet{
+			Name:        cfg.Name,
+			Description: cfg.Description,
+			Rules:       cfg.Rules,
+		}
+
+		engine, err = intercept.NewEngine(ruleSet, &intercept.DefaultLogger{})
+		if err != nil {
+			return sirenerr.E(op, "failed to create interception engine", 0, err)
+		}
+		log.Infof("Loaded %d interception rules", len(cfg.Rules))
+	}
+
+	var rec *recorder.Recorder
+	if cfg.Recording != nil && cfg.Recording.Enabled {
+		recConfig := &recorder.RecorderConfig{
+			OutputPath:     cfg.Recording.Output,
+			Format:         cfg.Recording.Format,
+			BufferSize:     1000,
+			FlushInterval:  cfg.Recording.GetFlushInterval(),
+			IncludePayload: cfg.Recording.IncludePayload,
+			MaxFileSize:    cfg.Recording.GetMaxFileSize(),
+			Compress:       false,
+		}
+
+		rec, err = recorder.NewRecorder(recConfig)
+		if err != nil {
+			return sirenerr.E(op, "failed to create recorder", 0, err)
+		}
+
+		if err := rec.Start(); err != nil {
+			return sirenerr.E(op, "failed to start recorder", 0, err)
+		}
+		defer rec.Stop()
+
+		log.Infof("Recording enabled: %s (format: %s)", cfg.Recording.Output, cfg.Recording.Format)
+	}
+
+	var manipulators []manipulator.Manipulator
+	if len(cfg.Manipulators) > 0 {
+		for _, mcfg := range cfg.Manipulators {
+			m, err := manipulator.Get(mcfg.Name)
+			if err != nil {
+				return sirenerr.E(op, fmt.Sprintf("failed to get manipulator: %s", mcfg.Name), 0, err)
+			}
+			if err := m.Configure(mcfg.Params); err != nil {
+				return sirenerr.E(op, fmt.Sprintf("failed to configure manipulator: %s", mcfg.Name), 0, err)
+			}
+			manipulators = append(manipulators, m)
+		}
+		log.Infof("Loaded %d manipulators", len(manipulators))
+	}
+
+	proxyLogger := log.WithField("component", "proxy")
+
+	switch cfg.Proxy.Protocol {
+	case "tcp":
+		return runTCPProxy(ctx, cfg, engine, rec, proxyLogger, manipulators)
+	case "tls":
+		return runTLSProxy(ctx, cfg, engine, rec, proxyLogger, manipulators)
+	case "udp":
+		return runUDPProxy(ctx, cfg, engine, rec, proxyLogger, manipulators)
+	case "dtls":
+		return runDTLSProxy(ctx, cfg, engine, rec, proxyLogger, manipulators)
+	default:
+		return sirenerr.E(op, fmt.Sprintf("unsupported protocol: %s", cfg.Proxy.Protocol), 0, nil)
+	}
+}
+
+func runTCPProxy(ctx context.Context, cfg *config.Config, engine *intercept.Engine, rec *recorder.Recorder, log *logrus.Entry, manipulators []manipulator.Manipulator) error {
+	op := "main.runTCPProxy"
+	listener, err := net.Listen("tcp", cfg.Proxy.Listen)
+	if err != nil {
+		return sirenerr.E(op, "failed to create listener", 0, err)
+	}
+	defer listener.Close()
+
+	log.Infof("TCP proxy listening on %s -> %s", cfg.Proxy.Listen, cfg.Proxy.Target)
+
+	serverConduit := transport.TCP(cfg.Proxy.Target)
+
+	proxyConfig := &proxy.ProxyConfig{
+		ListenAddr:        cfg.Proxy.Listen,
+		TargetAddr:        cfg.Proxy.Target,
+		MaxConnections:    cfg.Proxy.MaxConnections,
+		ConnectionTimeout: cfg.Proxy.GetConnectionTimeout(),
+		BufferSize:        cfg.Proxy.BufferSize,
+		EnableRecording:   cfg.Recording != nil && cfg.Recording.Enabled,
+	}
+
+	streamProxy := proxy.NewStreamProxy(proxyConfig, listener, serverConduit, engine, rec, log, manipulators)
+
+	if err := streamProxy.Start(ctx); err != nil {
+		return sirenerr.E(op, "failed to start proxy", 0, err)
+	}
+
+	<-ctx.Done()
+	return streamProxy.Stop()
+}
+
+func runTLSProxy(ctx context.Context, cfg *config.Config, engine *intercept.Engine, rec *recorder.Recorder, log *logrus.Entry, manipulators []manipulator.Manipulator) error {
+	op := "main.runTLSProxy"
+	if cfg.Proxy.TLS == nil {
+		return sirenerr.E(op, "TLS configuration required for TLS proxy", 0, nil)
+	}
+
+	var serverTLSConfig *tls.Config
+	if cfg.Proxy.TLS.CertFile != "" && cfg.Proxy.TLS.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.Proxy.TLS.CertFile, cfg.Proxy.TLS.KeyFile)
+		if err != nil {
+			return sirenerr.E(op, "failed to load server certificate", 0, err)
+		}
+		serverTLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+	} else {
+		return sirenerr.E(op, "server certificate and key required for TLS interception", 0, nil)
+	}
+
+	listener, err := tls.Listen("tcp", cfg.Proxy.Listen, serverTLSConfig)
+	if err != nil {
+		return sirenerr.E(op, "failed to create TLS listener", 0, err)
+	}
+	defer listener.Close()
+
+	log.Infof("TLS proxy listening on %s -> %s", cfg.Proxy.Listen, cfg.Proxy.Target)
+
+	tcpConduit := transport.TCP(cfg.Proxy.Target)
+	clientTLSConfig := &tls.Config{InsecureSkipVerify: cfg.Proxy.TLS.SkipVerify}
+	if cfg.Proxy.TLS.ServerName != "" {
+		clientTLSConfig.ServerName = cfg.Proxy.TLS.ServerName
+	}
+	tlsConduit := tlscond.NewTlsClient(tcpConduit, clientTLSConfig)
+
+	proxyConfig := &proxy.ProxyConfig{
+		ListenAddr:        cfg.Proxy.Listen,
+		TargetAddr:        cfg.Proxy.Target,
+		MaxConnections:    cfg.Proxy.MaxConnections,
+		ConnectionTimeout: cfg.Proxy.GetConnectionTimeout(),
+		BufferSize:        cfg.Proxy.BufferSize,
+		EnableRecording:   cfg.Recording != nil && cfg.Recording.Enabled,
+	}
+
+	streamProxy := proxy.NewStreamProxy(proxyConfig, listener, tlsConduit, engine, rec, log, manipulators)
+
+	if err := streamProxy.Start(ctx); err != nil {
+		return sirenerr.E(op, "failed to start proxy", 0, err)
+	}
+
+	<-ctx.Done()
+	return streamProxy.Stop()
+}
+
+func runUDPProxy(ctx context.Context, cfg *config.Config, engine *intercept.Engine, rec *recorder.Recorder, log *logrus.Entry, manipulators []manipulator.Manipulator) error {
+	op := "main.runUDPProxy"
+	addr, err := net.ResolveUDPAddr("udp", cfg.Proxy.Listen)
+	if err != nil {
+		return sirenerr.E(op, "failed to resolve listen address", 0, err)
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return sirenerr.E(op, "failed to create UDP listener", 0, err)
+	}
+	defer conn.Close()
+
+	log.Infof("UDP proxy listening on %s -> %s", cfg.Proxy.Listen, cfg.Proxy.Target)
+
+	serverConduit := transport.UDP(cfg.Proxy.Target)
+
+	proxyConfig := &proxy.ProxyConfig{
+		ListenAddr:        cfg.Proxy.Listen,
+		TargetAddr:        cfg.Proxy.Target,
+		MaxConnections:    cfg.Proxy.MaxConnections,
+		ConnectionTimeout: cfg.Proxy.GetConnectionTimeout(),
+		BufferSize:        cfg.Proxy.BufferSize,
+		EnableRecording:   cfg.Recording != nil && cfg.Recording.Enabled,
+	}
+
+	datagramProxy := proxy.NewDatagramProxy(proxyConfig, conn, serverConduit, engine, rec, log, manipulators)
+
+	if err := datagramProxy.Start(ctx); err != nil {
+		return sirenerr.E(op, "failed to start proxy", 0, err)
+	}
+
+	<-ctx.Done()
+	return datagramProxy.Stop()
+}
+
+func runDTLSProxy(ctx context.Context, cfg *config.Config, engine *intercept.Engine, rec *recorder.Recorder, log *logrus.Entry, manipulators []manipulator.Manipulator) error {
+	op := "main.runDTLSProxy"
+	if cfg.Proxy.DTLS == nil {
+		return sirenerr.E(op, "DTLS configuration required for DTLS proxy", 0, nil)
+	}
+
+	cert, err := tls.LoadX509KeyPair(cfg.Proxy.DTLS.CertFile, cfg.Proxy.DTLS.KeyFile)
+	if err != nil {
+		return sirenerr.E(op, "failed to load server certificate", 0, err)
+	}
+
+	dtlsConfig := &dtls.Config{
+		Certificates:         []tls.Certificate{cert},
+		InsecureSkipVerify:   cfg.Proxy.DTLS.SkipVerify,
+		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
+	}
+
+	addr, err := net.ResolveUDPAddr("udp", cfg.Proxy.Listen)
+	if err != nil {
+		return sirenerr.E(op, "failed to resolve listen address", 0, err)
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return sirenerr.E(op, "failed to create dtls listener", 0, err)
+	}
+
+	log.Infof("DTLS proxy listening on %s -> %s", cfg.Proxy.Listen, cfg.Proxy.Target)
+
+	udpConduit := transport.UDP(cfg.Proxy.Target)
+	dtlsConduit := tlscond.NewDtlsClient(udpConduit, dtlsConfig)
+
+	proxyConfig := &proxy.ProxyConfig{
+		ListenAddr:        cfg.Proxy.Listen,
+		TargetAddr:        cfg.Proxy.Target,
+		MaxConnections:    cfg.Proxy.MaxConnections,
+		ConnectionTimeout: cfg.Proxy.GetConnectionTimeout(),
+		BufferSize:        cfg.Proxy.BufferSize,
+		EnableRecording:   cfg.Recording != nil && cfg.Recording.Enabled,
+	}
+
+	datagramProxy := proxy.NewDatagramProxy(proxyConfig, conn, dtlsConduit, engine, rec, log, manipulators)
+
+	if err := datagramProxy.Start(ctx); err != nil {
+		return sirenerr.E(op, "failed to start proxy", 0, err)
+	}
+
+	<-ctx.Done()
+	return datagramProxy.Stop()
 }
 
 func printBanner(cfg *config.Config) {

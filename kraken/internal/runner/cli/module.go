@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytemomo/kraken/internal/domain"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +9,9 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/contextkeys"
 )
 
 type CLIModule struct {
@@ -38,7 +40,7 @@ func (c *CLIModule) Run(ctx context.Context, params map[string]any, t domain.Hos
 
 	var result domain.RunResult
 
-	config, ok := ctx.Value("cli").(*domain.CLIConfig)
+	config, ok := ctx.Value(contextkeys.CLIConfig).(*domain.CLIConfig)
 	if !ok {
 		return result, errors.New("cli key not found in yaml")
 	}
@@ -49,8 +51,8 @@ func (c *CLIModule) Run(ctx context.Context, params map[string]any, t domain.Hos
 		"--port", fmt.Sprintf("%d", t.Port),
 	}
 
-	if out_dir, ok := ctx.Value("out_dir").(*string); ok {
-		args = append(args, "--output-dir", *out_dir)
+	if outDir, ok := ctx.Value(contextkeys.OutDir).(*string); ok {
+		args = append(args, "--output-dir", *outDir)
 	}
 
 	for k, v := range params {

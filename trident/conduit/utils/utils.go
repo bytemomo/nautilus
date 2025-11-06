@@ -115,6 +115,16 @@ func (p *PooledBuf) Grow(n int) []byte {
 	return p.B
 }
 
+func (p *PooledBuf) Shrink(n int) []byte {
+	if cap(p.B) > n {
+		p.B = p.B[:n]
+	} else {
+		p.B = make([]byte, n)
+		p.Cap = n
+	}
+	return p.B
+}
+
 // ShrinkTo reduces the buffer's length to `n`, without reallocating.
 func (p *PooledBuf) ShrinkTo(n int) { p.B = p.B[:n] }
 

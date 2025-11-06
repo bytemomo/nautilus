@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bytemomo/trident/conduit"
+
 	"github.com/sirupsen/logrus"
 )
 

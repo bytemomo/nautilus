@@ -107,8 +107,8 @@ func (t *TcpConduit) Close() error {
 	return c.Close()
 }
 
-func (t *TcpConduit) Kind() conduit.Kind           { return conduit.KindStream }
-func (t *TcpConduit) Stack() []string           { return []string{"tcp"} }
+func (t *TcpConduit) Kind() conduit.Kind         { return conduit.KindStream }
+func (t *TcpConduit) Stack() []string            { return []string{"tcp"} }
 func (t *TcpConduit) Underlying() conduit.Stream { return (*tcpStream)(t) }
 
 // =====================================================================================

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/contextkeys"
 
 	"github.com/sirupsen/logrus"
 )
@@ -38,7 +39,7 @@ func (r *Runner) Execute(ctx context.Context, campaign domain.Campaign, classifi
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem }()
-			res := r.runForTarget(log, campaign, ct)
+			res := r.runForTarget(ctx, log, campaign, ct)
 			if err := r.Store.Save(res.Target, res); err != nil {
 				log.WithFields(logrus.Fields{
 					"target": res.Target.Host + ":" + strconv.Itoa(int(res.Target.Port)),
@@ -58,7 +59,7 @@ func (r *Runner) Execute(ctx context.Context, campaign domain.Campaign, classifi
 	return all, nil
 }
 
-func (r *Runner) runForTarget(log *logrus.Entry, camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
+func (r *Runner) runForTarget(ctx context.Context, log *logrus.Entry, camp domain.Campaign, ct domain.ClassifiedTarget) domain.RunResult {
 	result := domain.RunResult{Target: ct.Target}
 	plan := filterStepsByTags(camp.Tasks, ct.Tags)
 
@@ -69,14 +70,19 @@ func (r *Runner) runForTarget(log *logrus.Entry, camp domain.Campaign, ct domain
 	}).Info("Running for target")
 
 	for _, mod := range plan {
-		rr := r.runModuleStep(log, mod, ct.Target)
+		if err := ctx.Err(); err != nil {
+			log.WithError(err).Info("Context cancelled, stopping execution for target")
+			break
+		}
+
+		rr := r.runModuleStep(ctx, log, mod, ct.Target)
 		result.Findings = append(result.Findings, rr.Findings...)
 		result.Logs = append(result.Logs, rr.Logs...)
 	}
 	return result
 }
 
-func (r *Runner) runModuleStep(log *logrus.Entry, mod *domain.Module, target domain.HostPort) domain.RunResult {
+func (r *Runner) runModuleStep(ctx context.Context, log *logrus.Entry, mod *domain.Module, target domain.HostPort) domain.RunResult {
 	result := domain.RunResult{Target: target}
 
 	l := log.WithFields(logrus.Fields{
@@ -99,7 +105,7 @@ func (r *Runner) runModuleStep(log *logrus.Entry, mod *domain.Module, target dom
 		return result
 	}
 
-	ctx := context.WithValue(context.Background(), "out_dir", &r.Config.ResultDirectory)
+	ctx = context.WithValue(ctx, contextkeys.OutDir, &r.Config.ResultDirectory)
 	rr, err := exec.Run(ctx, mod, mod.ExecConfig.Params, target, mod.MaxDuration)
 
 	if err != nil {
