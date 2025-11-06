@@ -6,6 +6,7 @@ import (
 
 	"bytemomo/kraken/internal/domain"
 	"bytemomo/kraken/internal/runner/cli"
+	"bytemomo/kraken/internal/runner/contextkeys"
 )
 
 // CLIModuleAdapter is a runner for CLI modules.
@@ -35,6 +36,6 @@ func (a *CLIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 		Command:    m.ExecConfig.CLI.Command,
 	}
 
-	cliCtx := context.WithValue(ctx, "cli", cliConfig)
+	cliCtx := context.WithValue(ctx, contextkeys.CLIConfig, cliConfig)
 	return a.module.Run(cliCtx, params, t, timeout)
 }
