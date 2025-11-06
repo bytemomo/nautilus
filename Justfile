@@ -17,5 +17,5 @@ kraken_build_modules:
 
 
 siren_build:
-    cd siren/ebpf && go generate
+    go generate siren/ebpf
     go build -o dist/siren ./siren/main.go

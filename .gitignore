@@ -51,6 +51,7 @@
 !siren/**/*.c
 !siren/**/*.go
 !siren/**/*.yaml
+!siren/ebpf/program/
 
 # Trident
 !trident/
