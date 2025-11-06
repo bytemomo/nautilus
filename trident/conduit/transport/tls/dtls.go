@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"bytemomo/siren/pkg/utils"
 	"bytemomo/trident/conduit"
 
 	"github.com/pion/dtls/v3"

@@ -6,8 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"time"
-
-	"bytemomo/siren/pkg/utils"
 )
 
 // Kind identifies the operational layer of a Conduit.
