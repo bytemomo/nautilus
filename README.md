@@ -148,3 +148,40 @@ What modules MUST provide is instead a high-level description of what the module
 does, the permissions required, and also a warning if it can create distruption.
 This type of documentation will be provided as a `README.md` inside the specific
 module folder.
+
+## Testing
+
+Ideally each agents has integrations and unit testing.
+
+## trident
+
+Trident library has tests for each underlying type of conduit, the test for tcp,
+tls, udp and dtls can be run as user.
+
+To run the tests simply execute the following:
+
+```sh
+go test ./trident/...
+```
+
+The tests for the network and ip layer needs `sudo` or at least `cap_net_raw`
+and `cap_net_admin+ep` permissions. For now these tests are done manually, the
+future idea, to make everything more easy and smooth to use is to run them in
+a safe environment like an isolated namespace or a container with the right
+capabilities.
+
+## kraken
+
+As with **trident** the tests for kraken can be run with the following:
+
+```go
+go test ./kraken/...
+```
+
+> [!WARNING]
+> The problem with kraken tests is that they are not nearly as completed.
+> Also kraken should
+
+## siren
+
+% TODO
