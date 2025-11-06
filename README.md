@@ -118,9 +118,9 @@ type Conduit[V any] interface {
 
 ### Project specific documentation
 
-- [Kraken docs](docs/kraken/README.md) --- Campaign orchestration, module APIs, attack trees, and usage.
-- [Trident docs](docs/trident/README.md) --- Transport abstraction and conduit system.
-- [Siren docs](docs/siren/README.md) --- Man-in-the-Middle proxy for client testing and fault injection.
+- [Kraken docs](docs/kraken/documentation.md) --- Campaign orchestration, module APIs, attack trees, and usage.
+- [Trident docs](docs/trident/documentation.md) --- Transport abstraction and conduit system.
+- [Siren docs](docs/siren/documentation.md) --- Man-in-the-Middle proxy for client testing and fault injection.
 
 ### Code specific documentation
 

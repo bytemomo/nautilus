@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"bytemomo/siren/pkg/utils"
 	"bytemomo/trident/conduit"
 
 	"github.com/pion/dtls/v3"
@@ -112,7 +111,7 @@ func (d *dtlsDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*co
 	cancel()
 
 	if n > 0 {
-		buf.ShrinkTo(n)
+		buf.Shrink(n)
 	} else {
 		buf.Release()
 	}
@@ -301,8 +300,8 @@ func (d *datagramToPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return n, err
 }
 
-func (d *datagramToPacketConn) Close() error                 { return nil }
-func (d *datagramToPacketConn) LocalAddr() net.Addr          { return addrPortToUDPAddr(d.D.LocalAddr()) }
+func (d *datagramToPacketConn) Close() error                  { return nil }
+func (d *datagramToPacketConn) LocalAddr() net.Addr           { return addrPortToUDPAddr(d.D.LocalAddr()) }
 func (d *datagramToPacketConn) SetDeadline(t time.Time) error { return d.D.SetDeadline(t) }
 func (d *datagramToPacketConn) SetReadDeadline(t time.Time) error {
 	d.mu.Lock()

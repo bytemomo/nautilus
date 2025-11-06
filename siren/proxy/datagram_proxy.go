@@ -38,14 +38,14 @@ type DatagramProxy struct {
 
 // DatagramSession represents a UDP "session" (pseudo-connection)
 type DatagramSession struct {
-	ID            string
-	ClientAddr    net.Addr
-	ServerAddr    net.Addr
-	Stats         *core.ConnectionStats
-	StartTime     time.Time
-	LastActivity  time.Time
-	State         core.ConnectionState
-	mu            sync.RWMutex
+	ID           string
+	ClientAddr   net.Addr
+	ServerAddr   net.Addr
+	Stats        *core.ConnectionStats
+	StartTime    time.Time
+	LastActivity time.Time
+	State        core.ConnectionState
+	mu           sync.RWMutex
 }
 
 // NewDatagramProxy creates a new datagram-based proxy
@@ -388,8 +388,8 @@ func (dp *DatagramProxy) getOrCreateSession(clientAddr net.Addr) *DatagramSessio
 
 	dp.stats.AddConnection()
 	dp.log.WithFields(logrus.Fields{
-		"sessionID":  sessionID[:8],
-		"client_ip":  clientAddr,
+		"sessionID": sessionID[:8],
+		"client_ip": clientAddr,
 	}).Info("New session")
 
 	return session
@@ -403,10 +403,10 @@ func (dp *DatagramProxy) removeSession(sessionID string) {
 			dp.stats.RemoveConnection()
 
 			dp.log.WithFields(logrus.Fields{
-				"sessionID":  sessionID[:8],
-				"duration":   time.Since(session.StartTime),
-				"c_to_s":     session.Stats.BytesClientServer,
-				"s_to_c":     session.Stats.BytesServerClient,
+				"sessionID": sessionID[:8],
+				"duration":  time.Since(session.StartTime),
+				"c_to_s":    session.Stats.BytesClientServer,
+				"s_to_c":    session.Stats.BytesServerClient,
 			}).Info("Session closed")
 			return false
 		}

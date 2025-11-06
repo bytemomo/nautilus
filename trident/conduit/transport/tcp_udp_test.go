@@ -15,9 +15,10 @@ import (
 // --- tiny test buffer (implements cond.Buffer) ---
 type testBuf struct{ b []byte }
 
-func (tb *testBuf) Bytes() []byte     { return tb.b }
-func (tb *testBuf) Grow(n int) []byte { tb.b = make([]byte, n); return tb.b }
-func (tb *testBuf) Release()          { /* no-op for tests */ }
+func (tb *testBuf) Bytes() []byte       { return tb.b }
+func (tb *testBuf) Grow(n int) []byte   { tb.b = make([]byte, n); return tb.b }
+func (tb *testBuf) Shrink(n int) []byte { tb.b = make([]byte, n); return tb.b }
+func (tb *testBuf) Release()            { /* no-op for tests */ }
 
 // --- TCP test ---
 func TestTCP_RecvSend_Echo(t *testing.T) {
