@@ -23,6 +23,15 @@ Future:
 - **eBPF Support**: Instead of relying on trident conduits use eBPF to make it faster
   and really transparent, it will use XDP and eBP to enhance the Intercept engine.
 
+    > [!WARNING]
+    > In the case this approach is taken the siren agent will be able to be installed
+    > only on Linux (kernel version >= 3.18) machines.
+
+    > [!NOTE]
+    > On the future will be compatible also on windows
+    > when [ebpf for windows](github.com/microsoft/ebpf-for-windows) comes out of
+    > alpha stage.
+
 ## Architecture
 
 ```text
