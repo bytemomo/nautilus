@@ -7,91 +7,18 @@ import (
 	"time"
 
 	"bytemomo/siren/intercept"
+	"bytemomo/siren/pkg/core"
+	"bytemomo/siren/pkg/manipulator"
+	"bytemomo/siren/pkg/sirenerr"
 	"bytemomo/siren/recorder"
-	"bytemomo/trident/conduit"
+
+	"github.com/sirupsen/logrus"
 )
-
-// Direction indicates traffic flow direction
-type Direction int
-
-const (
-	ClientToServer Direction = iota
-	ServerToClient
-)
-
-func (d Direction) String() string {
-	switch d {
-	case ClientToServer:
-		return "client->server"
-	case ServerToClient:
-		return "server->client"
-	default:
-		return "unknown"
-	}
-}
-
-// ConnectionStats tracks statistics for a proxied connection
-type ConnectionStats struct {
-	mu sync.RWMutex
-
-	StartTime         time.Time
-	EndTime           time.Time
-	BytesClientServer uint64
-	BytesServerClient uint64
-	PacketsClientServer uint64
-	PacketsServerClient uint64
-	Dropped           uint64
-	Modified          uint64
-}
-
-func (s *ConnectionStats) RecordBytes(dir Direction, n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if dir == ClientToServer {
-		s.BytesClientServer += uint64(n)
-		s.PacketsClientServer++
-	} else {
-		s.BytesServerClient += uint64(n)
-		s.PacketsServerClient++
-	}
-}
-
-func (s *ConnectionStats) RecordDrop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Dropped++
-}
-
-func (s *ConnectionStats) RecordModify() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Modified++
-}
-
-func (s *ConnectionStats) Duration() time.Duration {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.EndTime.IsZero() {
-		return time.Since(s.StartTime)
-	}
-	return s.EndTime.Sub(s.StartTime)
-}
-
-func (s *ConnectionStats) TotalBytes() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.BytesClientServer + s.BytesServerClient
-}
 
 // Proxy is the common interface for all proxy types
 type Proxy interface {
-	// Start begins accepting connections and proxying traffic
 	Start(ctx context.Context) error
-
-	// Stop gracefully shuts down the proxy
 	Stop() error
-
-	// Stats returns current proxy statistics
 	Stats() *ProxyStats
 }
 
@@ -167,7 +94,6 @@ type ProxyConfig struct {
 	ConnectionTimeout time.Duration
 	BufferSize        int
 	EnableRecording   bool
-	EnableLogging     bool
 }
 
 // DefaultProxyConfig returns default configuration
@@ -177,127 +103,49 @@ func DefaultProxyConfig() *ProxyConfig {
 		ConnectionTimeout: 30 * time.Second,
 		BufferSize:        32 * 1024, // 32KB
 		EnableRecording:   false,
-		EnableLogging:     true,
 	}
 }
 
-// Connection represents a proxied connection
-type Connection struct {
-	ID            string
-	ClientAddr    net.Addr
-	ServerAddr    net.Addr
-	Stats         *ConnectionStats
-	StartTime     time.Time
-	LastActivity  time.Time
-	Protocol      string
-	State         ConnectionState
-	mu            sync.RWMutex
-}
-
-type ConnectionState int
-
-const (
-	StateConnecting ConnectionState = iota
-	StateEstablished
-	StateClosing
-	StateClosed
-)
-
-func (s ConnectionState) String() string {
-	switch s {
-	case StateConnecting:
-		return "connecting"
-	case StateEstablished:
-		return "established"
-	case StateClosing:
-		return "closing"
-	case StateClosed:
-		return "closed"
-	default:
-		return "unknown"
-	}
-}
-
-func NewConnection(id string, clientAddr, serverAddr net.Addr, protocol string) *Connection {
+func NewConnection(id string, clientAddr, serverAddr net.Addr, protocol string) *core.Connection {
 	now := time.Now()
-	return &Connection{
+	return &core.Connection{
 		ID:           id,
 		ClientAddr:   clientAddr,
 		ServerAddr:   serverAddr,
-		Stats:        &ConnectionStats{StartTime: now},
+		Stats:        &core.ConnectionStats{StartTime: now},
 		StartTime:    now,
 		LastActivity: now,
 		Protocol:     protocol,
-		State:        StateConnecting,
+		State:        core.StateConnecting,
 	}
-}
-
-func (c *Connection) SetState(state ConnectionState) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.State = state
-}
-
-func (c *Connection) GetState() ConnectionState {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.State
-}
-
-func (c *Connection) UpdateActivity() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.LastActivity = time.Now()
-}
-
-func (c *Connection) IdleDuration() time.Duration {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return time.Since(c.LastActivity)
-}
-
-// TrafficContext provides context for traffic interception
-type TrafficContext struct {
-	Conn      *Connection
-	Direction Direction
-	Payload   []byte
-	Size      int
-	Metadata  *conduit.Metadata
-}
-
-// ProcessingResult contains the result of traffic processing
-type ProcessingResult struct {
-	Action         intercept.ActionType
-	ModifiedPayload []byte
-	Delay          time.Duration
-	Drop           bool
-	Disconnect     bool
-	Duplicate      int
-	Metadata       map[string]interface{}
 }
 
 // TrafficProcessor processes traffic based on rules
 type TrafficProcessor struct {
-	engine   *intercept.Engine
-	recorder *recorder.Recorder
-	stats    *ProxyStats
+	engine       *intercept.Engine
+	recorder     *recorder.Recorder
+	stats        *ProxyStats
+	log          *logrus.Entry
+	manipulators []manipulator.Manipulator
 }
 
-func NewTrafficProcessor(engine *intercept.Engine, rec *recorder.Recorder, stats *ProxyStats) *TrafficProcessor {
+func NewTrafficProcessor(engine *intercept.Engine, rec *recorder.Recorder, stats *ProxyStats, log *logrus.Entry, manipulators []manipulator.Manipulator) *TrafficProcessor {
 	return &TrafficProcessor{
-		engine:   engine,
-		recorder: rec,
-		stats:    stats,
+		engine:       engine,
+		recorder:     rec,
+		stats:        stats,
+		log:          log,
+		manipulators: manipulators,
 	}
 }
 
 // Process applies rules to traffic and returns the result
-func (tp *TrafficProcessor) Process(ctx context.Context, tc *TrafficContext) (*ProcessingResult, error) {
-	result := &ProcessingResult{
+func (tp *TrafficProcessor) Process(ctx context.Context, tc *core.TrafficContext) (*core.ProcessingResult, error) {
+	op := "proxy.TrafficProcessor.Process"
+	result := &core.ProcessingResult{
 		ModifiedPayload: tc.Payload,
 	}
 
-	// Apply interception rules if engine is available
 	if tp.engine != nil {
 		action, err := tp.engine.Evaluate(ctx, &intercept.TrafficInfo{
 			ConnectionID:  tc.Conn.ID,
@@ -309,7 +157,7 @@ func (tp *TrafficProcessor) Process(ctx context.Context, tc *TrafficContext) (*P
 		})
 
 		if err != nil {
-			return nil, err
+			return nil, sirenerr.E(op, "failed to evaluate rule", 0, err)
 		}
 
 		if action != nil {
@@ -334,7 +182,14 @@ func (tp *TrafficProcessor) Process(ctx context.Context, tc *TrafficContext) (*P
 		}
 	}
 
-	// Record traffic if recorder is available
+	for _, m := range tp.manipulators {
+		var err error
+		result, err = m.Process(ctx, tc, result)
+		if err != nil {
+			return nil, sirenerr.E(op, "failed to process manipulator", 0, err)
+		}
+	}
+
 	if tp.recorder != nil {
 		tp.recorder.Record(&recorder.TrafficRecord{
 			Timestamp:    time.Now(),
@@ -350,8 +205,8 @@ func (tp *TrafficProcessor) Process(ctx context.Context, tc *TrafficContext) (*P
 	return result, nil
 }
 
-func convertDirection(d Direction) intercept.Direction {
-	if d == ClientToServer {
+func convertDirection(d core.Direction) intercept.Direction {
+	if d == core.ClientToServer {
 		return intercept.DirectionClientToServer
 	}
 	return intercept.DirectionServerToClient
