@@ -3,7 +3,6 @@ package intercept
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 )
@@ -18,7 +17,7 @@ type Engine struct {
 
 // EngineStats tracks engine statistics
 type EngineStats struct {
-	mu              sync.RWMutex
+	mu               sync.RWMutex
 	TotalEvaluations uint64
 	RulesMatched     uint64
 	RulesFailed      uint64
@@ -28,39 +27,11 @@ type EngineStats struct {
 
 // Logger interface for engine logging
 type Logger interface {
-	Debug(format string, args ...interface{})
-	Info(format string, args ...interface{})
-	Warn(format string, args ...interface{})
-	Error(format string, args ...interface{})
-}
-
-// DefaultLogger is a simple logger implementation
-type DefaultLogger struct {
-	enabled bool
-}
-
-func (l *DefaultLogger) Debug(format string, args ...interface{}) {
-	if l.enabled {
-		log.Printf("[DEBUG] "+format, args...)
-	}
-}
-
-func (l *DefaultLogger) Info(format string, args ...interface{}) {
-	if l.enabled {
-		log.Printf("[INFO] "+format, args...)
-	}
-}
-
-func (l *DefaultLogger) Warn(format string, args ...interface{}) {
-	if l.enabled {
-		log.Printf("[WARN] "+format, args...)
-	}
-}
-
-func (l *DefaultLogger) Error(format string, args ...interface{}) {
-	if l.enabled {
-		log.Printf("[ERROR] "+format, args...)
-	}
+	Trace(args ...interface{})
+	Debug(args ...interface{})
+	Info(args ...interface{})
+	Warn(args ...interface{})
+	Error(args ...interface{})
 }
 
 // NewEngine creates a new interception engine
@@ -78,7 +49,7 @@ func NewEngine(ruleSet *RuleSet, logger Logger) (*Engine, error) {
 	ruleSet.SortByPriority()
 
 	if logger == nil {
-		logger = &DefaultLogger{enabled: true}
+		return nil, fmt.Errorf("logger cannot be nil")
 	}
 
 	return &Engine{
@@ -93,6 +64,7 @@ func NewEngine(ruleSet *RuleSet, logger Logger) (*Engine, error) {
 // the modifications are chained. Terminal actions like Drop or Disconnect
 // take precedence. All log actions are executed.
 func (e *Engine) Evaluate(ctx context.Context, info *TrafficInfo) (*ActionResult, error) {
+	e.logger.Trace("Evaluating packet: %+v", info)
 	e.stats.mu.Lock()
 	e.stats.TotalEvaluations++
 	e.stats.mu.Unlock()
@@ -110,7 +82,9 @@ func (e *Engine) Evaluate(ctx context.Context, info *TrafficInfo) (*ActionResult
 	var rulesMatched bool
 
 	// Evaluate rules in priority order
+	e.logger.Trace("Number of enabled rules: %d", len(rules))
 	for _, rule := range rules {
+		e.logger.Trace("Evaluating rule: %s", rule.Name)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()

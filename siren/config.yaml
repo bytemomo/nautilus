@@ -4,8 +4,8 @@ description: Default IoT client interception profile
 ebpf:
     interface: enp1s0f0
     drop_action_duration: 5s
-    # targets:
-    #     - "ip:192.168.1.113"
+    targets:
+        - "ip:192.168.1.113"
     #     - "ip_port:192.168.10.60:502" # Modbus gateway
     #     - "ip_port:192.168.10.70:1883" # MQTT broker
     #     - "mac:02:42:ac:11:00:02" # Sensor bridge
@@ -20,6 +20,14 @@ rules:
           log:
               level: info
               message: "Siren saw packet"
+              dump_payload: true
+
+    - name: block-ciao
+      enabled: true
+      match:
+          content_contains: "CIAO"
+      action:
+          type: drop
 
 recording:
     enabled: false

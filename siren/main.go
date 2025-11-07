@@ -170,7 +170,8 @@ func buildEngine(cfg *config.Config, log *logrus.Logger) (*intercept.Engine, err
 		Description: cfg.Description,
 		Rules:       cfg.Rules,
 	}
-	engine, err := intercept.NewEngine(ruleSet, &intercept.DefaultLogger{})
+
+	engine, err := intercept.NewEngine(ruleSet, log)
 	if err != nil {
 		return nil, err
 	}

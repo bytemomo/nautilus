@@ -47,6 +47,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 }
 
 func (r *Runtime) handleEvent(ctx context.Context, evt *PacketEvent) {
+	r.log.WithField("packet", evt).Trace("Received packet from eBPF")
 	payload := evt.Capture
 	if int(evt.PayloadOffset) <= len(evt.Capture) {
 		payload = evt.Capture[evt.PayloadOffset:]
