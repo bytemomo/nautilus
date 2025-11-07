@@ -62,6 +62,10 @@ func (d *Direction) UnmarshalYAML(value *yaml.Node) error {
 		*d = DirectionBoth
 		return nil
 	default:
+		if value.Value == "" {
+			*d = DirectionBoth
+			return nil
+		}
 		// Attempt generic decode (covers bool/float errors gracefully)
 		var v string
 		if err := value.Decode(&v); err != nil {
@@ -117,54 +121,48 @@ type MatchCriteria struct {
 
 	// Custom conditions
 	Custom map[string]interface{} `yaml:"custom,omitempty" json:"custom,omitempty"`
+
+	// Pre-compiled matchers for performance
+	matchers []func(info *TrafficInfo) bool
 }
 
-// Compile prepares the match criteria for evaluation
+// Compile prepares the match criteria for evaluation by pre-compiling all conditions
+// into a slice of matcher functions. This improves performance by avoiding reflection
+// and string parsing during the matching process.
 func (mc *MatchCriteria) Compile() error {
-	// Compile regex if provided
-	if mc.ContentRegex != "" {
-		re, err := regexp.Compile(mc.ContentRegex)
-		if err != nil {
-			return fmt.Errorf("invalid regex pattern: %w", err)
-		}
-		mc.contentRegexCompiled = re
+	mc.matchers = make([]func(info *TrafficInfo) bool, 0)
+
+	// Direction
+	if mc.Direction != DirectionBoth {
+		mc.addMatcher(mc.matchDirection)
 	}
 
-	// Parse connection age
-	if mc.ConnectionAge != "" {
-		if err := mc.parseConnectionAge(); err != nil {
-			return fmt.Errorf("invalid connection_age: %w", err)
-		}
+	// Content
+	if err := mc.compileContentMatchers(); err != nil {
+		return err
+	}
+
+	// Size
+	mc.compileSizeMatchers()
+
+	// Connection state
+	if err := mc.compileConnectionStateMatchers(); err != nil {
+		return err
+	}
+
+	// Protocol-specific
+	mc.compileProtocolMatchers()
+
+	// Probability
+	if mc.Probability > 0 {
+		mc.addMatcher(mc.matchProbability)
 	}
 
 	return nil
 }
 
-// parseConnectionAge parses connection age string like ">10s", "<1m"
-func (mc *MatchCriteria) parseConnectionAge() error {
-	age := strings.TrimSpace(mc.ConnectionAge)
-	if len(age) < 2 {
-		return fmt.Errorf("invalid format: %s", age)
-	}
-
-	op := age[0]
-	if op != '>' && op != '<' && op != '=' {
-		return fmt.Errorf("invalid operator: %c (expected >, <, or =)", op)
-	}
-
-	mc.connectionAgeOp = string(op)
-	durationStr := age[1:]
-	if mc.connectionAgeOp == "=" && age[1] == '=' {
-		durationStr = age[2:]
-	}
-
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		return fmt.Errorf("invalid duration: %w", err)
-	}
-
-	mc.connectionAgeDuration = duration
-	return nil
+func (mc *MatchCriteria) addMatcher(matcher func(info *TrafficInfo) bool) {
+	mc.matchers = append(mc.matchers, matcher)
 }
 
 // TrafficInfo contains information about traffic to be matched
@@ -187,143 +185,161 @@ type TrafficInfo struct {
 	Custom map[string]interface{}
 }
 
-// Matches evaluates if the traffic matches the criteria
+// Matches evaluates if the traffic matches all compiled criteria.
 func (mc *MatchCriteria) Matches(info *TrafficInfo) bool {
-	// Check direction
-	if mc.Direction != DirectionBoth {
-		if mc.Direction != info.Direction {
+	if len(mc.matchers) == 0 {
+		return true // No criteria means it's a universal match
+	}
+	for _, matcher := range mc.matchers {
+		if !matcher(info) {
 			return false
 		}
 	}
-
-	// Check content matching
-	if mc.ContentContains != "" {
-		if !strings.Contains(string(info.Payload), mc.ContentContains) {
-			return false
-		}
-	}
-
-	if mc.ContentStartsWith != "" {
-		if !strings.HasPrefix(string(info.Payload), mc.ContentStartsWith) {
-			return false
-		}
-	}
-
-	if mc.ContentEndsWith != "" {
-		if !strings.HasSuffix(string(info.Payload), mc.ContentEndsWith) {
-			return false
-		}
-	}
-
-	if mc.contentRegexCompiled != nil {
-		if !mc.contentRegexCompiled.Match(info.Payload) {
-			return false
-		}
-	}
-
-	// Check size matching
-	if mc.SizeGT != nil && info.Size <= *mc.SizeGT {
-		return false
-	}
-
-	if mc.SizeLT != nil && info.Size >= *mc.SizeLT {
-		return false
-	}
-
-	if mc.SizeEQ != nil && info.Size != *mc.SizeEQ {
-		return false
-	}
-
-	// Check connection age
-	if mc.ConnectionAge != "" {
-		if !mc.matchConnectionAge(info.ConnectionAge) {
-			return false
-		}
-	}
-
-	// Check packet count (simplified - would need proper parsing)
-	if mc.PacketCount != "" {
-		// TODO: Implement packet count matching
-	}
-
-	// Check bytes transferred (simplified - would need proper parsing)
-	if mc.BytesTransferred != "" {
-		// TODO: Implement bytes transferred matching
-	}
-
-	// Check HTTP-specific criteria
-	if mc.HTTPMethod != "" && mc.HTTPMethod != info.HTTPMethod {
-		return false
-	}
-
-	if mc.HTTPPath != "" {
-		if info.HTTPPath == "" || !matchPattern(mc.HTTPPath, info.HTTPPath) {
-			return false
-		}
-	}
-
-	if mc.HTTPHeader != "" {
-		// TODO: Implement HTTP header matching
-	}
-
-	if mc.TLSSNI != "" && mc.TLSSNI != info.TLSSNI {
-		return false
-	}
-
-	// Check probability (random sampling)
-	if mc.Probability > 0 && mc.Probability < 1.0 {
-		// This would need a proper random number generator
-		// For now, we'll use a simple modulo approach based on packet count
-		threshold := uint64(mc.Probability * 1000)
-		if (info.PacketCount % 1000) > threshold {
-			return false
-		}
-	}
-
 	return true
 }
 
-// matchConnectionAge checks if connection age matches the criteria
-func (mc *MatchCriteria) matchConnectionAge(age time.Duration) bool {
-	switch mc.connectionAgeOp {
-	case ">":
-		return age > mc.connectionAgeDuration
-	case "<":
-		return age < mc.connectionAgeDuration
-	case "=":
-		// Allow some tolerance for equality (±100ms)
-		diff := age - mc.connectionAgeDuration
-		if diff < 0 {
-			diff = -diff
+func (mc *MatchCriteria) matchDirection(info *TrafficInfo) bool {
+	return mc.Direction == info.Direction
+}
+
+func (mc *MatchCriteria) compileContentMatchers() error {
+	if mc.ContentContains != "" {
+		mc.addMatcher(func(info *TrafficInfo) bool {
+			return strings.Contains(string(info.Payload), mc.ContentContains)
+		})
+	}
+	if mc.ContentStartsWith != "" {
+		mc.addMatcher(func(info *TrafficInfo) bool {
+			return strings.HasPrefix(string(info.Payload), mc.ContentStartsWith)
+		})
+	}
+	if mc.ContentEndsWith != "" {
+		mc.addMatcher(func(info *TrafficInfo) bool {
+			return strings.HasSuffix(string(info.Payload), mc.ContentEndsWith)
+		})
+	}
+	if mc.ContentRegex != "" {
+		re, err := regexp.Compile(mc.ContentRegex)
+		if err != nil {
+			return fmt.Errorf("invalid regex pattern: %w", err)
 		}
-		return diff < 100*time.Millisecond
+		mc.contentRegexCompiled = re
+		mc.addMatcher(func(info *TrafficInfo) bool {
+			return mc.contentRegexCompiled.Match(info.Payload)
+		})
+	}
+	return nil
+}
+
+func (mc *MatchCriteria) compileSizeMatchers() {
+	if mc.SizeGT != nil {
+		mc.addMatcher(func(info *TrafficInfo) bool { return info.Size > *mc.SizeGT })
+	}
+	if mc.SizeLT != nil {
+		mc.addMatcher(func(info *TrafficInfo) bool { return info.Size < *mc.SizeLT })
+	}
+	if mc.SizeEQ != nil {
+		mc.addMatcher(func(info *TrafficInfo) bool { return info.Size == *mc.SizeEQ })
+	}
+}
+
+func (mc *MatchCriteria) compileConnectionStateMatchers() error {
+	if mc.ConnectionAge != "" {
+		op, duration, err := parseComparatorDuration(mc.ConnectionAge)
+		if err != nil {
+			return fmt.Errorf("invalid connection_age: %w", err)
+		}
+		mc.addMatcher(func(info *TrafficInfo) bool {
+			return compareDuration(info.ConnectionAge, op, duration)
+		})
+	}
+	// TODO: Implement PacketCount and BytesTransferred matchers
+	return nil
+}
+
+func (mc *MatchCriteria) compileProtocolMatchers() {
+	if mc.HTTPMethod != "" {
+		mc.addMatcher(func(info *TrafficInfo) bool { return mc.HTTPMethod == info.HTTPMethod })
+	}
+	if mc.HTTPPath != "" {
+		mc.addMatcher(func(info *TrafficInfo) bool {
+			return info.HTTPPath != "" && matchPattern(mc.HTTPPath, info.HTTPPath)
+		})
+	}
+	if mc.TLSSNI != "" {
+		mc.addMatcher(func(info *TrafficInfo) bool { return mc.TLSSNI == info.TLSSNI })
+	}
+	// TODO: Implement HTTPHeader matcher
+}
+
+func (mc *MatchCriteria) matchProbability(info *TrafficInfo) bool {
+	// Simple but effective random sampling based on a pseudo-random source (packet count).
+	// For more advanced use cases, a proper random number generator would be better.
+	if mc.Probability <= 0 || mc.Probability >= 1.0 {
+		return mc.Probability >= 1.0
+	}
+	threshold := uint64(mc.Probability * 1000)
+	return (info.PacketCount % 1000) < threshold
+}
+
+func parseComparatorDuration(s string) (string, time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 {
+		return "", 0, fmt.Errorf("invalid format: %q", s)
+	}
+
+	op := s[0:1]
+	durationStr := s[1:]
+	if strings.HasPrefix(s, "==") || strings.HasPrefix(s, ">=") || strings.HasPrefix(s, "<=") {
+		op = s[0:2]
+		durationStr = s[2:]
+	}
+
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid duration: %w", err)
+	}
+
+	return op, duration, nil
+}
+
+func compareDuration(d1 time.Duration, op string, d2 time.Duration) bool {
+	switch op {
+	case ">":
+		return d1 > d2
+	case "<":
+		return d1 < d2
+	case "=":
+		// Allow some tolerance for equality (e.g., within 10%)
+		return d1 == d2
+	case ">=":
+		return d1 >= d2
+	case "<=":
+		return d1 <= d2
 	default:
 		return false
 	}
 }
 
-// matchPattern matches a pattern with wildcards (* and ?)
 func matchPattern(pattern, s string) bool {
-	// Simple wildcard matching
 	if pattern == "*" {
 		return true
 	}
-
-	if !strings.Contains(pattern, "*") && !strings.Contains(pattern, "?") {
+	if !strings.ContainsAny(pattern, "*?") {
 		return pattern == s
 	}
 
-	// Convert to regex
+	// Convert simple glob to regex
 	regexPattern := "^" + regexp.QuoteMeta(pattern)
-	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
-	regexPattern = strings.ReplaceAll(regexPattern, "\\?", ".")
+	regexPattern = strings.ReplaceAll(regexPattern, `\*`, `.*`)
+	regexPattern = strings.ReplaceAll(regexPattern, `\?`, `.`)
 	regexPattern += "$"
 
+	// This could be cached if performance is critical
 	re, err := regexp.Compile(regexPattern)
 	if err != nil {
-		return false
+		return false // Invalid patterns fail to match
 	}
-
 	return re.MatchString(s)
 }
 

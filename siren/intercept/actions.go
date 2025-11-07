@@ -49,169 +49,226 @@ func (at ActionType) String() string {
 	}
 }
 
-// ParseActionType converts string to ActionType
-func ParseActionType(s string) ActionType {
+// ParseActionType converts a string to an ActionType, returning an error if unknown.
+func ParseActionType(s string) (ActionType, error) {
 	switch strings.ToLower(s) {
 	case "pass", "allow":
-		return ActionPass
+		return ActionPass, nil
 	case "drop", "block":
-		return ActionDrop
+		return ActionDrop, nil
 	case "delay", "sleep":
-		return ActionDelay
+		return ActionDelay, nil
 	case "modify", "transform", "mutate":
-		return ActionModify
+		return ActionModify, nil
 	case "duplicate", "dup", "clone":
-		return ActionDuplicate
+		return ActionDuplicate, nil
 	case "throttle", "limit", "rate_limit":
-		return ActionThrottle
+		return ActionThrottle, nil
 	case "disconnect", "close", "terminate":
-		return ActionDisconnect
+		return ActionDisconnect, nil
 	case "log", "record":
-		return ActionLog
+		return ActionLog, nil
 	case "chain", "sequence":
-		return ActionChain
+		return ActionChain, nil
 	default:
-		return ActionPass
+		return ActionPass, fmt.Errorf("unknown action type: %q", s)
 	}
 }
 
 // UnmarshalYAML allows specifying action types as human-readable strings.
 func (at *ActionType) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind == yaml.ScalarNode {
-		var str string
-		if err := value.Decode(&str); err == nil && str != "" {
-			*at = ParseActionType(str)
-			return nil
-		}
+	if value.Kind != yaml.ScalarNode {
+		return fmt.Errorf("action type must be a string, got %v", value.Tag)
 	}
-
-	var num int
-	if err := value.Decode(&num); err != nil {
+	parsed, err := ParseActionType(value.Value)
+	if err != nil {
 		return err
 	}
-	*at = ActionType(num)
+	*at = parsed
 	return nil
 }
 
-// Action defines an action to perform on matched traffic
+// Action defines a single, executable action on matched traffic.
+// It uses dedicated structs for parameters to improve clarity and type safety.
 type Action struct {
-	Type ActionType `yaml:"type" json:"type"`
+	Type     ActionType             `yaml:"type" json:"type"`
+	Metadata map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 
-	// Drop action
+	// Action-specific parameters
+	DropParams       *DropParams       `yaml:"drop,omitempty" json:"drop,omitempty"`
+	DelayParams      *DelayParams      `yaml:"delay,omitempty" json:"delay,omitempty"`
+	ModifyParams     *ModifyParams     `yaml:"modify,omitempty" json:"modify,omitempty"`
+	DuplicateParams  *DuplicateParams  `yaml:"duplicate,omitempty" json:"duplicate,omitempty"`
+	ThrottleParams   *ThrottleParams   `yaml:"throttle,omitempty" json:"throttle,omitempty"`
+	DisconnectParams *DisconnectParams `yaml:"disconnect,omitempty" json:"disconnect,omitempty"`
+	LogParams        *LogParams        `yaml:"log,omitempty" json:"log,omitempty"`
+	ChainParams      *ChainParams      `yaml:"chain,omitempty" json:"chain,omitempty"`
+}
+
+// DropParams holds parameters for the Drop action.
+type DropParams struct {
 	Probability float64 `yaml:"probability,omitempty" json:"probability,omitempty"` // 0.0 to 1.0
+}
 
-	// Delay action
-	Duration       string `yaml:"duration,omitempty" json:"duration,omitempty"` // e.g., "100ms", "1s"
+// DelayParams holds parameters for the Delay action.
+type DelayParams struct {
+	Duration       string `yaml:"duration" json:"duration"` // e.g., "100ms", "1s"
 	Jitter         string `yaml:"jitter,omitempty" json:"jitter,omitempty"`     // e.g., "50ms"
 	durationParsed time.Duration
 	jitterParsed   time.Duration
+}
 
-	// Modify action
-	Operation   string `yaml:"operation,omitempty" json:"operation,omitempty"` // replace, corrupt_bytes, truncate, append
+// ModifyParams holds parameters for the Modify action.
+type ModifyParams struct {
+	Operation   string `yaml:"operation" json:"operation"` // replace, corrupt_bytes, truncate, append
 	Pattern     string `yaml:"pattern,omitempty" json:"pattern,omitempty"`
 	Replacement string `yaml:"replacement,omitempty" json:"replacement,omitempty"`
 	Positions   []int  `yaml:"positions,omitempty" json:"positions,omitempty"` // For corrupt_bytes
 	Bytes       []byte `yaml:"bytes,omitempty" json:"bytes,omitempty"`         // For append
 	TruncateAt  *int   `yaml:"truncate_at,omitempty" json:"truncate_at,omitempty"`
+}
 
-	// Duplicate action
+// DuplicateParams holds parameters for the Duplicate action.
+type DuplicateParams struct {
 	Count       int    `yaml:"count,omitempty" json:"count,omitempty"` // Number of duplicates (default 1)
 	Delay       string `yaml:"delay,omitempty" json:"delay,omitempty"` // Delay between duplicates
 	delayParsed time.Duration
+}
 
-	// Throttle action
-	Rate            string `yaml:"rate,omitempty" json:"rate,omitempty"`   // e.g., "10KB/s", "1MB/s"
+// ThrottleParams holds parameters for the Throttle action.
+type ThrottleParams struct {
+	Rate            string `yaml:"rate" json:"rate"`   // e.g., "10KB/s", "1MB/s"
 	Burst           string `yaml:"burst,omitempty" json:"burst,omitempty"` // e.g., "1KB"
 	rateBytesPerSec int
 	burstBytes      int
-
-	// Disconnect action
-	CloseType string `yaml:"close_type,omitempty" json:"close_type,omitempty"` // "abrupt" or "graceful"
-
-	// Log action
-	Level       string `yaml:"level,omitempty" json:"level,omitempty"` // info, debug, trace
-	Message     string `yaml:"message,omitempty" json:"message,omitempty"`
-	DumpPayload bool   `yaml:"dump_payload,omitempty" json:"dump_payload,omitempty"`
-
-	// Chain action
-	Actions []*Action `yaml:"actions,omitempty" json:"actions,omitempty"`
-
-	// Custom metadata
-	Metadata map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
-// Compile prepares the action for execution
+// DisconnectParams holds parameters for the Disconnect action.
+type DisconnectParams struct {
+	CloseType string `yaml:"close_type,omitempty" json:"close_type,omitempty"` // "abrupt" or "graceful"
+}
+
+// LogParams holds parameters for the Log action.
+type LogParams struct {
+	Level       string `yaml:"level,omitempty" json:"level,omitempty"` // info, debug, trace
+	Message     string `yaml:"message" json:"message"`
+	DumpPayload bool   `yaml:"dump_payload,omitempty" json:"dump_payload,omitempty"`
+}
+
+// ChainParams holds parameters for the Chain action.
+type ChainParams struct {
+	Actions []*Action `yaml:"actions" json:"actions"`
+}
+
+// Compile prepares the action and its parameters for execution.
 func (a *Action) Compile() error {
+	var err error
 	switch a.Type {
 	case ActionDelay:
-		if a.Duration == "" {
-			return fmt.Errorf("delay action requires duration")
+		if a.DelayParams == nil {
+			return fmt.Errorf("delay action requires parameters")
 		}
-		dur, err := time.ParseDuration(a.Duration)
-		if err != nil {
-			return fmt.Errorf("invalid duration: %w", err)
-		}
-		a.durationParsed = dur
-
-		if a.Jitter != "" {
-			jit, err := time.ParseDuration(a.Jitter)
-			if err != nil {
-				return fmt.Errorf("invalid jitter: %w", err)
-			}
-			a.jitterParsed = jit
-		}
-
+		err = a.DelayParams.compile()
 	case ActionModify:
-		if a.Operation == "" {
-			return fmt.Errorf("modify action requires operation")
+		if a.ModifyParams == nil {
+			return fmt.Errorf("modify action requires parameters")
 		}
-		// Validate operation
-		switch a.Operation {
-		case "replace", "corrupt_bytes", "truncate", "append":
-			// Valid operations
-		default:
-			return fmt.Errorf("invalid operation: %s", a.Operation)
-		}
-
+		err = a.ModifyParams.compile()
 	case ActionDuplicate:
-		if a.Count == 0 {
-			a.Count = 1 // Default to 1 duplicate (2 total packets)
+		// Params are optional, use defaults if nil
+		if a.DuplicateParams == nil {
+			a.DuplicateParams = &DuplicateParams{}
 		}
-		if a.Delay != "" {
-			dur, err := time.ParseDuration(a.Delay)
-			if err != nil {
-				return fmt.Errorf("invalid delay: %w", err)
-			}
-			a.delayParsed = dur
-		}
-
+		err = a.DuplicateParams.compile()
 	case ActionThrottle:
-		if a.Rate != "" {
-			rate, err := parseDataRate(a.Rate)
-			if err != nil {
-				return fmt.Errorf("invalid rate: %w", err)
-			}
-			a.rateBytesPerSec = rate
+		if a.ThrottleParams == nil {
+			return fmt.Errorf("throttle action requires parameters")
 		}
-		if a.Burst != "" {
-			burst, err := parseDataSize(a.Burst)
-			if err != nil {
-				return fmt.Errorf("invalid burst: %w", err)
-			}
-			a.burstBytes = burst
-		}
-
+		err = a.ThrottleParams.compile()
 	case ActionChain:
-		if len(a.Actions) == 0 {
-			return fmt.Errorf("chain action requires at least one action")
+		if a.ChainParams == nil || len(a.ChainParams.Actions) == 0 {
+			return fmt.Errorf("chain action requires at least one sub-action")
 		}
-		for i, childAction := range a.Actions {
-			if err := childAction.Compile(); err != nil {
-				return fmt.Errorf("chain action %d: %w", i, err)
-			}
+		err = a.ChainParams.compile()
+	case ActionLog:
+		if a.LogParams == nil {
+			return fmt.Errorf("log action requires parameters")
+		}
+		// No compilation needed for log params
+	case ActionDrop, ActionPass, ActionDisconnect:
+		// No compilation needed
+	default:
+		return fmt.Errorf("unknown action type: %s", a.Type)
+	}
+	return err
+}
+
+func (p *DelayParams) compile() error {
+	if p.Duration == "" {
+		return fmt.Errorf("delay action requires duration")
+	}
+	dur, err := time.ParseDuration(p.Duration)
+	if err != nil {
+		return fmt.Errorf("invalid duration: %w", err)
+	}
+	p.durationParsed = dur
+
+	if p.Jitter != "" {
+		jit, err := time.ParseDuration(p.Jitter)
+		if err != nil {
+			return fmt.Errorf("invalid jitter: %w", err)
+		}
+		p.jitterParsed = jit
+	}
+	return nil
+}
+
+func (p *ModifyParams) compile() error {
+	switch p.Operation {
+	case "replace", "corrupt_bytes", "truncate", "append":
+		return nil
+	default:
+		return fmt.Errorf("invalid modify operation: %s", p.Operation)
+	}
+}
+
+func (p *DuplicateParams) compile() error {
+	if p.Count <= 0 {
+		p.Count = 1 // Default to 1 duplicate
+	}
+	if p.Delay != "" {
+		dur, err := time.ParseDuration(p.Delay)
+		if err != nil {
+			return fmt.Errorf("invalid delay: %w", err)
+		}
+		p.delayParsed = dur
+	}
+	return nil
+}
+
+func (p *ThrottleParams) compile() error {
+	rate, err := parseDataRate(p.Rate)
+	if err != nil {
+		return fmt.Errorf("invalid rate: %w", err)
+	}
+	p.rateBytesPerSec = rate
+
+	if p.Burst != "" {
+		burst, err := parseDataSize(p.Burst)
+		if err != nil {
+			return fmt.Errorf("invalid burst: %w", err)
+		}
+		p.burstBytes = burst
+	}
+	return nil
+}
+
+func (p *ChainParams) compile() error {
+	for i, childAction := range p.Actions {
+		if err := childAction.Compile(); err != nil {
+			return fmt.Errorf("compiling action %d in chain: %w", i, err)
 		}
 	}
-
 	return nil
 }
 
@@ -228,180 +285,191 @@ type ActionResult struct {
 	Metadata        map[string]interface{}
 }
 
-// Apply executes the action on the payload
+// Apply executes the action on the payload and returns the result.
 func (a *Action) Apply(payload []byte) (*ActionResult, error) {
 	result := &ActionResult{
 		Type:     a.Type,
 		Metadata: make(map[string]interface{}),
 	}
 
-	// Copy custom metadata
+	// Copy custom metadata from the action definition
 	for k, v := range a.Metadata {
 		result.Metadata[k] = v
 	}
 
 	switch a.Type {
 	case ActionPass:
-		// Do nothing, pass through
 		return result, nil
-
 	case ActionDrop:
-		// Check probability
-		if a.Probability > 0 && a.Probability < 1.0 {
-			if randomFloat() > a.Probability {
-				return result, nil // Don't drop
-			}
-		}
-		result.Drop = true
-		return result, nil
-
+		return a.applyDrop(result)
 	case ActionDelay:
-		delay := a.durationParsed
-		if a.jitterParsed > 0 {
-			// Add random jitter: ±jitter
-			jitter := time.Duration(randomFloat()*2.0-1.0) * a.jitterParsed
-			delay += jitter
-			if delay < 0 {
-				delay = 0
-			}
-		}
-		result.Delay = delay
-		return result, nil
-
+		return a.applyDelay(result)
 	case ActionModify:
-		modified, err := a.applyModification(payload)
-		if err != nil {
-			return nil, err
-		}
-		result.ModifiedPayload = modified
-		result.Modified = true
-		return result, nil
-
+		return a.applyModify(result, payload)
 	case ActionDuplicate:
-		result.Duplicate = a.Count
-		result.Delay = a.delayParsed
-		return result, nil
-
+		return a.applyDuplicate(result)
 	case ActionThrottle:
-		// Throttle calculation would be handled by the proxy
-		// Here we just mark the action
-		result.Metadata["rate"] = a.rateBytesPerSec
-		result.Metadata["burst"] = a.burstBytes
-		return result, nil
-
+		return a.applyThrottle(result)
 	case ActionDisconnect:
-		result.Disconnect = true
-		result.Metadata["close_type"] = a.CloseType
-		return result, nil
-
+		return a.applyDisconnect(result)
 	case ActionLog:
-		result.Logged = true
-		result.Metadata["level"] = a.Level
-		result.Metadata["message"] = a.Message
-		result.Metadata["dump_payload"] = a.DumpPayload
-		return result, nil
-
+		return a.applyLog(result)
 	case ActionChain:
-		// Apply actions in sequence
-		currentPayload := payload
-		for _, childAction := range a.Actions {
-			childResult, err := childAction.Apply(currentPayload)
-			if err != nil {
-				return nil, err
-			}
-
-			// Aggregate results
-			if childResult.Drop {
-				result.Drop = true
-				return result, nil // Stop processing on drop
-			}
-			if childResult.Disconnect {
-				result.Disconnect = true
-			}
-			if childResult.Delay > result.Delay {
-				result.Delay = childResult.Delay
-			}
-			if childResult.Duplicate > result.Duplicate {
-				result.Duplicate = childResult.Duplicate
-			}
-			if childResult.Modified {
-				currentPayload = childResult.ModifiedPayload
-				result.Modified = true
-			}
-			if childResult.Logged {
-				result.Logged = true
-			}
-
-			// Merge metadata
-			for k, v := range childResult.Metadata {
-				result.Metadata[k] = v
-			}
-		}
-
-		if result.Modified {
-			result.ModifiedPayload = currentPayload
-		}
-		return result, nil
-
+		return a.applyChain(result, payload)
 	default:
-		return result, nil
+		// This should be caught by Compile, but as a safeguard:
+		return nil, fmt.Errorf("cannot apply unknown action type: %s", a.Type)
 	}
 }
 
-// applyModification applies the modification operation
-func (a *Action) applyModification(payload []byte) ([]byte, error) {
-	switch a.Operation {
-	case "replace":
-		if a.Pattern == "" {
-			return payload, nil
+func (a *Action) applyDrop(result *ActionResult) (*ActionResult, error) {
+	p := a.DropParams
+	if p != nil && p.Probability > 0 && p.Probability < 1.0 {
+		if randomFloat() > p.Probability {
+			return result, nil // Probabilistic non-drop
 		}
-		// Simple string replacement
-		modified := strings.ReplaceAll(string(payload), a.Pattern, a.Replacement)
-		return []byte(modified), nil
+	}
+	result.Drop = true
+	return result, nil
+}
 
-	case "corrupt_bytes":
-		if len(a.Positions) == 0 {
+func (a *Action) applyDelay(result *ActionResult) (*ActionResult, error) {
+	p := a.DelayParams
+	delay := p.durationParsed
+	if p.jitterParsed > 0 {
+		jitter := time.Duration(randomFloat()*2-1) * p.jitterParsed
+		delay += jitter
+		if delay < 0 {
+			delay = 0
+		}
+	}
+	result.Delay = delay
+	return result, nil
+}
+
+func (a *Action) applyModify(result *ActionResult, payload []byte) (*ActionResult, error) {
+	modified, err := a.ModifyParams.apply(payload)
+	if err != nil {
+		return nil, err
+	}
+	result.ModifiedPayload = modified
+	result.Modified = true
+	return result, nil
+}
+
+func (a *Action) applyDuplicate(result *ActionResult) (*ActionResult, error) {
+	p := a.DuplicateParams
+	result.Duplicate = p.Count
+	result.Delay = p.delayParsed
+	return result, nil
+}
+
+func (a *Action) applyThrottle(result *ActionResult) (*ActionResult, error) {
+	p := a.ThrottleParams
+	result.Metadata["rate"] = p.rateBytesPerSec
+	result.Metadata["burst"] = p.burstBytes
+	return result, nil
+}
+
+func (a *Action) applyDisconnect(result *ActionResult) (*ActionResult, error) {
+	p := a.DisconnectParams
+	result.Disconnect = true
+	if p != nil {
+		result.Metadata["close_type"] = p.CloseType
+	}
+	return result, nil
+}
+
+func (a *Action) applyLog(result *ActionResult) (*ActionResult, error) {
+	p := a.LogParams
+	result.Logged = true
+	result.Metadata["level"] = p.Level
+	result.Metadata["message"] = p.Message
+	result.Metadata["dump_payload"] = p.DumpPayload
+	return result, nil
+}
+
+func (a *Action) applyChain(result *ActionResult, payload []byte) (*ActionResult, error) {
+	currentPayload := payload
+	finalResult := result
+
+	for _, childAction := range a.ChainParams.Actions {
+		childResult, err := childAction.Apply(currentPayload)
+		if err != nil {
+			return nil, err // Propagate errors from sub-actions
+		}
+
+		// Aggregate results
+		if childResult.Drop {
+			finalResult.Drop = true
+			return finalResult, nil // Terminal action
+		}
+		if childResult.Disconnect {
+			finalResult.Disconnect = true
+		}
+		if childResult.Delay > finalResult.Delay {
+			finalResult.Delay = childResult.Delay
+		}
+		if childResult.Duplicate > finalResult.Duplicate {
+			finalResult.Duplicate = childResult.Duplicate
+		}
+		if childResult.Modified {
+			currentPayload = childResult.ModifiedPayload
+			finalResult.Modified = true
+		}
+		if childResult.Logged {
+			finalResult.Logged = true
+		}
+		for k, v := range childResult.Metadata {
+			finalResult.Metadata[k] = v
+		}
+	}
+
+	if finalResult.Modified {
+		finalResult.ModifiedPayload = currentPayload
+	}
+	return finalResult, nil
+}
+
+// apply applies the modification operation to the payload.
+func (p *ModifyParams) apply(payload []byte) ([]byte, error) {
+	switch p.Operation {
+	case "replace":
+		if p.Pattern == "" {
 			return payload, nil
 		}
-		// Copy payload
+		return []byte(strings.ReplaceAll(string(payload), p.Pattern, p.Replacement)), nil
+	case "corrupt_bytes":
+		if len(p.Positions) == 0 {
+			return payload, nil
+		}
 		modified := make([]byte, len(payload))
 		copy(modified, payload)
-
-		// Corrupt bytes at specified positions
-		for _, pos := range a.Positions {
+		for _, pos := range p.Positions {
 			if pos >= 0 && pos < len(modified) {
-				// Flip random bits
 				modified[pos] ^= byte(randomInt(256))
 			}
 		}
 		return modified, nil
-
 	case "truncate":
-		if a.TruncateAt == nil {
+		if p.TruncateAt == nil {
 			return payload, nil
 		}
-		truncateAt := *a.TruncateAt
+		truncateAt := *p.TruncateAt
 		if truncateAt < 0 {
 			truncateAt = 0
 		}
 		if truncateAt > len(payload) {
 			return payload, nil
 		}
-		modified := make([]byte, truncateAt)
-		copy(modified, payload[:truncateAt])
-		return modified, nil
-
+		return payload[:truncateAt], nil
 	case "append":
-		if len(a.Bytes) == 0 {
+		if len(p.Bytes) == 0 {
 			return payload, nil
 		}
-		modified := make([]byte, len(payload)+len(a.Bytes))
-		copy(modified, payload)
-		copy(modified[len(payload):], a.Bytes)
-		return modified, nil
-
+		return append(payload, p.Bytes...), nil
 	default:
-		return payload, fmt.Errorf("unknown operation: %s", a.Operation)
+		return nil, fmt.Errorf("unknown modify operation: %s", p.Operation)
 	}
 }
 
