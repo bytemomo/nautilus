@@ -21,6 +21,13 @@ type Config struct {
 	Rules        []*intercept.Rule    `yaml:"rules,omitempty" validate:"dive"`
 	Manipulators []*ManipulatorConfig `yaml:"manipulators,omitempty" validate:"dive"`
 	Recording    *RecordingConfig     `yaml:"recording,omitempty"`
+	Injector     *InjectorConfig      `yaml:"injector,omitempty"`
+}
+
+// InjectorConfig configures the packet injector.
+type InjectorConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	FilePath string `yaml:"file_path" validate:"required_if=Enabled true"`
 }
 
 // ManipulatorConfig configures a single manipulator.

@@ -2,10 +2,13 @@ name: iot-lab
 description: Default IoT client interception profile
 
 ebpf:
-    interface: lo
-    drop_action_duration: 5ms
-    targets:
-        - "ip_port:127.0.0.1:9000"
+    interface: enp1s0f0
+    drop_action_duration: 5s
+    # targets:
+    #     - "ip:192.168.10.50" # PLC
+    #     - "ip_port:192.168.10.60:502" # Modbus gateway
+    #     - "ip_port:192.168.10.70:1883" # MQTT broker
+    #     - "mac:02:42:ac:11:00:02" # Sensor bridge
 
 rules:
     - name: log-all
@@ -14,24 +17,8 @@ rules:
           direction: both
       action:
           type: log
-          log:
-              level: info
-              message: "Siren saw packet"
-              dump_payload: true
-
-    - name: modify-token
-      description: Rewrite leaked tokens before they reach the server
-      enabled: true
-      priority: 80
-      match:
-          direction: client_to_server
-          content_contains: "TOKEN=OLD"
-      action:
-          type: modify
-          modify:
-              operation: replace
-              pattern: "TOKEN=OLD"
-              replacement: "TOKEN=SANITIZED"
+          level: info
+          message: "Siren saw packet"
 
 recording:
     enabled: false
@@ -39,4 +26,4 @@ recording:
     format: pcap
     include_payload: true
     flush_interval: 3s
-    max_file_size: 250MB
+    max_file_size: 200MB

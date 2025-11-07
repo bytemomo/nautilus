@@ -5,15 +5,20 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
-	"time"
 
 	"bytemomo/siren/internal/config"
 	"bytemomo/siren/internal/ebpf"
+	"bytemomo/siren/internal/client"
+	"bytemomo/siren/internal/injector"
 	"bytemomo/siren/internal/intercept"
 	"bytemomo/siren/internal/manipulator"
+	"bytemomo/siren/internal/packet"
 	"bytemomo/siren/internal/proxy"
 	"bytemomo/siren/internal/recorder"
 
@@ -64,14 +69,18 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	go runInjectionLoop(ctx, app, log)
+
 	runAndWait(ctx, cancel, app.runtime, log)
 }
 
 // application holds the state of the running application.
 type application struct {
-	runtime *ebpf.Runtime
-	manager *ebpf.Manager
-	rec     *recorder.Recorder
+	runtime  *ebpf.Runtime
+	manager  *ebpf.Manager
+	rec      *recorder.Recorder
+	injector injector.Injector
+	tracker  *client.Tracker
 }
 
 // Cleanup stops all background components.
@@ -83,6 +92,7 @@ func (a *application) Cleanup() {
 		a.manager.Stop()
 	}
 }
+
 
 func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, error) {
 	engine, err := buildEngine(cfg, log)
@@ -100,7 +110,8 @@ func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, err
 		return nil, fmt.Errorf("failed to configure manipulators: %w", err)
 	}
 
-	processor := proxy.NewTrafficProcessor(engine, rec, proxy.NewProxyStats(), log.WithField("component", "processor"), manips)
+	tracker := client.NewTracker()
+	processor := proxy.NewTrafficProcessor(engine, rec, proxy.NewProxyStats(), log.WithField("component", "processor"), manips, tracker)
 
 	targets, err := parseTargets(cfg.Ebpf)
 	if err != nil {
@@ -129,10 +140,17 @@ func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, err
 		DropDuration: dropDuration,
 	})
 
+	injector, err := buildInjector(cfg, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build injector: %w", err)
+	}
+
 	return &application{
-		runtime: runtime,
-		manager: manager,
-		rec:     rec,
+		runtime:  runtime,
+		manager:  manager,
+		rec:      rec,
+		injector: injector,
+		tracker:  tracker,
 	}, nil
 }
 
@@ -211,6 +229,56 @@ func buildRecorder(cfg *config.Config, log *logrus.Logger) (*recorder.Recorder, 
 	return rec, nil
 }
 
+func buildInjector(cfg *config.Config, log *logrus.Logger) (injector.Injector, error) {
+	if cfg.Injector == nil || !cfg.Injector.Enabled {
+		return nil, nil
+	}
+	log.Infof("File injector enabled: %s", cfg.Injector.FilePath)
+	return injector.NewFileInjector(cfg.Injector.FilePath), nil
+}
+
+func runInjectionLoop(ctx context.Context, app *application, log *logrus.Logger) {
+	if app.injector == nil {
+		return
+	}
+
+	ticker := time.NewTicker(2 * time.Second) // Check for injections every 2 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			requests, err := app.injector.GetInjectionRequests()
+			if err != nil {
+				log.Errorf("Failed to get injection requests: %v", err)
+				continue
+			}
+
+			for _, req := range requests {
+				client, ok := app.tracker.GetClient(req.TargetIP)
+				if !ok {
+					log.Warnf("Target client %s not found for injection", req.TargetIP)
+					continue
+				}
+
+				// Craft and send the packet
+				rawPacket, err := packet.CraftPacket(client.ServerIP, client.IP, client.ServerPort, client.Port, req.Payload)
+				if err != nil {
+					log.Errorf("Failed to craft packet: %v", err)
+					continue
+				}
+				if err := packet.Send(client.IP, rawPacket); err != nil {
+					log.Errorf("Failed to send packet: %v", err)
+					continue
+				}
+				log.Infof("Injecting packet to %s (payload size: %d)", client.IP, len(req.Payload))
+			}
+		}
+	}
+}
+
 func buildManipulators(cfg *config.Config) ([]manipulator.Manipulator, error) {
 	if len(cfg.Manipulators) == 0 {
 		return nil, nil
@@ -229,6 +297,7 @@ func buildManipulators(cfg *config.Config) ([]manipulator.Manipulator, error) {
 	}
 	return result, nil
 }
+
 
 func printBanner(cfg *config.Config) {
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")

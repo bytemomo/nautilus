@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bytemomo/siren/internal/intercept"
+	"bytemomo/siren/internal/client"
 	"bytemomo/siren/internal/core"
 	"bytemomo/siren/internal/manipulator"
 	"bytemomo/siren/internal/sirenerr"
@@ -128,20 +129,32 @@ type TrafficProcessor struct {
 	stats        *ProxyStats
 	log          *logrus.Entry
 	manipulators []manipulator.Manipulator
+	tracker      *client.Tracker
 }
 
-func NewTrafficProcessor(engine *intercept.Engine, rec *recorder.Recorder, stats *ProxyStats, log *logrus.Entry, manipulators []manipulator.Manipulator) *TrafficProcessor {
+func NewTrafficProcessor(engine *intercept.Engine, rec *recorder.Recorder, stats *ProxyStats, log *logrus.Entry, manipulators []manipulator.Manipulator, tracker *client.Tracker) *TrafficProcessor {
 	return &TrafficProcessor{
 		engine:       engine,
 		recorder:     rec,
 		stats:        stats,
 		log:          log,
 		manipulators: manipulators,
+		tracker:      tracker,
 	}
 }
 
 // Process applies the full interception and manipulation pipeline to a traffic context.
 func (tp *TrafficProcessor) Process(ctx context.Context, tc *core.TrafficContext) (*core.ProcessingResult, error) {
+	tp.tracker.AddOrUpdate(&client.Client{
+		IP:       tc.Conn.ClientAddr.(*net.TCPAddr).IP,
+		MAC:      nil, // TODO: Get MAC address
+		Port:     uint16(tc.Conn.ClientAddr.(*net.TCPAddr).Port),
+		Protocol: "tcp",
+		ServerIP: tc.Conn.ServerAddr.(*net.TCPAddr).IP,
+		ServerPort: uint16(tc.Conn.ServerAddr.(*net.TCPAddr).Port),
+		LastSeen: time.Now(),
+	})
+
 	// 1. Evaluate rules
 	result, err := tp.evaluateRules(ctx, tc)
 	if err != nil {
