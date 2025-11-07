@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Client represents a discovered client.
@@ -21,12 +23,14 @@ type Client struct {
 type Tracker struct {
 	mu      sync.RWMutex
 	clients map[string]*Client
+	logger  *logrus.Logger
 }
 
 // NewTracker creates a new client tracker.
-func NewTracker() *Tracker {
+func NewTracker(logger *logrus.Logger) *Tracker {
 	return &Tracker{
 		clients: make(map[string]*Client),
+		logger:  logger,
 	}
 }
 
@@ -35,6 +39,9 @@ func (t *Tracker) AddOrUpdate(client *Client) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	key := client.IP.String()
+	if _, ok := t.clients[key]; !ok {
+		t.logger.Infof("Discovered new client: %s", key)
+	}
 	t.clients[key] = client
 }
 
@@ -65,6 +72,7 @@ func (t *Tracker) Prune(maxAge time.Duration) {
 	for key, client := range t.clients {
 		if now.Sub(client.LastSeen) > maxAge {
 			delete(t.clients, key)
+			t.logger.Infof("Pruned inactive client: %s", key)
 		}
 	}
 }

@@ -5,14 +5,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
-	"time"
 
-	"bytemomo/siren/internal/client"
 	"bytemomo/siren/internal/config"
 	"bytemomo/siren/internal/ebpf"
+	"bytemomo/siren/internal/client"
 	"bytemomo/siren/internal/injector"
 	"bytemomo/siren/internal/intercept"
 	"bytemomo/siren/internal/manipulator"
@@ -91,6 +93,7 @@ func (a *application) Cleanup() {
 	}
 }
 
+
 func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, error) {
 	engine, err := buildEngine(cfg, log)
 	if err != nil {
@@ -107,7 +110,7 @@ func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, err
 		return nil, fmt.Errorf("failed to configure manipulators: %w", err)
 	}
 
-	tracker := client.NewTracker()
+	tracker := client.NewTracker(log)
 	processor := proxy.NewTrafficProcessor(engine, rec, proxy.NewProxyStats(), log.WithField("component", "processor"), manips, tracker)
 
 	targets, err := parseTargets(cfg.Ebpf)
@@ -231,7 +234,7 @@ func buildInjector(cfg *config.Config, log *logrus.Logger) (injector.Injector, e
 		return nil, nil
 	}
 	log.Infof("File injector enabled: %s", cfg.Injector.FilePath)
-	return injector.NewFileInjector(cfg.Injector.FilePath), nil
+	return injector.NewFileInjector(cfg.Injector.FilePath, log), nil
 }
 
 func runInjectionLoop(ctx context.Context, app *application, log *logrus.Logger) {
@@ -261,12 +264,13 @@ func runInjectionLoop(ctx context.Context, app *application, log *logrus.Logger)
 				}
 
 				// Craft and send the packet
-				rawPacket, err := packet.CraftPacket(client.ServerIP, client.IP, client.ServerPort, client.Port, req.Payload)
+				p := packet.New(log)
+				rawPacket, err := p.CraftPacket(client.ServerIP, client.IP, client.ServerPort, client.Port, req.Payload)
 				if err != nil {
 					log.Errorf("Failed to craft packet: %v", err)
 					continue
 				}
-				if err := packet.Send(client.IP, rawPacket); err != nil {
+				if err := p.Send(client.IP, rawPacket); err != nil {
 					log.Errorf("Failed to send packet: %v", err)
 					continue
 				}
@@ -294,6 +298,7 @@ func buildManipulators(cfg *config.Config) ([]manipulator.Manipulator, error) {
 	}
 	return result, nil
 }
+
 
 func printBanner(cfg *config.Config) {
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
