@@ -186,17 +186,19 @@ static __always_inline void emit_event(struct xdp_md *ctx, const struct flow_key
     __builtin_memcpy(evt->dst_mac, eth->h_dest, ETH_ALEN);
 
     __u64 avail = data_end - data;
-    __u32 snaplen = total_len;
-    if (snaplen > avail)
-        snaplen = avail;
-    if (snaplen > SIREN_SNAPLEN)
-        snaplen = SIREN_SNAPLEN;
+    __u32 read_len = total_len;
 
-    evt->capture_len = snaplen;
+    if (read_len > avail)
+        read_len = avail;
+
+    if (read_len > SIREN_SNAPLEN)
+        read_len = SIREN_SNAPLEN;
+
+    evt->capture_len = read_len;
     evt->payload_off = payload_off;
 
-    if (snaplen > 0)
-        bpf_probe_read_kernel(evt->payload, snaplen, data);
+    if (read_len > 0)
+        bpf_probe_read_kernel(evt->payload, read_len & (SIREN_SNAPLEN - 1), data);
 
     bpf_ringbuf_submit(evt, 0);
 }

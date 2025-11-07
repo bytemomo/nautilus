@@ -17,5 +17,6 @@ kraken_build_modules:
 
 
 siren_build:
-    go generate siren/ebpf
+    rm ./siren/ebpf/program/xdp_proxy.bpf.o
+    go generate ./siren/ebpf
     go build -o dist/siren ./siren/main.go
