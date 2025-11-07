@@ -188,7 +188,7 @@ type TrafficInfo struct {
 // Matches evaluates if the traffic matches all compiled criteria.
 func (mc *MatchCriteria) Matches(info *TrafficInfo) bool {
 	if len(mc.matchers) == 0 {
-		return true // No criteria means it's a universal match
+		return true
 	}
 	for _, matcher := range mc.matchers {
 		if !matcher(info) {
@@ -335,10 +335,9 @@ func matchPattern(pattern, s string) bool {
 	regexPattern = strings.ReplaceAll(regexPattern, `\?`, `.`)
 	regexPattern += "$"
 
-	// This could be cached if performance is critical
 	re, err := regexp.Compile(regexPattern)
 	if err != nil {
-		return false // Invalid patterns fail to match
+		return false
 	}
 	return re.MatchString(s)
 }

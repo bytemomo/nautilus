@@ -6,8 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"bytemomo/siren/config"
-	"bytemomo/siren/ebpf"
+	"bytemomo/siren/internal/ebpf"
 )
 
 // Target parsing logic
@@ -60,7 +59,7 @@ func parseTargetEntry(raw string) (ebpf.Target, error) {
 			return tgt, nil
 		}
 	}
-	return parseIPTarget(raw) // Default to IP target
+	return parseIPTarget(raw)
 }
 
 func parseIPTarget(val string) (ebpf.Target, error) {

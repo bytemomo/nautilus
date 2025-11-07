@@ -290,8 +290,7 @@ func (r *Recorder) writeJSON() (uint64, uint64, error) {
 		if err != nil {
 			return 0, 0, err
 		}
-		// Note: We don't have an exact byte count from the encoder, so this is an estimate.
-		bytesWritten += uint64(len(record.Payload) + 100) // Rough estimate
+		bytesWritten += uint64(len(record.Payload) + 100)
 	}
 	return uint64(len(r.buffer)), bytesWritten, nil
 }

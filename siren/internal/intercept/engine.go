@@ -3,8 +3,11 @@ package intercept
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Engine evaluates traffic against rules and executes actions
@@ -12,12 +15,12 @@ type Engine struct {
 	ruleSet *RuleSet
 	mu      sync.RWMutex
 	stats   *EngineStats
-	logger  Logger
+	logger  *logrus.Logger
 }
 
 // EngineStats tracks engine statistics
 type EngineStats struct {
-	mu               sync.RWMutex
+	mu              sync.RWMutex
 	TotalEvaluations uint64
 	RulesMatched     uint64
 	RulesFailed      uint64
@@ -25,17 +28,8 @@ type EngineStats struct {
 	ActionsFailed    uint64
 }
 
-// Logger interface for engine logging
-type Logger interface {
-	Trace(args ...interface{})
-	Debug(args ...interface{})
-	Info(args ...interface{})
-	Warn(args ...interface{})
-	Error(args ...interface{})
-}
-
 // NewEngine creates a new interception engine
-func NewEngine(ruleSet *RuleSet, logger Logger) (*Engine, error) {
+func NewEngine(ruleSet *RuleSet, logger *logrus.Logger) (*Engine, error) {
 	if ruleSet == nil {
 		return nil, fmt.Errorf("rule set cannot be nil")
 	}
@@ -49,7 +43,8 @@ func NewEngine(ruleSet *RuleSet, logger Logger) (*Engine, error) {
 	ruleSet.SortByPriority()
 
 	if logger == nil {
-		return nil, fmt.Errorf("logger cannot be nil")
+		logger = logrus.New()
+		logger.SetOutput(log.Writer())
 	}
 
 	return &Engine{
@@ -64,7 +59,6 @@ func NewEngine(ruleSet *RuleSet, logger Logger) (*Engine, error) {
 // the modifications are chained. Terminal actions like Drop or Disconnect
 // take precedence. All log actions are executed.
 func (e *Engine) Evaluate(ctx context.Context, info *TrafficInfo) (*ActionResult, error) {
-	e.logger.Trace("Evaluating packet: %+v", info)
 	e.stats.mu.Lock()
 	e.stats.TotalEvaluations++
 	e.stats.mu.Unlock()
@@ -82,9 +76,7 @@ func (e *Engine) Evaluate(ctx context.Context, info *TrafficInfo) (*ActionResult
 	var rulesMatched bool
 
 	// Evaluate rules in priority order
-	e.logger.Trace("Number of enabled rules: %d", len(rules))
 	for _, rule := range rules {
-		e.logger.Trace("Evaluating rule: %s", rule.Name)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -106,7 +98,7 @@ func (e *Engine) Evaluate(ctx context.Context, info *TrafficInfo) (*ActionResult
 		e.stats.RulesMatched++
 		e.stats.mu.Unlock()
 
-		e.logger.Debug("Rule matched: %s (priority: %d)", rule.Name, rule.Priority)
+		e.logger.Debugf("Rule matched: %s (priority: %d)", rule.Name, rule.Priority)
 
 		// Execute action on the current state of the payload
 		result, err := rule.Action.Apply(currentPayload)
@@ -115,7 +107,7 @@ func (e *Engine) Evaluate(ctx context.Context, info *TrafficInfo) (*ActionResult
 			e.stats.ActionsFailed++
 			e.stats.mu.Unlock()
 
-			e.logger.Error("Action failed for rule %s: %v", rule.Name, err)
+			e.logger.Errorf("Action failed for rule %s: %v", rule.Name, err)
 			continue // Skip to next rule
 		}
 
@@ -198,8 +190,8 @@ func (e *Engine) logAction(rule *Rule, result *ActionResult, info *TrafficInfo) 
 		level = lvl
 	}
 
-	logMsg := fmt.Sprintf("%s - Rule: %q, Direction: %s, Size: %d bytes",
-		message, rule.Name, info.Direction, info.Size)
+	logMsg := fmt.Sprintf("[%s] %s - Rule: %q, Direction: %s, Size: %d bytes",
+		strings.ToUpper(level), message, rule.Name, info.Direction, info.Size)
 
 	if dumpPayload, ok := result.Metadata["dump_payload"].(bool); ok && dumpPayload {
 		const maxPayloadLogSize = 256
@@ -212,13 +204,13 @@ func (e *Engine) logAction(rule *Rule, result *ActionResult, info *TrafficInfo) 
 
 	switch strings.ToLower(level) {
 	case "debug", "trace":
-		e.logger.Debug("%s", logMsg)
+		e.logger.Debugf("%s", logMsg)
 	case "warn", "warning":
-		e.logger.Warn("%s", logMsg)
+		e.logger.Warnf("%s", logMsg)
 	case "error":
-		e.logger.Error("%s", logMsg)
+		e.logger.Errorf("%s", logMsg)
 	default:
-		e.logger.Info("%s", logMsg)
+		e.logger.Infof("%s", logMsg)
 	}
 }
 
@@ -240,7 +232,7 @@ func (e *Engine) UpdateRuleSet(ruleSet *RuleSet) error {
 	defer e.mu.Unlock()
 	e.ruleSet = ruleSet
 
-	e.logger.Info("Rule set updated: %d rules", len(ruleSet.Rules))
+	e.logger.Infof("Rule set updated: %d rules", len(ruleSet.Rules))
 	return nil
 }
 
@@ -276,7 +268,7 @@ func (e *Engine) AddRule(rule *Rule) error {
 	// Re-sort by priority
 	e.ruleSet.SortByPriority()
 
-	e.logger.Info("Rule added: %s (priority: %d)", rule.Name, rule.Priority)
+	e.logger.Infof("Rule added: %s (priority: %d)", rule.Name, rule.Priority)
 	return nil
 }
 
@@ -289,7 +281,7 @@ func (e *Engine) RemoveRule(name string) error {
 		if rule.Name == name {
 			// Remove rule
 			e.ruleSet.Rules = append(e.ruleSet.Rules[:i], e.ruleSet.Rules[i+1:]...)
-			e.logger.Info("Rule removed: %s", name)
+			e.logger.Infof("Rule removed: %s", name)
 			return nil
 		}
 	}
@@ -305,7 +297,7 @@ func (e *Engine) EnableRule(name string) error {
 	for _, rule := range e.ruleSet.Rules {
 		if rule.Name == name {
 			rule.Enabled = true
-			e.logger.Info("Rule enabled: %s", name)
+			e.logger.Infof("Rule enabled: %s", name)
 			return nil
 		}
 	}
@@ -321,7 +313,7 @@ func (e *Engine) DisableRule(name string) error {
 	for _, rule := range e.ruleSet.Rules {
 		if rule.Name == name {
 			rule.Enabled = false
-			e.logger.Info("Rule disabled: %s", name)
+			e.logger.Infof("Rule disabled: %s", name)
 			return nil
 		}
 	}

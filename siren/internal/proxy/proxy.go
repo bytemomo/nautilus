@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"bytemomo/siren/intercept"
-	"bytemomo/siren/pkg/core"
-	"bytemomo/siren/pkg/manipulator"
-	"bytemomo/siren/pkg/sirenerr"
-	"bytemomo/siren/recorder"
+	"bytemomo/siren/internal/intercept"
+	"bytemomo/siren/internal/core"
+	"bytemomo/siren/internal/manipulator"
+	"bytemomo/siren/internal/sirenerr"
+	"bytemomo/siren/internal/recorder"
 
 	"github.com/sirupsen/logrus"
 )

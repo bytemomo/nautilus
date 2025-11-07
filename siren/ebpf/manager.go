@@ -466,6 +466,5 @@ type bpfFlowKey struct {
 
 type bpfFlowAction struct {
 	Action    uint32
-	_         uint32 // padding to match struct flow_action in xdp_proxy.c
 	ExpiresNs uint64
 }

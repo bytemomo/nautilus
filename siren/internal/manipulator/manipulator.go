@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"bytemomo/siren/pkg/core"
+	"bytemomo/siren/internal/core"
 )
 
 // Manipulator transforms traffic after rule evaluation.

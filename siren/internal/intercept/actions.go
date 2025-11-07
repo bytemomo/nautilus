@@ -194,9 +194,7 @@ func (a *Action) Compile() error {
 		if a.LogParams == nil {
 			return fmt.Errorf("log action requires parameters")
 		}
-		// No compilation needed for log params
 	case ActionDrop, ActionPass, ActionDisconnect:
-		// No compilation needed
 	default:
 		return fmt.Errorf("unknown action type: %s", a.Type)
 	}
@@ -317,7 +315,6 @@ func (a *Action) Apply(payload []byte) (*ActionResult, error) {
 	case ActionChain:
 		return a.applyChain(result, payload)
 	default:
-		// This should be caught by Compile, but as a safeguard:
 		return nil, fmt.Errorf("cannot apply unknown action type: %s", a.Type)
 	}
 }
@@ -326,7 +323,7 @@ func (a *Action) applyDrop(result *ActionResult) (*ActionResult, error) {
 	p := a.DropParams
 	if p != nil && p.Probability > 0 && p.Probability < 1.0 {
 		if randomFloat() > p.Probability {
-			return result, nil // Probabilistic non-drop
+			return result, nil
 		}
 	}
 	result.Drop = true
@@ -396,13 +393,12 @@ func (a *Action) applyChain(result *ActionResult, payload []byte) (*ActionResult
 	for _, childAction := range a.ChainParams.Actions {
 		childResult, err := childAction.Apply(currentPayload)
 		if err != nil {
-			return nil, err // Propagate errors from sub-actions
+			return nil, err
 		}
 
-		// Aggregate results
 		if childResult.Drop {
 			finalResult.Drop = true
-			return finalResult, nil // Terminal action
+			return finalResult, nil
 		}
 		if childResult.Disconnect {
 			finalResult.Disconnect = true
@@ -516,17 +512,14 @@ func parseDataSize(s string) (int, error) {
 	return num, nil
 }
 
-// randomFloat returns a random float64 between 0.0 and 1.0
 func randomFloat() float64 {
 	b := make([]byte, 8)
 	rand.Read(b)
-	// Convert to uint64 and normalize to [0, 1]
 	val := uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 	return float64(val) / float64(^uint64(0))
 }
 
-// randomInt returns a random int between 0 and max-1
 func randomInt(max int) int {
 	if max <= 0 {
 		return 0

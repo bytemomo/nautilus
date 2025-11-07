@@ -5,18 +5,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
-	"time"
 
-	"bytemomo/siren/config"
-	"bytemomo/siren/ebpf"
-	"bytemomo/siren/intercept"
-	"bytemomo/siren/pkg/logger"
-	"bytemomo/siren/pkg/manipulator"
-	"bytemomo/siren/proxy"
-	"bytemomo/siren/recorder"
+	"bytemomo/siren/internal/config"
+	"bytemomo/siren/internal/ebpf"
+	"bytemomo/siren/internal/intercept"
+	"bytemomo/siren/internal/manipulator"
+	"bytemomo/siren/internal/proxy"
+	"bytemomo/siren/internal/recorder"
 
 	"github.com/sirupsen/logrus"
 )
@@ -38,7 +39,16 @@ func main() {
 		return
 	}
 
-	log := initLogger()
+	log := logrus.New()
+	level, err := logrus.ParseLevel(*logLevel)
+	if err != nil {
+		log.Fatalf("Invalid log level: %v", err)
+	}
+	log.SetLevel(level)
+
+	if *configFile == "" {
+		log.Fatal("Configuration file is required. Use: siren -config <file>")
+	}
 
 	cfg, err := config.LoadConfig(*configFile)
 	if err != nil {
@@ -76,13 +86,6 @@ func (a *application) Cleanup() {
 	}
 }
 
-func initLogger() *logrus.Logger {
-	level, err := logrus.ParseLevel(*logLevel)
-	if err != nil {
-		logrus.Fatalf("Invalid log level: %v", err)
-	}
-	return logger.New(level)
-}
 
 func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, error) {
 	engine, err := buildEngine(cfg, log)
@@ -153,7 +156,6 @@ func runAndWait(ctx context.Context, cancel context.CancelFunc, rt *ebpf.Runtime
 	case sig := <-sigCh:
 		log.Infof("Received %s, shutting down...", sig)
 		cancel()
-		// Wait for the runtime to finish
 		if err := <-runtimeErr; err != nil && !errors.Is(err, context.Canceled) {
 			log.Errorf("Shutdown error: %v", err)
 		}
@@ -170,7 +172,6 @@ func buildEngine(cfg *config.Config, log *logrus.Logger) (*intercept.Engine, err
 		Description: cfg.Description,
 		Rules:       cfg.Rules,
 	}
-
 	engine, err := intercept.NewEngine(ruleSet, log)
 	if err != nil {
 		return nil, err
@@ -198,7 +199,7 @@ func buildRecorder(cfg *config.Config, log *logrus.Logger) (*recorder.Recorder, 
 	rec, err := recorder.NewRecorder(&recorder.RecorderConfig{
 		OutputPath:     cfg.Recording.Output,
 		Format:         cfg.Recording.Format,
-		BufferSize:     1000,
+		BufferSize:     1000, // Consider making this configurable
 		FlushInterval:  flushInterval,
 		IncludePayload: cfg.Recording.IncludePayload,
 		MaxFileSize:    maxFileSize,
@@ -231,6 +232,7 @@ func buildManipulators(cfg *config.Config) ([]manipulator.Manipulator, error) {
 	}
 	return result, nil
 }
+
 
 func printBanner(cfg *config.Config) {
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")

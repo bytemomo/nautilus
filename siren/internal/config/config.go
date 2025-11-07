@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"bytemomo/siren/intercept"
+	"bytemomo/siren/internal/intercept"
 
 	"github.com/go-playground/validator/v10"
 	"gopkg.in/yaml.v3"
@@ -53,8 +53,6 @@ func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// It's okay if the file doesn't exist, we'll use the default config.
-			// The validation step will catch any missing required fields (like interface).
 			return config, config.Validate()
 		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -87,7 +85,6 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	// Compile rules after basic validation
 	for i, rule := range c.Rules {
 		if err := rule.Action.Compile(); err != nil {
 			return fmt.Errorf("rule #%d (%s) action is invalid: %w", i+1, rule.Name, err)
@@ -161,37 +158,21 @@ func validateFileSize(fl validator.FieldLevel) bool {
 
 func parseFileSize(s string) (int64, error) {
 	s = strings.TrimSpace(strings.ToUpper(s))
-	if s == "" {
-		return 0, fmt.Errorf("file size cannot be empty")
+	multipliers := map[string]int64{
+		"B":  1,
+		"KB": 1024, "K": 1024,
+		"MB": 1024 * 1024, "M": 1024 * 1024,
+		"GB": 1024 * 1024 * 1024, "G": 1024 * 1024 * 1024,
 	}
 
-	type suffixDef struct {
-		suffix     string
-		multiplier int64
-	}
-
-	// Check longer suffixes first so "MB" does not get matched by the plain "B".
-	suffixes := []suffixDef{
-		{"GB", 1024 * 1024 * 1024},
-		{"G", 1024 * 1024 * 1024},
-		{"MB", 1024 * 1024},
-		{"M", 1024 * 1024},
-		{"KB", 1024},
-		{"K", 1024},
-		{"B", 1},
-	}
-
-	for _, def := range suffixes {
-		if strings.HasSuffix(s, def.suffix) {
-			numStr := strings.TrimSpace(strings.TrimSuffix(s, def.suffix))
-			if numStr == "" {
-				return 0, fmt.Errorf("missing number in file size: %q", s)
-			}
-			num, err := strconv.ParseInt(numStr, 10, 64)
+	for suffix, multiplier := range multipliers {
+		if strings.HasSuffix(s, suffix) {
+			numStr := strings.TrimSuffix(s, suffix)
+			num, err := strconv.ParseInt(strings.TrimSpace(numStr), 10, 64)
 			if err != nil {
-				return 0, fmt.Errorf("invalid number in file size %q: %w", s, err)
+				return 0, fmt.Errorf("invalid number in file size: %w", err)
 			}
-			return num * def.multiplier, nil
+			return num * multiplier, nil
 		}
 	}
 
