@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"bytemomo/siren/intercept"
+	"bytemomo/siren/internal/intercept"
 )
 
 // Direction indicates the flow of traffic.

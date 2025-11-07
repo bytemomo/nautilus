@@ -75,6 +75,20 @@ type RecorderStats struct {
 	CurrentFileSize int64
 }
 
+func (s *RecorderStats) update(records, bytes, failed uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.RecordsWritten += records
+	s.BytesWritten += bytes
+	s.RecordsFailed += failed
+}
+
+var formatWriters = map[string]func(r *Recorder) (uint64, uint64, error){
+	"json": (*Recorder).writeJSON,
+	"pcap": (*Recorder).writePCAP,
+	"raw":  (*Recorder).writeRaw,
+}
+
 type pcapGlobalHeader struct {
 	MagicNumber  uint32
 	VersionMajor uint16
@@ -236,71 +250,61 @@ func (r *Recorder) Flush() error {
 	return r.flushUnlocked()
 }
 
-// flushUnlocked flushes without acquiring the lock (caller must hold lock)
+// flushUnlocked flushes the buffer to the configured output file.
+// The caller must hold the mutex.
 func (r *Recorder) flushUnlocked() error {
 	if len(r.buffer) == 0 {
 		return nil
 	}
 
-	// Check if we need to rotate the file
-	if r.config.MaxFileSize > 0 {
-		stat, err := r.file.Stat()
-		if err == nil && stat.Size() >= r.config.MaxFileSize {
-			if err := r.rotateFile(); err != nil {
-				return err
-			}
-		}
+	if err := r.checkAndRotateFile(); err != nil {
+		r.handleWriteError(err, len(r.buffer))
+		return fmt.Errorf("failed to rotate file: %w", err)
 	}
 
-	// Write records based on format
-	var err error
-	switch strings.ToLower(r.config.Format) {
-	case "json":
-		err = r.writeJSON()
-	case "raw":
-		err = r.writeRaw()
-	case "pcap":
-		err = r.writePCAP()
-	default:
-		err = r.writePCAP()
+	writer, ok := formatWriters[strings.ToLower(r.config.Format)]
+	if !ok {
+		writer = (*Recorder).writePCAP // Default to PCAP
 	}
 
+	recordsWritten, bytesWritten, err := writer(r)
 	if err != nil {
-		r.stats.mu.Lock()
-		r.stats.RecordsFailed += uint64(len(r.buffer))
-		r.stats.mu.Unlock()
+		r.handleWriteError(err, len(r.buffer))
 		return err
 	}
 
-	// Update stats
-	r.stats.mu.Lock()
-	r.stats.RecordsWritten += uint64(len(r.buffer))
-	r.stats.mu.Unlock()
-
-	// Clear buffer
-	r.buffer = r.buffer[:0]
-
+	r.stats.update(recordsWritten, bytesWritten, 0)
+	r.buffer = r.buffer[:0] // Clear buffer
 	return nil
 }
 
-// writeJSON writes records as JSON lines
-func (r *Recorder) writeJSON() error {
+func (r *Recorder) handleWriteError(err error, numRecords int) {
+	fmt.Fprintf(os.Stderr, "recorder: write error: %v\n", err)
+	r.stats.update(0, 0, uint64(numRecords))
+}
+
+func (r *Recorder) writeJSON() (uint64, uint64, error) {
+	var bytesWritten uint64
 	for _, record := range r.buffer {
-		if err := r.encoder.Encode(record); err != nil {
-			return err
+		err := r.encoder.Encode(record)
+		if err != nil {
+			return 0, 0, err
 		}
+		bytesWritten += uint64(len(record.Payload) + 100)
 	}
-	return nil
+	return uint64(len(r.buffer)), bytesWritten, nil
 }
 
-func (r *Recorder) writePCAP() error {
-	if err := r.writePCAPHeader(); err != nil {
-		return err
-	}
+func (r *Recorder) writePCAP() (uint64, uint64, error) {
+	var bytesWritten uint64
+	var recordsWritten uint64
+	buf := make([]byte, 16) // Buffer for PCAP record header
+
 	for _, record := range r.buffer {
 		if len(record.Data) == 0 {
 			continue
 		}
+
 		ts := record.Timestamp
 		hdr := pcapRecordHeader{
 			TsSec:   uint32(ts.Unix()),
@@ -311,58 +315,48 @@ func (r *Recorder) writePCAP() error {
 		if hdr.OrigLen == 0 {
 			hdr.OrigLen = hdr.InclLen
 		}
-		if err := binary.Write(r.file, binary.LittleEndian, &hdr); err != nil {
-			return err
+
+		binary.LittleEndian.PutUint32(buf[0:4], hdr.TsSec)
+		binary.LittleEndian.PutUint32(buf[4:8], hdr.TsUsec)
+		binary.LittleEndian.PutUint32(buf[8:12], hdr.InclLen)
+		binary.LittleEndian.PutUint32(buf[12:16], hdr.OrigLen)
+
+		if _, err := r.file.Write(buf); err != nil {
+			return recordsWritten, bytesWritten, err
 		}
 		if _, err := r.file.Write(record.Data); err != nil {
-			return err
+			return recordsWritten, bytesWritten, err
 		}
 
-		r.stats.BytesWritten += uint64(16 + len(record.Data))
-		r.stats.CurrentFileSize += int64(16 + len(record.Data))
+		bytesWritten += uint64(16 + len(record.Data))
+		recordsWritten++
 	}
-	return nil
+	return recordsWritten, bytesWritten, nil
 }
 
-// writeRaw writes records as raw binary
-func (r *Recorder) writeRaw() error {
+func (r *Recorder) writeRaw() (uint64, uint64, error) {
+	var bytesWritten uint64
+	buf := make([]byte, 12) // Buffer for timestamp and size
+
 	for _, record := range r.buffer {
-		// Write timestamp (8 bytes)
-		ts := record.Timestamp.Unix()
-		if _, err := r.file.Write([]byte{
-			byte(ts >> 56), byte(ts >> 48), byte(ts >> 40), byte(ts >> 32),
-			byte(ts >> 24), byte(ts >> 16), byte(ts >> 8), byte(ts),
-		}); err != nil {
-			return err
-		}
+		binary.BigEndian.PutUint64(buf[0:8], uint64(record.Timestamp.Unix()))
+		binary.BigEndian.PutUint32(buf[8:12], uint32(record.Size))
 
-		// Write size (4 bytes)
-		size := uint32(record.Size)
-		if _, err := r.file.Write([]byte{
-			byte(size >> 24), byte(size >> 16), byte(size >> 8), byte(size),
-		}); err != nil {
-			return err
+		if _, err := r.file.Write(buf); err != nil {
+			return uint64(len(r.buffer)), bytesWritten, err
 		}
-
-		// Write payload
 		if record.Payload != nil {
 			if _, err := r.file.Write(record.Payload); err != nil {
-				return err
+				return uint64(len(r.buffer)), bytesWritten, err
 			}
 		}
-
-		r.stats.mu.Lock()
-		r.stats.BytesWritten += uint64(12 + len(record.Payload))
-		r.stats.CurrentFileSize += int64(12 + len(record.Payload))
-		r.stats.mu.Unlock()
+		bytesWritten += uint64(12 + len(record.Payload))
 	}
-	return nil
+	return uint64(len(r.buffer)), bytesWritten, nil
 }
 
-// flushLoop periodically flushes the buffer
 func (r *Recorder) flushLoop() {
 	defer r.wg.Done()
-
 	ticker := time.NewTicker(r.config.FlushInterval)
 	defer ticker.Stop()
 
@@ -376,35 +370,42 @@ func (r *Recorder) flushLoop() {
 	}
 }
 
-// rotateFile closes current file and opens a new one
+func (r *Recorder) checkAndRotateFile() error {
+	if r.config.MaxFileSize <= 0 {
+		return nil
+	}
+	if r.stats.CurrentFileSize < r.config.MaxFileSize {
+		return nil
+	}
+	return r.rotateFile()
+}
+
 func (r *Recorder) rotateFile() error {
-	// Close current file
-	if err := r.file.Close(); err != nil {
-		return err
+	r.file.Close()
+	timestamp := time.Now().Format("20060102-150405")
+	ext := ".pcap" // default extension
+	base := strings.TrimSuffix(r.config.OutputPath, ext)
+	newPath := fmt.Sprintf("%s-%s%s", base, timestamp, ext)
+
+	if err := os.Rename(r.config.OutputPath, newPath); err != nil {
+		return fmt.Errorf("failed to rename old log file: %w", err)
 	}
 
-	// Rename current file with timestamp
-	timestamp := time.Now().Format("20060102_150405")
-	oldPath := r.config.OutputPath
-	newPath := fmt.Sprintf("%s.%s", oldPath, timestamp)
-	if err := os.Rename(oldPath, newPath); err != nil {
-		return err
-	}
-
-	// Open new file
-	file, err := os.OpenFile(oldPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(r.config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open new log file: %w", err)
 	}
-
 	r.file = file
+
 	if r.config.Format == "json" {
 		r.encoder = json.NewEncoder(file)
-	}
-	if strings.EqualFold(r.config.Format, "pcap") {
+	} else if r.config.Format == "pcap" {
 		r.pcapHeaderWritten = false
 		if err := r.writePCAPHeader(); err != nil {
-			return err
+			// Attempt to clean up and restore state
+			r.file.Close()
+			os.Rename(newPath, r.config.OutputPath)
+			return fmt.Errorf("failed to write pcap header to new file: %w", err)
 		}
 	}
 

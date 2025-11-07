@@ -466,5 +466,6 @@ type bpfFlowKey struct {
 
 type bpfFlowAction struct {
 	Action    uint32
+	_         uint32 // align with C struct padding to reach 16 bytes
 	ExpiresNs uint64
 }

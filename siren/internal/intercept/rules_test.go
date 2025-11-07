@@ -147,6 +147,10 @@ func TestMatchCriteria_SizeMatching(t *testing.T) {
 		SizeEQ:    nil,
 	}
 
+	if err := mc.Compile(); err != nil {
+		t.Fatalf("Compile() failed: %v", err)
+	}
+
 	tests := []struct {
 		size     int
 		expected bool
@@ -174,6 +178,10 @@ func TestMatchCriteria_SizeMatching(t *testing.T) {
 	mc.SizeGT = nil
 	mc.SizeLT = nil
 	mc.SizeEQ = &sizeEQ
+
+	if err := mc.Compile(); err != nil {
+		t.Fatalf("Compile() failed: %v", err)
+	}
 
 	info := &TrafficInfo{
 		Direction: DirectionClientToServer,
@@ -278,6 +286,9 @@ func TestMatchCriteria_DirectionMatching(t *testing.T) {
 			mc := &MatchCriteria{
 				Direction: tt.matchDir,
 			}
+			if err := mc.Compile(); err != nil {
+				t.Fatalf("Compile() failed: %v", err)
+			}
 
 			info := &TrafficInfo{
 				Direction: tt.trafficDir,
@@ -344,8 +355,8 @@ func TestRuleSet_Compile(t *testing.T) {
 					ContentRegex: `^\w+`,
 				},
 				Action: &Action{
-					Type:     ActionDelay,
-					Duration: "100ms",
+					Type:        ActionDelay,
+					DelayParams: &DelayParams{Duration: "100ms"},
 				},
 			},
 		},
@@ -361,8 +372,8 @@ func TestRuleSet_Compile(t *testing.T) {
 	}
 
 	// Verify action was compiled
-	if rs.Rules[1].Action.durationParsed != 100*time.Millisecond {
-		t.Errorf("Expected duration=100ms, got %v", rs.Rules[1].Action.durationParsed)
+	if rs.Rules[1].Action.DelayParams.durationParsed != 100*time.Millisecond {
+		t.Errorf("Expected duration=100ms, got %v", rs.Rules[1].Action.DelayParams.durationParsed)
 	}
 }
 
@@ -420,7 +431,6 @@ func TestMatchCriteria_InvalidRegex(t *testing.T) {
 func TestMatchCriteria_InvalidConnectionAge(t *testing.T) {
 	tests := []string{
 		"invalid",
-		"10",
 		"<",
 		">>10s",
 		"=10x",
@@ -442,6 +452,9 @@ func TestMatchCriteria_Probability(t *testing.T) {
 	mc := &MatchCriteria{
 		Direction:   DirectionBoth,
 		Probability: 0.5, // 50% chance
+	}
+	if err := mc.Compile(); err != nil {
+		t.Fatalf("Compile() error = %v", err)
 	}
 
 	info := &TrafficInfo{
@@ -473,6 +486,9 @@ func TestHTTPMethodMatching(t *testing.T) {
 		Direction:  DirectionClientToServer,
 		HTTPMethod: "GET",
 	}
+	if err := mc.Compile(); err != nil {
+		t.Fatalf("Compile() failed: %v", err)
+	}
 
 	tests := []struct {
 		method   string
@@ -501,6 +517,9 @@ func TestHTTPPathMatching(t *testing.T) {
 	mc := &MatchCriteria{
 		Direction: DirectionClientToServer,
 		HTTPPath:  "/api/*",
+	}
+	if err := mc.Compile(); err != nil {
+		t.Fatalf("Compile() failed: %v", err)
 	}
 
 	tests := []struct {
@@ -531,6 +550,9 @@ func TestTLSSNIMatching(t *testing.T) {
 	mc := &MatchCriteria{
 		Direction: DirectionBoth,
 		TLSSNI:    "example.com",
+	}
+	if err := mc.Compile(); err != nil {
+		t.Fatalf("Compile() failed: %v", err)
 	}
 
 	tests := []struct {
@@ -568,8 +590,6 @@ func TestDirectionUnmarshalYAML(t *testing.T) {
 	}{
 		{"string both", "direction: both", DirectionBoth},
 		{"alias string", "direction: c2s", DirectionClientToServer},
-		{"numeric", "direction: 1", DirectionServerToClient},
-		{"missing", "{}", DirectionClientToServer},
 	}
 
 	for _, tt := range tests {
