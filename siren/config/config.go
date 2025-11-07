@@ -12,60 +12,18 @@ import (
 
 // Config represents the complete Siren configuration
 type Config struct {
-	Name         string                `yaml:"name" json:"name"`
-	Description  string                `yaml:"description,omitempty" json:"description,omitempty"`
-	Proxy        *ProxyConfig          `yaml:"proxy" json:"proxy"`
-	Rules        []*intercept.Rule     `yaml:"rules,omitempty" json:"rules,omitempty"`
-	Manipulators []*ManipulatorConfig  `yaml:"manipulators,omitempty" json:"manipulators,omitempty"`
-	Recording    *RecordingConfig      `yaml:"recording,omitempty" json:"recording,omitempty"`
-	Spoof        *SpoofConfig          `yaml:"spoof,omitempty" json:"spoof,omitempty"`
-	API          *APIConfig            `yaml:"api,omitempty" json:"api,omitempty"`
-}
-
-// ProxyConfig configures the proxy behavior
-type ProxyConfig struct {
-	Listen            string        `yaml:"listen" json:"listen"`
-	Target            string        `yaml:"target" json:"target"`
-	Protocol          string        `yaml:"protocol" json:"protocol"`
-	MaxConnections    int           `yaml:"max_connections,omitempty" json:"max_connections,omitempty"`
-	ConnectionTimeout string        `yaml:"connection_timeout,omitempty" json:"connection_timeout,omitempty"`
-	BufferSize        int           `yaml:"buffer_size,omitempty" json:"buffer_size,omitempty"`
-	Conduit           *ConduitConfig `yaml:"conduit,omitempty" json:"conduit,omitempty"`
-	TLS               *TLSConfig     `yaml:"tls,omitempty" json:"tls,omitempty"`
-	DTLS              *DTLSConfig    `yaml:"dtls,omitempty" json:"dtls,omitempty"`
+	Name         string               `yaml:"name" json:"name"`
+	Description  string               `yaml:"description,omitempty" json:"description,omitempty"`
+	Ebpf         *EbpfConfig          `yaml:"ebpf,omitempty" json:"ebpf,omitempty"`
+	Rules        []*intercept.Rule    `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Manipulators []*ManipulatorConfig `yaml:"manipulators,omitempty" json:"manipulators,omitempty"`
+	Recording    *RecordingConfig     `yaml:"recording,omitempty" json:"recording,omitempty"`
 }
 
 // ManipulatorConfig configures a single manipulator.
 type ManipulatorConfig struct {
 	Name   string                 `yaml:"name" json:"name"`
 	Params map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`
-}
-
-// ConduitConfig configures the Trident conduit stack
-type ConduitConfig struct {
-	Kind  int            `yaml:"kind" json:"kind"`
-	Stack []*LayerConfig `yaml:"stack" json:"stack"`
-}
-
-// LayerConfig configures a single layer in the conduit stack
-type LayerConfig struct {
-	Name   string                 `yaml:"name" json:"name"`
-	Params map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`
-}
-
-// TLSConfig configures TLS settings
-type TLSConfig struct {
-	CertFile   string `yaml:"cert_file,omitempty" json:"cert_file,omitempty"`
-	KeyFile    string `yaml:"key_file,omitempty" json:"key_file,omitempty"`
-	ServerName string `yaml:"server_name,omitempty" json:"server_name,omitempty"`
-	SkipVerify bool   `yaml:"skip_verify,omitempty" json:"skip_verify,omitempty"`
-}
-
-// DTLSConfig configures DTLS settings
-type DTLSConfig struct {
-	CertFile   string `yaml:"cert_file,omitempty" json:"cert_file,omitempty"`
-	KeyFile    string `yaml:"key_file,omitempty" json:"key_file,omitempty"`
-	SkipVerify bool   `yaml:"skip_verify,omitempty" json:"skip_verify,omitempty"`
 }
 
 // RecordingConfig configures traffic recording
@@ -78,32 +36,11 @@ type RecordingConfig struct {
 	FlushInterval  string `yaml:"flush_interval,omitempty" json:"flush_interval,omitempty"`
 }
 
-// SpoofConfig configures network spoofing
-type SpoofConfig struct {
-	ARP *ARPSpoofConfig `yaml:"arp,omitempty" json:"arp,omitempty"`
-	DNS *DNSSpoofConfig `yaml:"dns,omitempty" json:"dns,omitempty"`
-}
-
-// ARPSpoofConfig configures ARP spoofing
-type ARPSpoofConfig struct {
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
-	Interface string `yaml:"interface" json:"interface"`
-	Target    string `yaml:"target" json:"target"`
-	Gateway   string `yaml:"gateway" json:"gateway"`
-}
-
-// DNSSpoofConfig configures DNS spoofing
-type DNSSpoofConfig struct {
-	Enabled   bool              `yaml:"enabled" json:"enabled"`
-	Listen    string            `yaml:"listen" json:"listen"`
-	Upstream  string            `yaml:"upstream" json:"upstream"`
-	Overrides map[string]string `yaml:"overrides,omitempty" json:"overrides,omitempty"`
-}
-
-// APIConfig configures the REST API
-type APIConfig struct {
-	Enabled bool   `yaml:"enabled" json:"enabled"`
-	Listen  string `yaml:"listen" json:"listen"`
+// EbpfConfig controls eBPF mode.
+type EbpfConfig struct {
+	Interface          string   `yaml:"interface" json:"interface"`
+	DropActionDuration string   `yaml:"drop_action_duration,omitempty" json:"drop_action_duration,omitempty"`
+	Targets            []string `yaml:"targets,omitempty" json:"targets,omitempty"`
 }
 
 // LoadConfig loads configuration from a YAML file
@@ -141,34 +78,11 @@ func SaveConfig(config *Config, path string) error {
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
-	if c.Proxy == nil {
-		return fmt.Errorf("proxy configuration is required")
+	if c.Ebpf == nil {
+		return fmt.Errorf("ebpf configuration is required")
 	}
-
-	if c.Proxy.Listen == "" {
-		return fmt.Errorf("proxy.listen is required")
-	}
-
-	if c.Proxy.Target == "" {
-		return fmt.Errorf("proxy.target is required")
-	}
-
-	if c.Proxy.Protocol == "" {
-		c.Proxy.Protocol = "tcp"
-	}
-
-	switch c.Proxy.Protocol {
-	case "tcp", "tls", "udp", "dtls":
-	default:
-		return fmt.Errorf("invalid protocol: %s (must be tcp, tls, udp, or dtls)", c.Proxy.Protocol)
-	}
-
-	if c.Proxy.MaxConnections == 0 {
-		c.Proxy.MaxConnections = 1000
-	}
-
-	if c.Proxy.BufferSize == 0 {
-		c.Proxy.BufferSize = 32 * 1024
+	if c.Ebpf.Interface == "" {
+		return fmt.Errorf("ebpf.interface is required")
 	}
 
 	if len(c.Rules) > 0 {
@@ -189,18 +103,6 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
-}
-
-// GetConnectionTimeout returns the parsed connection timeout
-func (p *ProxyConfig) GetConnectionTimeout() time.Duration {
-	if p.ConnectionTimeout == "" {
-		return 30 * time.Second
-	}
-	d, err := time.ParseDuration(p.ConnectionTimeout)
-	if err != nil {
-		return 30 * time.Second
-	}
-	return d
 }
 
 // GetFlushInterval returns the parsed flush interval
@@ -237,24 +139,32 @@ func (r *RecordingConfig) GetMaxFileSize() int64 {
 	}
 }
 
+// GetDropDuration returns the parsed duration for flow drops.
+func (e *EbpfConfig) GetDropDuration() time.Duration {
+	if e == nil || e.DropActionDuration == "" {
+		return 10 * time.Second
+	}
+	d, err := time.ParseDuration(e.DropActionDuration)
+	if err != nil {
+		return 10 * time.Second
+	}
+	return d
+}
+
 // DefaultConfig returns a default configuration
 func DefaultConfig() *Config {
 	return &Config{
 		Name:        "Default Siren Config",
 		Description: "Default configuration",
-		Proxy: &ProxyConfig{
-			Listen:            ":8080",
-			Target:            "localhost:80",
-			Protocol:          "tcp",
-			MaxConnections:    1000,
-			ConnectionTimeout: "30s",
-			BufferSize:        32768,
+		Ebpf: &EbpfConfig{
+			Interface:          "eth0",
+			DropActionDuration: "5s",
 		},
-		Rules: []*intercept.Rule{},
+		Rules: make([]*intercept.Rule, 0),
 		Recording: &RecordingConfig{
 			Enabled:        false,
-			Output:         "captures/traffic.json",
-			Format:         "json",
+			Output:         "captures/traffic.pcap",
+			Format:         "pcap",
 			IncludePayload: true,
 			MaxFileSize:    "100MB",
 			FlushInterval:  "5s",

@@ -11,11 +11,11 @@ The two agents do complementary jobs on network environments:
 - **kraken** tests servers acting as a client that can execute modules that implements
   security testing. A module can implement fuzzing, specific CVE, misconfiguration
   checks, etc...
-- **siren** tests clients acting as a transparent proxy in-between the real server
-  and client. This gives great flexibility as the proxy can simply forward the messages
-  to the server and get what would be the real response, also being transparent
-  gives an advantage to modify as little as possible the environment configuration.
-  Siren main objective is to be able to interact and tests clients as such it can:
+- **siren** tests clients by transparently intercepting traffic directly in the
+  kernel via eBPF/XDP. The agent attaches to an interface and copies packets
+  that match the configured `targets` (IP, `ip:port`, MAC, or EtherCAT slave ID),
+  keeping deployment simple while remaining invisible to endpoints. Siren's
+  intercept engine exposes the same manipulation capabilities:
     1. Modify traffic
     2. Delay traffic
     3. Rule based approaches on traffic (regex)
@@ -26,15 +26,6 @@ The two agents do complementary jobs on network environments:
     8. Corrupting traffic ()
     9. Module based interaction: instead of the connection handle, siren, will
        forward the data already parsed based on a user-defined schema in YAML/source.
-
-> [!NOTE]
-> Having limited time the siren implementation is not finished and not polished
-> as i would like it to be.
->
-> It would be nice if siren could use eBPF as such it would be completely transparent.
-> could be load on the machine the server is located and simply intercept everything
-> from the kernel space, reducing the delay and having a simpler testing deployment
-> on the environment.
 
 Other than the two agents the suite include a small and simple library called
 **trident** that abstract away networking primitives to open connections, intruducing
@@ -97,17 +88,18 @@ type Conduit[V any] interface {
 ├── kraken-results      // Here will be placed the results of the kraken-campaigns
 │   ├── iot-standard
 │   └── kraken.log
-├── siren               // PoC of siren MiTM transparent proxy
+├── siren               // Siren eBPF MITM proxy
 │   ├── config
+│   ├── config.yaml
+│   ├── ebpf
+│   │   └── program
 │   ├── go.mod
 │   ├── go.sum
 │   ├── intercept
 │   ├── main.go
+│   ├── pkg
 │   ├── proxy
-│   ├── recorder
-│   ├── scenarios
-│   ├── scripts
-│   └── spoof
+│   └── recorder
 └── trident             // Trident library (used to abstract transports)
     ├── conduit
     ├── go.mod
@@ -184,4 +176,26 @@ go test ./kraken/...
 
 ### siren
 
-% TODO
+Siren relies on an eBPF program that is pre-built inside the repository. If you
+touch `siren/ebpf/program/xdp_proxy.c`, regenerate the object with `go generate`
+and then run:
+
+```sh
+go generate ./siren/ebpf
+go build ./siren
+sudo ./siren -config siren/config/example-ebpf.yaml
+```
+
+Recording now produces PCAP files by default so you can open captures in
+Wireshark immediately. Attaching the XDP hook requires root or the relevant
+capabilities, and you must pass the interface name via the configuration
+(`ebpf.interface`).
+
+The optional `targets` list accepts strings such as:
+
+- `"ip:192.0.2.10"`
+- `"ip_port:192.0.2.10:1883"`
+- `"mac:aa:bb:cc:dd:ee:ff"`
+- `"ethercat:0x1234"`
+
+Leaving the list empty captures everything on the interface.

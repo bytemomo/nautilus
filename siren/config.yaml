@@ -1,0 +1,29 @@
+name: iot-lab
+description: Default IoT client interception profile
+
+ebpf:
+    interface: enp1s0f0
+    drop_action_duration: 5s
+    # targets:
+    #     - "ip:192.168.10.50" # PLC
+    #     - "ip_port:192.168.10.60:502" # Modbus gateway
+    #     - "ip_port:192.168.10.70:1883" # MQTT broker
+    #     - "mac:02:42:ac:11:00:02" # Sensor bridge
+
+rules:
+    - name: log-all
+      enabled: true
+      match:
+          direction: both
+      action:
+          type: log
+          level: info
+          message: "Siren saw packet"
+
+recording:
+    enabled: false
+    output: siren-results/captures/iot-lab.pcap
+    format: pcap
+    include_payload: true
+    flush_interval: 3s
+    max_file_size: 200MB

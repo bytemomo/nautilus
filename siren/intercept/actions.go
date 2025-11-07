@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ActionType represents the type of action to perform
@@ -73,6 +75,24 @@ func ParseActionType(s string) ActionType {
 	}
 }
 
+// UnmarshalYAML allows specifying action types as human-readable strings.
+func (at *ActionType) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		var str string
+		if err := value.Decode(&str); err == nil && str != "" {
+			*at = ParseActionType(str)
+			return nil
+		}
+	}
+
+	var num int
+	if err := value.Decode(&num); err != nil {
+		return err
+	}
+	*at = ActionType(num)
+	return nil
+}
+
 // Action defines an action to perform on matched traffic
 type Action struct {
 	Type ActionType `yaml:"type" json:"type"`
@@ -81,27 +101,27 @@ type Action struct {
 	Probability float64 `yaml:"probability,omitempty" json:"probability,omitempty"` // 0.0 to 1.0
 
 	// Delay action
-	Duration string `yaml:"duration,omitempty" json:"duration,omitempty"` // e.g., "100ms", "1s"
-	Jitter   string `yaml:"jitter,omitempty" json:"jitter,omitempty"`     // e.g., "50ms"
+	Duration       string `yaml:"duration,omitempty" json:"duration,omitempty"` // e.g., "100ms", "1s"
+	Jitter         string `yaml:"jitter,omitempty" json:"jitter,omitempty"`     // e.g., "50ms"
 	durationParsed time.Duration
 	jitterParsed   time.Duration
 
 	// Modify action
-	Operation   string   `yaml:"operation,omitempty" json:"operation,omitempty"` // replace, corrupt_bytes, truncate, append
-	Pattern     string   `yaml:"pattern,omitempty" json:"pattern,omitempty"`
-	Replacement string   `yaml:"replacement,omitempty" json:"replacement,omitempty"`
-	Positions   []int    `yaml:"positions,omitempty" json:"positions,omitempty"` // For corrupt_bytes
-	Bytes       []byte   `yaml:"bytes,omitempty" json:"bytes,omitempty"`         // For append
-	TruncateAt  *int     `yaml:"truncate_at,omitempty" json:"truncate_at,omitempty"`
+	Operation   string `yaml:"operation,omitempty" json:"operation,omitempty"` // replace, corrupt_bytes, truncate, append
+	Pattern     string `yaml:"pattern,omitempty" json:"pattern,omitempty"`
+	Replacement string `yaml:"replacement,omitempty" json:"replacement,omitempty"`
+	Positions   []int  `yaml:"positions,omitempty" json:"positions,omitempty"` // For corrupt_bytes
+	Bytes       []byte `yaml:"bytes,omitempty" json:"bytes,omitempty"`         // For append
+	TruncateAt  *int   `yaml:"truncate_at,omitempty" json:"truncate_at,omitempty"`
 
 	// Duplicate action
-	Count int    `yaml:"count,omitempty" json:"count,omitempty"` // Number of duplicates (default 1)
-	Delay string `yaml:"delay,omitempty" json:"delay,omitempty"` // Delay between duplicates
+	Count       int    `yaml:"count,omitempty" json:"count,omitempty"` // Number of duplicates (default 1)
+	Delay       string `yaml:"delay,omitempty" json:"delay,omitempty"` // Delay between duplicates
 	delayParsed time.Duration
 
 	// Throttle action
-	Rate  string `yaml:"rate,omitempty" json:"rate,omitempty"`   // e.g., "10KB/s", "1MB/s"
-	Burst string `yaml:"burst,omitempty" json:"burst,omitempty"` // e.g., "1KB"
+	Rate            string `yaml:"rate,omitempty" json:"rate,omitempty"`   // e.g., "10KB/s", "1MB/s"
+	Burst           string `yaml:"burst,omitempty" json:"burst,omitempty"` // e.g., "1KB"
 	rateBytesPerSec int
 	burstBytes      int
 
@@ -109,7 +129,7 @@ type Action struct {
 	CloseType string `yaml:"close_type,omitempty" json:"close_type,omitempty"` // "abrupt" or "graceful"
 
 	// Log action
-	Level       string `yaml:"level,omitempty" json:"level,omitempty"`               // info, debug, trace
+	Level       string `yaml:"level,omitempty" json:"level,omitempty"` // info, debug, trace
 	Message     string `yaml:"message,omitempty" json:"message,omitempty"`
 	DumpPayload bool   `yaml:"dump_payload,omitempty" json:"dump_payload,omitempty"`
 

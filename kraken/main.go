@@ -24,7 +24,7 @@ func main() {
 	var (
 		campaignPath = flag.String("campaign", "", "Path to campaign YAML (required)")
 		cidrsArg     = flag.String("cidrs", "", "Comma-separated CIDRs to scan (required)")
-		outDir       = flag.String("out", "./results", "Output directory")
+		outDir       = flag.String("out", "./kraken-results", "Output directory")
 		help         = flag.Bool("help", false, "Print program usage")
 	)
 	flag.Parse()
