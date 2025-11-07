@@ -18,12 +18,12 @@ rules:
       action:
           type: log
           log:
+              dump_payload: true
               level: info
               message: "Siren saw packet"
-              dump_payload: true
 
 recording:
-    enabled: true
+    enabled: false
     output: siren-results/captures/iot-lab.pcap
     format: pcap
     include_payload: true
