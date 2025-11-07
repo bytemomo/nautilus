@@ -2,8 +2,8 @@ name: iot-lab
 description: Default IoT client interception profile
 
 ebpf:
-    interface: lo
-    drop_action_duration: 5s
+    interface: wlp2s0
+    drop_action_duration: 5ms
     targets:
         - "ip_port:127.0.0.1:9000"
     #     - "ip_port:192.168.10.60:502" # Modbus gateway
