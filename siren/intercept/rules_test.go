@@ -3,6 +3,8 @@ package intercept
 import (
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDirection(t *testing.T) {
@@ -149,11 +151,11 @@ func TestMatchCriteria_SizeMatching(t *testing.T) {
 		size     int
 		expected bool
 	}{
-		{50, false},   // Too small
-		{150, true},   // Within range
-		{300, true},   // Within range
-		{500, false},  // Too large (>= SizeLT fails)
-		{600, false},  // Too large
+		{50, false},  // Too small
+		{150, true},  // Within range
+		{300, true},  // Within range
+		{500, false}, // Too large (>= SizeLT fails)
+		{600, false}, // Too large
 	}
 
 	for _, tt := range tests {
@@ -258,10 +260,10 @@ func TestMatchCriteria_ConnectionAge_LessThan(t *testing.T) {
 
 func TestMatchCriteria_DirectionMatching(t *testing.T) {
 	tests := []struct {
-		name         string
-		matchDir     Direction
-		trafficDir   Direction
-		shouldMatch  bool
+		name        string
+		matchDir    Direction
+		trafficDir  Direction
+		shouldMatch bool
 	}{
 		{"both matches c2s", DirectionBoth, DirectionClientToServer, true},
 		{"both matches s2c", DirectionBoth, DirectionServerToClient, true},
@@ -338,7 +340,7 @@ func TestRuleSet_Compile(t *testing.T) {
 				Enabled:  true,
 				Priority: 90,
 				Match: &MatchCriteria{
-					Direction: DirectionClientToServer,
+					Direction:    DirectionClientToServer,
 					ContentRegex: `^\w+`,
 				},
 				Action: &Action{
@@ -551,5 +553,34 @@ func TestTLSSNIMatching(t *testing.T) {
 		if got := mc.Matches(info); got != tt.expected {
 			t.Errorf("Matches(TLSSNI=%s) = %v, want %v", tt.sni, got, tt.expected)
 		}
+	}
+}
+
+func TestDirectionUnmarshalYAML(t *testing.T) {
+	type wrapper struct {
+		Direction Direction `yaml:"direction"`
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected Direction
+	}{
+		{"string both", "direction: both", DirectionBoth},
+		{"alias string", "direction: c2s", DirectionClientToServer},
+		{"numeric", "direction: 1", DirectionServerToClient},
+		{"missing", "{}", DirectionClientToServer},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w wrapper
+			if err := yaml.Unmarshal([]byte(tt.input), &w); err != nil {
+				t.Fatalf("unmarshal failed: %v", err)
+			}
+			if w.Direction != tt.expected {
+				t.Fatalf("direction = %v, want %v", w.Direction, tt.expected)
+			}
+		})
 	}
 }

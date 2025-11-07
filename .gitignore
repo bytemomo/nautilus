@@ -48,9 +48,12 @@
 !siren/README.md
 
 !siren/*
+!siren/**
 !siren/**/*.c
 !siren/**/*.go
 !siren/**/*.yaml
+!siren/scripts/
+!siren/scripts/**
 !siren/ebpf/program/
 
 # Trident

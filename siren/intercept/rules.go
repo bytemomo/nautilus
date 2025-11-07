@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Direction indicates traffic flow direction
@@ -43,14 +45,41 @@ func ParseDirection(s string) Direction {
 	}
 }
 
+// UnmarshalYAML allows Direction to be specified as either a string or number.
+func (d *Direction) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Tag {
+	case "!!str":
+		*d = ParseDirection(value.Value)
+		return nil
+	case "!!int":
+		var tmp int
+		if err := value.Decode(&tmp); err != nil {
+			return err
+		}
+		*d = Direction(tmp)
+		return nil
+	case "!!null":
+		*d = DirectionBoth
+		return nil
+	default:
+		// Attempt generic decode (covers bool/float errors gracefully)
+		var v string
+		if err := value.Decode(&v); err != nil {
+			return fmt.Errorf("direction: unsupported type %s", value.Tag)
+		}
+		*d = ParseDirection(v)
+		return nil
+	}
+}
+
 // Rule defines a traffic interception rule
 type Rule struct {
-	Name        string       `yaml:"name" json:"name"`
-	Description string       `yaml:"description,omitempty" json:"description,omitempty"`
-	Enabled     bool         `yaml:"enabled" json:"enabled"`
-	Priority    int          `yaml:"priority,omitempty" json:"priority,omitempty"` // Higher priority rules evaluated first
+	Name        string         `yaml:"name" json:"name"`
+	Description string         `yaml:"description,omitempty" json:"description,omitempty"`
+	Enabled     bool           `yaml:"enabled" json:"enabled"`
+	Priority    int            `yaml:"priority,omitempty" json:"priority,omitempty"` // Higher priority rules evaluated first
 	Match       *MatchCriteria `yaml:"match" json:"match"`
-	Action      *Action      `yaml:"action" json:"action"`
+	Action      *Action        `yaml:"action" json:"action"`
 }
 
 // MatchCriteria defines criteria for matching traffic
@@ -59,10 +88,10 @@ type MatchCriteria struct {
 	Direction Direction `yaml:"direction,omitempty" json:"direction,omitempty"`
 
 	// Content matching
-	ContentContains   string `yaml:"content_contains,omitempty" json:"content_contains,omitempty"`
-	ContentStartsWith string `yaml:"content_starts_with,omitempty" json:"content_starts_with,omitempty"`
-	ContentEndsWith   string `yaml:"content_ends_with,omitempty" json:"content_ends_with,omitempty"`
-	ContentRegex      string `yaml:"content_regex,omitempty" json:"content_regex,omitempty"`
+	ContentContains      string `yaml:"content_contains,omitempty" json:"content_contains,omitempty"`
+	ContentStartsWith    string `yaml:"content_starts_with,omitempty" json:"content_starts_with,omitempty"`
+	ContentEndsWith      string `yaml:"content_ends_with,omitempty" json:"content_ends_with,omitempty"`
+	ContentRegex         string `yaml:"content_regex,omitempty" json:"content_regex,omitempty"`
 	contentRegexCompiled *regexp.Regexp
 
 	// Size matching
@@ -71,20 +100,20 @@ type MatchCriteria struct {
 	SizeEQ *int `yaml:"size_eq,omitempty" json:"size_eq,omitempty"` // Equal to
 
 	// Connection state
-	ConnectionAge      string        `yaml:"connection_age,omitempty" json:"connection_age,omitempty"`          // e.g., ">10s", "<1m"
+	ConnectionAge         string `yaml:"connection_age,omitempty" json:"connection_age,omitempty"` // e.g., ">10s", "<1m"
 	connectionAgeDuration time.Duration
-	connectionAgeOp    string
-	PacketCount        string `yaml:"packet_count,omitempty" json:"packet_count,omitempty"`                   // e.g., ">100"
-	BytesTransferred   string `yaml:"bytes_transferred,omitempty" json:"bytes_transferred,omitempty"`         // e.g., ">1MB"
+	connectionAgeOp       string
+	PacketCount           string `yaml:"packet_count,omitempty" json:"packet_count,omitempty"`           // e.g., ">100"
+	BytesTransferred      string `yaml:"bytes_transferred,omitempty" json:"bytes_transferred,omitempty"` // e.g., ">1MB"
 
 	// Probability
 	Probability float64 `yaml:"probability,omitempty" json:"probability,omitempty"` // 0.0 to 1.0
 
 	// Protocol-specific
-	HTTPMethod  string `yaml:"http_method,omitempty" json:"http_method,omitempty"`
-	HTTPPath    string `yaml:"http_path,omitempty" json:"http_path,omitempty"`
-	HTTPHeader  string `yaml:"http_header,omitempty" json:"http_header,omitempty"`
-	TLSSNI      string `yaml:"tls_sni,omitempty" json:"tls_sni,omitempty"`
+	HTTPMethod string `yaml:"http_method,omitempty" json:"http_method,omitempty"`
+	HTTPPath   string `yaml:"http_path,omitempty" json:"http_path,omitempty"`
+	HTTPHeader string `yaml:"http_header,omitempty" json:"http_header,omitempty"`
+	TLSSNI     string `yaml:"tls_sni,omitempty" json:"tls_sni,omitempty"`
 
 	// Custom conditions
 	Custom map[string]interface{} `yaml:"custom,omitempty" json:"custom,omitempty"`
@@ -149,10 +178,10 @@ type TrafficInfo struct {
 	TotalBytes    uint64
 
 	// Protocol-specific
-	HTTPMethod string
-	HTTPPath   string
+	HTTPMethod  string
+	HTTPPath    string
 	HTTPHeaders map[string]string
-	TLSSNI     string
+	TLSSNI      string
 
 	// Custom data
 	Custom map[string]interface{}
