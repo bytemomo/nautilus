@@ -2,60 +2,58 @@ name: comprehensive-example
 description: This configuration file demonstrates all available options in Siren.
 
 ebpf:
-  interface: eth0
-  drop_action_duration: 10s
-  targets:
-    - "ip:192.168.1.100"
-    - "ip_port:192.168.1.101:502"
-    - "mac:00:11:22:33:44:55"
+    interface: lo
+    drop_action_duration: 10s
+    targets:
+        - "ip_port:127.0.0.1:9000"
 
 rules:
-  - name: log-all-traffic
-    enabled: true
-    priority: 0
-    match:
-      direction: both
-    action:
-      type: log
-      log:
-        message: "Siren saw a packet"
-        level: info
-        dump_payload: true
+    - name: log-all-traffic
+      enabled: true
+      priority: 0
+      match:
+          direction: both
+      action:
+          type: log
+          log:
+              message: "Siren saw a packet"
+              level: info
+              dump_payload: true
 
-  - name: drop-all-tcp-from-client
-    enabled: true
-    priority: 10
-    match:
-      direction: client_to_server
-    action:
-      type: drop
+    - name: drop-all-tcp-from-client
+      enabled: true
+      priority: 10
+      match:
+          direction: client_to_server
+      action:
+          type: drop
 
-  - name: modify-http-request
-    enabled: true
-    priority: 20
-    match:
-      direction: client_to_server
-      content_contains: "GET / HTTP/1.1"
-    action:
-      type: modify
-      modify:
-        operation: replace
-        pattern: "User-Agent: curl/7.68.0"
-        replacement: "User-Agent: siren-proxy"
+    - name: modify-http-request
+      enabled: true
+      priority: 20
+      match:
+          direction: client_to_server
+          content_contains: "GET / HTTP/1.1"
+      action:
+          type: modify
+          modify:
+              operation: replace
+              pattern: "User-Agent: curl/7.68.0"
+              replacement: "User-Agent: siren-proxy"
 
-manipulators:
-  - name: example-manipulator
-    params:
-      key: value
+# manipulators:
+#   - name: example-manipulator
+#     params:
+#       key: value
 
 recording:
-  enabled: true
-  output: captures/traffic.pcap
-  format: pcap
-  include_payload: true
-  max_file_size: "200MB"
-  flush_interval: "10s"
+    enabled: false
+    output: captures/traffic.pcap
+    format: pcap
+    include_payload: true
+    max_file_size: "200MB"
+    flush_interval: "10s"
 
 injector:
-  enabled: true
-  file_path: "injection_requests.json"
+    enabled: true
+    file_path: "injection_requests.json"

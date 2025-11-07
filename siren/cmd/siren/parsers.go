@@ -6,7 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"bytemomo/siren/internal/ebpf"
+	"bytemomo/siren/ebpf"
+	"bytemomo/siren/internal/config"
 )
 
 // Target parsing logic
