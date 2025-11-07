@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -139,73 +140,106 @@ func NewTrafficProcessor(engine *intercept.Engine, rec *recorder.Recorder, stats
 	}
 }
 
-// Process applies rules to traffic and returns the result
+// Process applies the full interception and manipulation pipeline to a traffic context.
 func (tp *TrafficProcessor) Process(ctx context.Context, tc *core.TrafficContext) (*core.ProcessingResult, error) {
-	op := "proxy.TrafficProcessor.Process"
-	result := &core.ProcessingResult{
-		ModifiedPayload: tc.Payload,
+	// 1. Evaluate rules
+	result, err := tp.evaluateRules(ctx, tc)
+	if err != nil {
+		return nil, err
 	}
 
-	if tp.engine != nil {
-		action, err := tp.engine.Evaluate(ctx, &intercept.TrafficInfo{
-			ConnectionID:  tc.Conn.ID,
-			Direction:     convertDirection(tc.Direction),
-			Payload:       tc.Payload,
-			Size:          tc.Size,
-			ConnectionAge: tc.Conn.Stats.Duration(),
-			TotalBytes:    tc.Conn.Stats.TotalBytes(),
-		})
-
-		if err != nil {
-			return nil, sirenerr.E(op, "failed to evaluate rule", 0, err)
-		}
-
-		if action != nil {
-			result.Action = action.Type
-			result.Drop = action.Drop
-			result.Disconnect = action.Disconnect
-			result.Delay = action.Delay
-			result.Duplicate = action.Duplicate
-			result.ModifiedPayload = action.ModifiedPayload
-			result.Metadata = action.Metadata
-
-			if action.Drop {
-				tp.stats.RecordDrop()
-				tc.Conn.Stats.RecordDrop()
-			}
-			if action.Modified {
-				tp.stats.RecordModify()
-				tc.Conn.Stats.RecordModify()
-			}
-
-			tp.stats.RecordRuleMatch()
-		}
+	// 2. Apply manipulators
+	result, err = tp.applyManipulators(ctx, tc, result)
+	if err != nil {
+		return nil, err
 	}
 
-	for _, m := range tp.manipulators {
-		var err error
-		result, err = m.Process(ctx, tc, result)
-		if err != nil {
-			return nil, sirenerr.E(op, "failed to process manipulator", 0, err)
-		}
-	}
+	// 3. Record traffic
+	tp.recordTraffic(tc, result)
 
-	if tp.recorder != nil {
-		tp.recorder.Record(&recorder.TrafficRecord{
-			Timestamp:    time.Now(),
-			ConnectionID: tc.Conn.ID,
-			Direction:    tc.Direction.String(),
-			Payload:      result.ModifiedPayload,
-			Size:         len(result.ModifiedPayload),
-			Dropped:      result.Drop,
-			Modified:     result.ModifiedPayload != nil && len(result.ModifiedPayload) != len(tc.Payload),
-			Data:         tc.Frame,
-			OriginalLen:  len(tc.Frame),
-			Metadata:     result.Metadata,
-		})
-	}
+	// 4. Update stats
+	tp.updateStats(tc, result)
 
 	return result, nil
+}
+
+func (tp *TrafficProcessor) evaluateRules(ctx context.Context, tc *core.TrafficContext) (*core.ProcessingResult, error) {
+	if tp.engine == nil {
+		return &core.ProcessingResult{ModifiedPayload: tc.Payload}, nil
+	}
+
+	info := &intercept.TrafficInfo{
+		ConnectionID:  tc.Conn.ID,
+		Direction:     convertDirection(tc.Direction),
+		Payload:       tc.Payload,
+		Size:          tc.Size,
+		ConnectionAge: tc.Conn.Stats.Duration(),
+		TotalBytes:    tc.Conn.Stats.TotalBytes(),
+	}
+
+	actionResult, err := tp.engine.Evaluate(ctx, info)
+	if err != nil {
+		return nil, sirenerr.E("proxy.TrafficProcessor.evaluateRules", "failed to evaluate rules", 0, err)
+	}
+
+	return &core.ProcessingResult{
+		Action:          actionResult.Type,
+		Drop:            actionResult.Drop,
+		Disconnect:      actionResult.Disconnect,
+		Delay:           actionResult.Delay,
+		Duplicate:       actionResult.Duplicate,
+		ModifiedPayload: actionResult.ModifiedPayload,
+		Metadata:        actionResult.Metadata,
+	}, nil
+}
+
+func (tp *TrafficProcessor) applyManipulators(ctx context.Context, tc *core.TrafficContext, initialResult *core.ProcessingResult) (*core.ProcessingResult, error) {
+	if len(tp.manipulators) == 0 {
+		return initialResult, nil
+	}
+
+	result := initialResult
+	var err error
+	for _, m := range tp.manipulators {
+		result, err = m.Process(ctx, tc, result)
+		if err != nil {
+			return nil, sirenerr.E("proxy.TrafficProcessor.applyManipulators", fmt.Sprintf("failed to process manipulator %s", m.Name()), 0, err)
+		}
+	}
+	return result, nil
+}
+
+func (tp *TrafficProcessor) recordTraffic(tc *core.TrafficContext, result *core.ProcessingResult) {
+	if tp.recorder == nil {
+		return
+	}
+
+	tp.recorder.Record(&recorder.TrafficRecord{
+		Timestamp:    time.Now(),
+		ConnectionID: tc.Conn.ID,
+		Direction:    tc.Direction.String(),
+		Payload:      result.ModifiedPayload,
+		Size:         len(result.ModifiedPayload),
+		Dropped:      result.Drop,
+		Modified:     len(result.ModifiedPayload) != len(tc.Payload),
+		Data:         tc.Frame,
+		OriginalLen:  len(tc.Frame),
+		Metadata:     result.Metadata,
+	})
+}
+
+func (tp *TrafficProcessor) updateStats(tc *core.TrafficContext, result *core.ProcessingResult) {
+	if result.Action != intercept.ActionPass {
+		tp.stats.RecordRuleMatch()
+	}
+	if result.Drop {
+		tp.stats.RecordDrop()
+		tc.Conn.Stats.RecordDrop()
+	}
+	if len(result.ModifiedPayload) != len(tc.Payload) {
+		tp.stats.RecordModify()
+		tc.Conn.Stats.RecordModify()
+	}
 }
 
 func convertDirection(d core.Direction) intercept.Direction {
