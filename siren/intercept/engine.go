@@ -198,8 +198,8 @@ func (e *Engine) logAction(rule *Rule, result *ActionResult, info *TrafficInfo) 
 		level = lvl
 	}
 
-	logMsg := fmt.Sprintf("[%s] %s - Rule: %q, Direction: %s, Size: %d bytes",
-		strings.ToUpper(level), message, rule.Name, info.Direction, info.Size)
+	logMsg := fmt.Sprintf("%s - Rule: %q, Direction: %s, Size: %d bytes",
+		message, rule.Name, info.Direction, info.Size)
 
 	if dumpPayload, ok := result.Metadata["dump_payload"].(bool); ok && dumpPayload {
 		const maxPayloadLogSize = 256

@@ -198,7 +198,7 @@ func buildRecorder(cfg *config.Config, log *logrus.Logger) (*recorder.Recorder, 
 	rec, err := recorder.NewRecorder(&recorder.RecorderConfig{
 		OutputPath:     cfg.Recording.Output,
 		Format:         cfg.Recording.Format,
-		BufferSize:     1000, // Consider making this configurable
+		BufferSize:     1000,
 		FlushInterval:  flushInterval,
 		IncludePayload: cfg.Recording.IncludePayload,
 		MaxFileSize:    maxFileSize,
