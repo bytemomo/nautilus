@@ -20,7 +20,7 @@ type Engine struct {
 
 // EngineStats tracks engine statistics
 type EngineStats struct {
-	mu              sync.RWMutex
+	mu               sync.RWMutex
 	TotalEvaluations uint64
 	RulesMatched     uint64
 	RulesFailed      uint64
@@ -190,27 +190,29 @@ func (e *Engine) logAction(rule *Rule, result *ActionResult, info *TrafficInfo) 
 		level = lvl
 	}
 
-	logMsg := fmt.Sprintf("[%s] %s - Rule: %q, Direction: %s, Size: %d bytes",
-		strings.ToUpper(level), message, rule.Name, info.Direction, info.Size)
+	logMsg := fmt.Sprintf("%s - Rule: %q, Direction: %s, Size: %d bytes",
+		message, rule.Name, info.Direction, info.Size)
 
+	var entry *logrus.Entry = e.logger.WithContext(context.Background())
 	if dumpPayload, ok := result.Metadata["dump_payload"].(bool); ok && dumpPayload {
 		const maxPayloadLogSize = 256
-		payloadStr := fmt.Sprintf("%q", info.Payload)
+		payloadStr := fmt.Sprintf("%s", string(info.Payload))
 		if len(payloadStr) > maxPayloadLogSize {
 			payloadStr = payloadStr[:maxPayloadLogSize] + "..."
+		} else if len(payloadStr) > 0 {
+			entry = entry.WithField("Payload", payloadStr)
 		}
-		logMsg += fmt.Sprintf("\nPayload: %s", payloadStr)
 	}
 
 	switch strings.ToLower(level) {
 	case "debug", "trace":
-		e.logger.Debugf("%s", logMsg)
+		entry.Debugf("%s", logMsg)
 	case "warn", "warning":
-		e.logger.Warnf("%s", logMsg)
+		entry.Warnf("%s", logMsg)
 	case "error":
-		e.logger.Errorf("%s", logMsg)
+		entry.Errorf("%s", logMsg)
 	default:
-		e.logger.Infof("%s", logMsg)
+		entry.Infof("%s", logMsg)
 	}
 }
 

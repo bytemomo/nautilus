@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
-	"bytemomo/siren/intercept"
-	"bytemomo/siren/pkg/core"
-	"bytemomo/siren/proxy"
+	"bytemomo/siren/internal/core"
+	"bytemomo/siren/internal/intercept"
+	"bytemomo/siren/internal/proxy"
 
 	"github.com/sirupsen/logrus"
 )
