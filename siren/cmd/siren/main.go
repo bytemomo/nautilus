@@ -5,16 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
+	"time"
 
+	"bytemomo/siren/internal/client"
 	"bytemomo/siren/internal/config"
 	"bytemomo/siren/internal/ebpf"
-	"bytemomo/siren/internal/client"
 	"bytemomo/siren/internal/injector"
 	"bytemomo/siren/internal/intercept"
 	"bytemomo/siren/internal/manipulator"
@@ -92,7 +90,6 @@ func (a *application) Cleanup() {
 		a.manager.Stop()
 	}
 }
-
 
 func setupApplication(cfg *config.Config, log *logrus.Logger) (*application, error) {
 	engine, err := buildEngine(cfg, log)
@@ -297,7 +294,6 @@ func buildManipulators(cfg *config.Config) ([]manipulator.Manipulator, error) {
 	}
 	return result, nil
 }
-
 
 func printBanner(cfg *config.Config) {
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
