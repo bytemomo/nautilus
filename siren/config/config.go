@@ -161,21 +161,37 @@ func validateFileSize(fl validator.FieldLevel) bool {
 
 func parseFileSize(s string) (int64, error) {
 	s = strings.TrimSpace(strings.ToUpper(s))
-	multipliers := map[string]int64{
-		"B":  1,
-		"KB": 1024, "K": 1024,
-		"MB": 1024 * 1024, "M": 1024 * 1024,
-		"GB": 1024 * 1024 * 1024, "G": 1024 * 1024 * 1024,
+	if s == "" {
+		return 0, fmt.Errorf("file size cannot be empty")
 	}
 
-	for suffix, multiplier := range multipliers {
-		if strings.HasSuffix(s, suffix) {
-			numStr := strings.TrimSuffix(s, suffix)
-			num, err := strconv.ParseInt(strings.TrimSpace(numStr), 10, 64)
-			if err != nil {
-				return 0, fmt.Errorf("invalid number in file size: %w", err)
+	type suffixDef struct {
+		suffix     string
+		multiplier int64
+	}
+
+	// Check longer suffixes first so "MB" does not get matched by the plain "B".
+	suffixes := []suffixDef{
+		{"GB", 1024 * 1024 * 1024},
+		{"G", 1024 * 1024 * 1024},
+		{"MB", 1024 * 1024},
+		{"M", 1024 * 1024},
+		{"KB", 1024},
+		{"K", 1024},
+		{"B", 1},
+	}
+
+	for _, def := range suffixes {
+		if strings.HasSuffix(s, def.suffix) {
+			numStr := strings.TrimSpace(strings.TrimSuffix(s, def.suffix))
+			if numStr == "" {
+				return 0, fmt.Errorf("missing number in file size: %q", s)
 			}
-			return num * multiplier, nil
+			num, err := strconv.ParseInt(numStr, 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("invalid number in file size %q: %w", s, err)
+			}
+			return num * def.multiplier, nil
 		}
 	}
 

@@ -5,12 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
+	"time"
 
 	"bytemomo/siren/config"
 	"bytemomo/siren/ebpf"
@@ -232,7 +230,6 @@ func buildManipulators(cfg *config.Config) ([]manipulator.Manipulator, error) {
 	}
 	return result, nil
 }
-
 
 func printBanner(cfg *config.Config) {
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")

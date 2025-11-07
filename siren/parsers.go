@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"bytemomo/siren/config"
 	"bytemomo/siren/ebpf"
 )
 
