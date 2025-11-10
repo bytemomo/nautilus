@@ -447,7 +447,13 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
 
     // 2. Perform MQTT checks
     char *sequence_num = json_extract_string(params_json, "sequence_num");
-    int seq_num = strtol(sequence_num, NULL, 10);
+    int seq_num = 0;
+    if (sequence_num && *sequence_num) {
+        seq_num = (int)strtol(sequence_num, NULL, 10);
+    } else {
+        add_log(result, "missing or empty sequence_num, defaulting to 0");
+    }
+    free(sequence_num);
 
     time_t ts = time(NULL);
     for (int i = 0; i < seq_num; i++) {
@@ -456,6 +462,11 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
         char buff[1000] = {};
         int ok = sprintf(buff, "path%d", i);
         char *path = json_extract_string(params_json, buff);
+        if (!path || !*path) {
+            add_log(result, "missing replay path in params, skipping entry");
+            free(path);
+            continue;
+        }
 
         { // Replay main code
             mqtt_packet packets[MAX_PACKETS];
@@ -463,9 +474,11 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
 
             if (read_file(path, packets, &packet_count) != 0) {
                 fprintf(stderr, "[-] Failed to read packet file\n");
+                free(path);
                 return 1;
             }
             replay_packets(host, port, packets, packet_count);
+            free(path);
 
             if (heartbeat(host, port)) {
                 is_successfull = true;

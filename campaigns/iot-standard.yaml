@@ -175,5 +175,5 @@ tasks:
               library_path: "./modules/kraken/abi/mqtt_replay/build/mqtt_replay"
               symbol: kraken_run
           params:
-              sequence_num: 1
+              sequence_num: "1"
               path0: "./modules/kraken/abi/mqtt_replay/CVE-2024-8376.txt"
