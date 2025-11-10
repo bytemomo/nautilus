@@ -1,5 +1,5 @@
 #define KRAKEN_MODULE_BUILD
-#define BUILDING_TLS_VERSION_CHECK
+
 #include <kraken_module_abi.h>
 
 #include <stdio.h>
@@ -36,27 +36,6 @@ KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION = KRAKEN_ABI_VERSION;
 #ifndef TLS1_3_VERSION
 #define TLS1_3_VERSION 0
 #endif
-
-/* ------------------------------------------------------------------ */
-/* Utility Functions for ABI Structs                                  */
-/* ------------------------------------------------------------------ */
-
-static char *mystrdup(const char *s) {
-    if (!s)
-        return NULL;
-    size_t len = strlen(s) + 1;
-    char *p = (char *)malloc(len);
-    if (p) {
-        memcpy(p, s, len);
-    }
-    return p;
-}
-
-static void add_log(KrakenRunResult *result, const char *log_line) {
-    result->logs.count++;
-    result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
-    result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
-}
 
 /* ------------------------------------------------------------------ */
 /* TLS Check Logic                                                    */

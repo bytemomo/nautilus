@@ -76,6 +76,73 @@ typedef void (*KrakenFreeFn)(void *p);
 KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, KrakenRunResult **out_result);
 KRAKEN_API void kraken_free(void *p);
 
+/* ------------------------------------------------------------------ */
+/* UTILS: %TODO Move in its own file                                  */
+/* ------------------------------------------------------------------ */
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+static char *json_extract_string(const char *json, const char *key) {
+    if (!json)
+        return NULL;
+
+    char search[256];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    const char *p = strstr(json, search);
+    if (!p)
+        return NULL;
+
+    p = strchr(p, ':');
+    if (!p)
+        return NULL;
+    p++;
+
+    // Skip whitespace and opening quote
+    while (*p && (*p == ' ' || *p == '\t' || *p == '\n'))
+        p++;
+    if (*p != '\"')
+        return NULL;
+    p++;
+
+    // Find closing quote
+    const char *end = p;
+    while (*end && *end != '\"')
+        end++;
+
+    size_t len = end - p;
+    char *result = (char *)malloc(len + 1);
+    if (result) {
+        memcpy(result, p, len);
+        result[len] = '\0';
+    }
+    return result;
+}
+
+static char *mystrdup(const char *s) {
+    if (!s)
+        return NULL;
+    size_t len = strlen(s) + 1;
+    char *p = (char *)malloc(len);
+    if (p) {
+        memcpy(p, s, len);
+    }
+    return p;
+}
+
+static void add_log(KrakenRunResult *result, const char *log_line) {
+    result->logs.count++;
+    result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
+    result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
+}
+
+static void add_finding(KrakenRunResult *result, KrakenFinding *finding) {
+    result->findings_count++;
+    result->findings = (KrakenFinding *)realloc(result->findings, result->findings_count * sizeof(KrakenFinding));
+    result->findings[result->findings_count - 1] = *finding;
+}
+
 #ifdef __cplusplus
 }
 #endif

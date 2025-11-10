@@ -13,27 +13,6 @@
 KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION_V2 = KRAKEN_ABI_VERSION_V2;
 
 /* ------------------------------------------------------------------ */
-/* Utility Functions                                                  */
-/* ------------------------------------------------------------------ */
-
-static char *mystrdup(const char *s) {
-    if (!s)
-        return NULL;
-    size_t len = strlen(s) + 1;
-    char *p = (char *)malloc(len);
-    if (p) {
-        memcpy(p, s, len);
-    }
-    return p;
-}
-
-static void add_log(KrakenRunResult *result, const char *log_line) {
-    result->logs.count++;
-    result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
-    result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
-}
-
-/* ------------------------------------------------------------------ */
 /* V2 Telnet Default Credentials Check                                */
 /* ------------------------------------------------------------------ */
 
