@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define MAX_PACKETS 256
-#define MAX_PACKET_SIZE 2048
+#define MAX_PACKET_SIZE 17000
 #define MAX_CONNECTIONS 32
 
 typedef enum {
@@ -113,22 +113,25 @@ static MqttPacketType mqtt_packet_type_from_string(const char *str) {
 // Decode %XX% format to bytes
 uint8_t *decode_packet_data_from_hex_percent(const char *hex_str, size_t *out_len) {
     size_t len = strlen(hex_str);
-    uint8_t *buffer = malloc(len / 2 + 1);
-    if (!buffer)
+
+    uint8_t *buffer = malloc(len / 4);
+    if (!buffer) {
         return NULL;
+    }
 
     size_t idx = 0;
     for (size_t i = 0; i < len;) {
-        if (hex_str[i] == '%' && i + 2 < len) {
+        if (hex_str[i] == '%' && i + 3 < len) {
             unsigned int byte;
-            if (sscanf(hex_str + i + 1, "%2x", &byte) == 1) {
+            if (sscanf(hex_str + i + 2, "%2x", &byte) == 1) {
                 buffer[idx++] = (uint8_t)byte;
             }
-            i += 3;
+            i += 4;
         } else {
             i++;
         }
     }
+
     *out_len = idx;
     return buffer;
 }
@@ -142,7 +145,7 @@ static int read_file(const char *file_path, mqtt_packet packet_list[MAX_PACKETS]
     }
 
     char line_type[64];
-    char line_data[4096];
+    char line_data[90000];
     size_t count = 0;
 
     while (fgets(line_type, sizeof(line_type), fp) && fgets(line_data, sizeof(line_data), fp)) {
@@ -157,16 +160,25 @@ static int read_file(const char *file_path, mqtt_packet packet_list[MAX_PACKETS]
         if (strlen(line_type) == 0 || strlen(line_data) == 0)
             continue;
 
-        packet_list[count].type = mqtt_packet_type_from_string(line_type);
+        MqttPacketType type = mqtt_packet_type_from_string(line_type);
+
+        if (type == INVALID) {
+            continue;
+        }
+
+        packet_list[count].type = type;
 
         size_t decoded_len = 0;
         uint8_t *decoded = decode_packet_data_from_hex_percent(line_data, &decoded_len);
-        if (!decoded)
+        if (!decoded) {
             continue;
+        }
 
         if (decoded_len > MAX_PACKET_SIZE) {
             decoded_len = MAX_PACKET_SIZE;
         }
+
+        printf("[+] For packet #%zu decoded len: %zu\n", count, decoded_len);
 
         memcpy(packet_list[count].data, decoded, decoded_len);
         packet_list[count].data_len = decoded_len;
@@ -248,18 +260,21 @@ void *reading_loop(void *arg) {
 
 void replay_packets(const char *broker_ip, uint16_t broker_port, mqtt_packet packets[], size_t n) {
     int current_sock = -1;
-    pthread_t threads[MAX_CONNECTIONS];
+    pthread_t threads[MAX_CONNECTIONS] = {};
 
     for (size_t i = 0; i < n; i++) {
         mqtt_packet *p = &packets[i];
 
-        if (current_sock < 0) {
-            if (current_sock >= 0) {
-                connections[connection_count].sock = current_sock;
-                connections[connection_count].done = 0;
-                pthread_create(&threads[connection_count], NULL, reading_loop, &connections[connection_count]);
-                connection_count++;
-            }
+        if (current_sock < 0 || p->type == CONNECT) {
+            // if (current_sock >= 0) {
+            //     connections[connection_count].sock = current_sock;
+            //     connections[connection_count].done = 0;
+            //     pthread_create(&threads[connection_count], NULL, reading_loop, &connections[connection_count]);
+            //     connection_count++;
+            //     continue;
+            // }
+
+            printf("\n[+] Creating new connection\n");
 
             int sock = socket(AF_INET, SOCK_STREAM, 0);
             if (sock < 0) {
@@ -276,27 +291,27 @@ void replay_packets(const char *broker_ip, uint16_t broker_port, mqtt_packet pac
                 perror("connect");
                 exit(1);
             }
-
             current_sock = sock;
         }
+
+        printf("[+] Sending (#%02zu): %s, Size: %zu\n", i, mqtt_packet_name(p->type), p->data_len);
+        // for (int i = 0; i < p->data_len; i++) {
+        //     printf("%d", p->data[i]);
+        // }
+        // printf("\n");
 
         ssize_t sent = send(current_sock, p->data, p->data_len, 0);
         if (sent != (ssize_t)p->data_len) {
             perror("send");
         }
-
-        read_mqtt_response(current_sock);
-    }
-
-    // mark all threads done
-    for (size_t i = 0; i < connection_count; i++) {
-        pthread_mutex_lock(&done_mutex);
-        connections[i].done = 1;
-        pthread_mutex_unlock(&done_mutex);
     }
 
     // join threads and close sockets
     for (size_t i = 0; i < connection_count; i++) {
+        pthread_mutex_lock(&done_mutex);
+        connections[i].done = 1;
+        pthread_mutex_unlock(&done_mutex);
+
         pthread_join(threads[i], NULL);
         close(connections[i].sock);
     }
@@ -319,9 +334,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[-] Failed to read packet file\n");
         return 1;
     }
-    fprintf(stderr, "[+] Finished loading packets sequence\n");
+    fprintf(stderr, "[+] Finished loading packets sequence, #packets = %zu\n", packet_count);
 
     fprintf(stderr, "[+] Starting  reproducing packets sequence\n");
-    replay_packets("127.0.0.1", 1883, packets, sizeof(packets) / sizeof(mqtt_packet));
+    replay_packets("127.0.0.1", 1883, packets, packet_count);
     return 0;
 }
