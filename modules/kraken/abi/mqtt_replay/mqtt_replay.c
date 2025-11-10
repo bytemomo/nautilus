@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -222,7 +223,7 @@ static int read_file(const char *file_path, mqtt_packet packet_list[MAX_PACKETS]
 
     while (fgets(line_type, sizeof(line_type), fp) && fgets(line_data, sizeof(line_data), fp)) {
         if (count >= MAX_PACKETS) {
-            fprintf(stderr, "[-] Maximum number of packets (%d) reached, ignoring extra packets\n", MAX_PACKETS);
+            // fprintf(stderr, "[-] Maximum number of packets (%d) reached, ignoring extra packets\n", MAX_PACKETS);
             break;
         }
 
@@ -250,7 +251,7 @@ static int read_file(const char *file_path, mqtt_packet packet_list[MAX_PACKETS]
             decoded_len = MAX_PACKET_SIZE;
         }
 
-        printf("[+] For packet #%zu decoded len: %zu\n", count, decoded_len);
+        // printf("[+] For packet #%zu decoded len: %zu\n", count, decoded_len);
 
         memcpy(packet_list[count].data, decoded, decoded_len);
         packet_list[count].data_len = decoded_len;
@@ -346,7 +347,7 @@ void replay_packets(const char *broker_ip, uint16_t broker_port, mqtt_packet pac
             //     continue;
             // }
 
-            printf("\n[+] Creating new connection\n");
+            // printf("\n[+] Creating new connection\n");
 
             int sock = socket(AF_INET, SOCK_STREAM, 0);
             if (sock < 0) {
@@ -366,7 +367,7 @@ void replay_packets(const char *broker_ip, uint16_t broker_port, mqtt_packet pac
             current_sock = sock;
         }
 
-        printf("[+] Sending (#%02zu): %s, Size: %zu\n", i, mqtt_packet_name(p->type), p->data_len);
+        // printf("[+] Sending (#%02zu): %s, Size: %zu\n", i, mqtt_packet_name(p->type), p->data_len);
         // for (int i = 0; i < p->data_len; i++) {
         //     printf("%d", p->data[i]);
         // }
@@ -393,48 +394,51 @@ void replay_packets(const char *broker_ip, uint16_t broker_port, mqtt_packet pac
 }
 
 int heartbeat(const char *broker_ip, uint16_t broker_port) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        perror("socket");
-        exit(1);
+    char port_buf[6];
+    snprintf(port_buf, sizeof(port_buf), "%u", broker_port);
+
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *res = NULL;
+    int gai = getaddrinfo(broker_ip, port_buf, &hints, &res);
+    if (gai != 0) {
+        // fprintf(stderr, "getaddrinfo(%s:%s) failed: %s\n", broker_ip, port_buf, gai_strerror(gai));
+        return 1;
     }
 
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(broker_port);
-    inet_pton(AF_INET, broker_ip, &addr.sin_addr);
+    int status = 1;
+    int last_errno = 0;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        int sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (sock < 0) {
+            last_errno = errno;
+            continue;
+        }
 
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("connect");
-        return 1; // Affected
+        if (connect(sock, ai->ai_addr, ai->ai_addrlen) == 0) {
+            status = 0;
+            close(sock);
+            break;
+        }
+
+        last_errno = errno;
+        close(sock);
     }
-    return 0; // NOT Affected
+
+    if (status != 0 && last_errno) {
+        errno = last_errno;
+        perror("heartbeat connect");
+    }
+
+    freeaddrinfo(res);
+    return status;
 }
 
 /* ------------------------------------------------------------------ */
 /* Entrypoint                                                         */
 /* ------------------------------------------------------------------ */
-
-// int main(int argc, char **argv) {
-//     if (argc < 2) {
-//         fprintf(stderr, "[?] Usage: %s segfault_packets.txt\n", argv[0]);
-//         return 1;
-//     }
-
-//     mqtt_packet packets[MAX_PACKETS];
-//     size_t packet_count = 0;
-
-//     fprintf(stderr, "[+] Loading packets sequence\n");
-//     if (read_file(argv[1], packets, &packet_count) != 0) {
-//         fprintf(stderr, "[-] Failed to read packet file\n");
-//         return 1;
-//     }
-//     fprintf(stderr, "[+] Finished loading packets sequence, #packets = %zu\n", packet_count);
-
-//     fprintf(stderr, "[+] Starting  reproducing packets sequence\n");
-//     replay_packets("127.0.0.1", 1883, packets, packet_count);
-//     return 0;
-// }
 
 KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, KrakenRunResult **out_result) {
     // 1. Allocate and initialize the main result structure
@@ -473,12 +477,13 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
             size_t packet_count = 0;
 
             if (read_file(path, packets, &packet_count) != 0) {
-                fprintf(stderr, "[-] Failed to read packet file\n");
+                // fprintf(stderr, "[-] Failed to read packet file\n");
                 free(path);
                 return 1;
             }
             replay_packets(host, port, packets, packet_count);
             free(path);
+            usleep(1000);
 
             if (heartbeat(host, port)) {
                 is_successfull = true;
@@ -490,7 +495,7 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
 
         KrakenFinding f = {0};
         f.id = mystrdup("");
-        f.module_id = mystrdup("mqtt-replay");
+        f.module_id = mystrdup("MQTT-REPLAY");
         f.success = is_successfull;
         f.title = mystrdup("cve-xxx");
         f.severity = mystrdup("high");
