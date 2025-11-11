@@ -26,6 +26,9 @@
 !modules/
 !modules/**
 
+!deploy/
+!deploy/**
+
 # Kraken
 !kraken/
 !kraken/README.md

@@ -1,0 +1,16 @@
+FROM mosquitto-fuzz:asan
+
+RUN apt-get update && apt-get install -y \
+    curl git build-essential pkg-config libssl-dev cmake llvm clang \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN git clone https://github.com/MCloudTT/rusty-FUME /fume && \
+    cd /fume && \
+    cargo build --release
+
+WORKDIR /fume
+
+ENTRYPOINT ["/fume/target/release/rusty-fume"]
+CMD []
