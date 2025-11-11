@@ -1,14 +1,21 @@
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <poll.h>
+#include <stdbool.h>
 #include <stdint.h>
-#define KRAKEN_MODULE_BUILD
-#define BUILDING_MQTT_AUTH_CHECK_V2
-#include <kraken_module_abi_v2.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/time.h>
 
-KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION_V2 = KRAKEN_ABI_VERSION_V2;
+#define KRAKEN_MODULE_BUILD
+#include <kraken_module_abi.h>
+
+KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION = KRAKEN_ABI_VERSION;
 
 /* -------------------------------------------------------- */
 /* Minimal MQTT Helper                                      */
@@ -33,7 +40,10 @@ static int mqtt_build_connect(mqtt_packet_t *pkt, const char *client_id, const c
     pkt->len = 0;
     uint8_t *p = pkt->buf;
     const char *proto = "MQTT";
-    p += mqtt_encode_string(p, proto);
+    int wrote = mqtt_encode_string(p, proto);
+    if (wrote < 0)
+        return -1;
+    p += wrote;
     *p++ = 4; // Protocol level 3.1.1
     uint8_t flags = 0;
     if (user && *user)
@@ -43,11 +53,22 @@ static int mqtt_build_connect(mqtt_packet_t *pkt, const char *client_id, const c
     *p++ = flags;
     *p++ = 0;
     *p++ = 60; // Keepalive 60s
-    p += mqtt_encode_string(p, client_id);
-    if (user && *user)
-        p += mqtt_encode_string(p, user);
-    if (pass && *pass)
-        p += mqtt_encode_string(p, pass);
+    wrote = mqtt_encode_string(p, client_id);
+    if (wrote < 0)
+        return -1;
+    p += wrote;
+    if (user && *user) {
+        wrote = mqtt_encode_string(p, user);
+        if (wrote < 0)
+            return -1;
+        p += wrote;
+    }
+    if (pass && *pass) {
+        wrote = mqtt_encode_string(p, pass);
+        if (wrote < 0)
+            return -1;
+        p += wrote;
+    }
 
     size_t rem_len = p - pkt->buf;
     uint8_t head[5];
@@ -74,10 +95,13 @@ static int mqtt_build_subscribe(mqtt_packet_t *pkt, const char *topic) {
     size_t topic_len = strlen(topic);
     size_t rem_len = 2 + 2 + topic_len + 1;
     *p++ = 0x82; // SUBSCRIBE
-    *p++ = (uint8_t)rem_len;
+    *p++ = (uint8_t)rem_len; // Fits for small topics
     *p++ = 0;
     *p++ = 1; // Packet ID
-    p += mqtt_encode_string(p, topic);
+    int wrote = mqtt_encode_string(p, topic);
+    if (wrote < 0)
+        return -1;
+    p += wrote;
     *p++ = 0; // QoS 0
     pkt->len = p - pkt->buf;
     return (int)pkt->len;
@@ -98,83 +122,390 @@ static int mqtt_build_publish(mqtt_packet_t *pkt, const char *topic, const char 
             b |= 128;
         *p++ = b;
     } while (rem_temp > 0);
-    p += mqtt_encode_string(p, topic);
+    int wrote = mqtt_encode_string(p, topic);
+    if (wrote < 0)
+        return -1;
+    p += wrote;
     memcpy(p, msg, msg_len);
     pkt->len = (p + msg_len) - pkt->buf;
     return (int)pkt->len;
 }
 
-static int mqtt_parse_connack(uint8_t *buf, size_t n) {
+static int mqtt_parse_connack(const uint8_t *buf, size_t n) {
     return n >= 4 && buf[0] == 0x20 && buf[3] == 0x00;
 }
 
-static int mqtt_parse_suback(uint8_t *buf, size_t n) {
+static int mqtt_parse_suback(const uint8_t *buf, size_t n) {
     return n >= 3 && buf[0] == 0x90;
 }
 
-/* ------------------------------------------------------------------ */
-/* MQTT Check Functions                                               */
-/* ------------------------------------------------------------------ */
+/* -------------------------------------------------------- */
+/* Networking helpers                                       */
+/* -------------------------------------------------------- */
 
-static int mqtt_check_sys_leakage(KrakenConnectionHandle conn, const KrakenConnectionOps *ops, const char *user, const char *pass, uint32_t timeout_ms) {
-    mqtt_packet_t pkt;
-    char cid[32];
-    snprintf(cid, sizeof(cid), "kraken_%u", (unsigned)rand());
+static uint32_t effective_timeout(uint32_t timeout_ms) {
+    return timeout_ms ? timeout_ms : 5000;
+}
 
-    int len = mqtt_build_connect(&pkt, cid, user, pass);
-
-    int64_t sent = ops->send(conn, pkt.buf, len, timeout_ms);
-    if (sent <= 0) {
-        return -1; // Failed to send
+static int send_all(int sock, const uint8_t *buf, size_t len) {
+    size_t offset = 0;
+    while (offset < len) {
+        ssize_t sent = send(sock, buf + offset, len - offset, 0);
+        if (sent < 0) {
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+        if (sent == 0)
+            return -1;
+        offset += (size_t)sent;
     }
-
-    uint8_t resp[16];
-    int64_t received = ops->recv(conn, resp, sizeof(resp), timeout_ms);
-    if (received <= 0) {
-        return -1; // No response
-    }
-
-    if (mqtt_parse_connack(resp, (size_t)received)) {
-        return -1; // No CONNACK
-    }
-
-    mqtt_packet_t sub_pkt;
-    len = mqtt_build_subscribe(&sub_pkt, "#");
-    if (ops->send(conn, sub_pkt.buf, len, timeout_ms)) {
-        return -1; // Failed to send
-    }
-
-    received = ops->recv(conn, resp, sizeof(resp), timeout_ms);
-    if (received <= 0) {
-        return -1; // No response
-    }
-
-    if (mqtt_parse_suback(resp, (size_t)received)) {
-        return -1; // No Suback
-    }
-
-    // TODO: Wait to read some information
-    // under $SYS, here the timeout is foundamental to
-    // avoid blocking behaviour from this plugin.
-
     return 0;
 }
 
-KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnectionOps *ops, const KrakenHostPort *target, uint32_t timeout_ms,
-                             const char *params_json, KrakenRunResult **out_result) {
-    srand((unsigned)time(NULL));
+static int finish_connect(int sock, int flags, uint32_t timeout_ms) {
+    struct pollfd pfd = {
+        .fd = sock,
+        .events = POLLOUT,
+    };
+    int wait_ms = (int)effective_timeout(timeout_ms);
+    int pr = poll(&pfd, 1, wait_ms);
+    if (pr <= 0)
+        return -1;
 
+    int err = 0;
+    socklen_t errlen = sizeof(err);
+    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0 || err != 0)
+        return -1;
+
+    // Restore blocking mode
+    fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+    return 0;
+}
+
+static int connect_tcp(const char *host, uint16_t port, uint32_t timeout_ms) {
+    char port_str[6];
+    snprintf(port_str, sizeof(port_str), "%u", port);
+
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, port_str, &hints, &res) != 0)
+        return -1;
+
+    int sock = -1;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (sock < 0)
+            continue;
+
+        int flags = fcntl(sock, F_GETFL, 0);
+        if (flags < 0) {
+            close(sock);
+            sock = -1;
+            continue;
+        }
+        if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+            close(sock);
+            sock = -1;
+            continue;
+        }
+
+        int ret = connect(sock, ai->ai_addr, ai->ai_addrlen);
+        if (ret == 0) {
+            fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+            break;
+        }
+
+        if (errno == EINPROGRESS) {
+            if (finish_connect(sock, flags, timeout_ms) == 0)
+                break;
+        }
+
+        close(sock);
+        sock = -1;
+    }
+
+    freeaddrinfo(res);
+    return sock;
+}
+
+static ssize_t mqtt_read_packet(int sock, uint8_t *buf, size_t buf_len) {
+    ssize_t r = recv(sock, buf, 1, 0);
+    if (r <= 0)
+        return r;
+    size_t offset = (size_t)r;
+
+    size_t multiplier = 1;
+    size_t remaining_length = 0;
+    uint8_t byte = 0;
+    do {
+        if (offset >= buf_len)
+            return -1;
+        r = recv(sock, &byte, 1, 0);
+        if (r <= 0)
+            return r;
+        buf[offset++] = byte;
+        remaining_length += (byte & 127) * multiplier;
+        multiplier *= 128;
+        if (multiplier > (128 * 128 * 128 * 128))
+            return -1;
+    } while (byte & 128);
+
+    if (remaining_length > buf_len - offset)
+        return -1;
+
+    size_t to_read = remaining_length;
+    while (to_read > 0) {
+        r = recv(sock, buf + offset, to_read, 0);
+        if (r <= 0)
+            return r;
+        offset += (size_t)r;
+        to_read -= (size_t)r;
+    }
+    return (ssize_t)offset;
+}
+
+static ssize_t mqtt_read_packet_with_timeout(int sock, uint8_t *buf, size_t buf_len, uint32_t timeout_ms) {
+    struct pollfd pfd = {
+        .fd = sock,
+        .events = POLLIN,
+    };
+    int wait_ms = (int)effective_timeout(timeout_ms);
+    int pr = poll(&pfd, 1, wait_ms);
+    if (pr == 0)
+        return 0; // timeout
+    if (pr < 0) {
+        if (errno == EINTR)
+            return 0;
+        return -1;
+    }
+    return mqtt_read_packet(sock, buf, buf_len);
+}
+
+/* -------------------------------------------------------- */
+/* MQTT operations over raw sockets                         */
+/* -------------------------------------------------------- */
+
+static int mqtt_client_connect(int *out_sock, const char *host, uint16_t port, const char *client_id, const char *user, const char *pass,
+                               uint32_t timeout_ms) {
+    int sock = connect_tcp(host, port, timeout_ms);
+    if (sock < 0)
+        return -1;
+
+    mqtt_packet_t pkt;
+    if (mqtt_build_connect(&pkt, client_id, user, pass) < 0) {
+        close(sock);
+        return -1;
+    }
+
+    if (send_all(sock, pkt.buf, pkt.len) != 0) {
+        close(sock);
+        return -1;
+    }
+
+    uint8_t resp[32];
+    ssize_t got = mqtt_read_packet_with_timeout(sock, resp, sizeof(resp), timeout_ms);
+    if (got <= 0 || !mqtt_parse_connack(resp, (size_t)got)) {
+        close(sock);
+        return -1;
+    }
+
+    *out_sock = sock;
+    return 0;
+}
+
+static int mqtt_client_subscribe(int sock, const char *topic, uint32_t timeout_ms) {
+    mqtt_packet_t pkt;
+    int len = mqtt_build_subscribe(&pkt, topic);
+    if (len < 0)
+        return -1;
+    if (send_all(sock, pkt.buf, (size_t)len) != 0)
+        return -1;
+
+    uint8_t resp[64];
+    ssize_t got = mqtt_read_packet_with_timeout(sock, resp, sizeof(resp), timeout_ms);
+    if (got <= 0 || !mqtt_parse_suback(resp, (size_t)got))
+        return -1;
+    return 0;
+}
+
+static int mqtt_client_publish(int sock, const char *topic, const char *msg, uint32_t timeout_ms) {
+    mqtt_packet_t pkt;
+    int len = mqtt_build_publish(&pkt, topic, msg);
+    if (len < 0)
+        return -1;
+    return send_all(sock, pkt.buf, (size_t)len);
+}
+
+static uint64_t now_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
+}
+
+static bool mqtt_wait_for_sys_topic(int sock, const char *prefix, uint32_t wait_window_ms, char *topic_buf, size_t topic_buf_len) {
+    if (!prefix || !*prefix)
+        prefix = "$SYS/";
+    if (topic_buf_len == 0)
+        return false;
+    size_t prefix_len = strlen(prefix);
+    uint64_t deadline = now_ms() + wait_window_ms;
+    uint8_t packet[1024];
+
+    while (1) {
+        uint64_t now = now_ms();
+        if (now >= deadline)
+            break;
+        uint32_t remaining = (uint32_t)(deadline - now);
+        ssize_t got = mqtt_read_packet_with_timeout(sock, packet, sizeof(packet), remaining);
+        if (got < 0)
+            break;
+        if (got == 0)
+            continue;
+        if ((packet[0] & 0xF0) != 0x30)
+            continue; // Not a PUBLISH
+
+        size_t offset = 1;
+        size_t multiplier = 1;
+        size_t remaining_length = 0;
+        uint8_t byte;
+        do {
+            if (offset >= (size_t)got)
+                break;
+            byte = packet[offset++];
+            remaining_length += (byte & 127) * multiplier;
+            multiplier *= 128;
+        } while (byte & 128);
+        if (offset + 2 > (size_t)got)
+            continue;
+
+        size_t topic_len = ((size_t)packet[offset] << 8) | packet[offset + 1];
+        offset += 2;
+        if (topic_len == 0 || offset + topic_len > (size_t)got)
+            continue;
+
+        size_t copy_len = topic_len;
+        if (copy_len >= topic_buf_len)
+            copy_len = topic_buf_len - 1;
+        memcpy(topic_buf, packet + offset, copy_len);
+        topic_buf[copy_len] = '\0';
+
+        if (strncmp(topic_buf, prefix, prefix_len) == 0)
+            return true;
+    }
+    return false;
+}
+
+/* ------------------------------------------------------------------ */
+/* Module logic                                                       */
+/* ------------------------------------------------------------------ */
+
+KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, const char *params_json, KrakenRunResult **out_result) {
+    srand((unsigned)time(NULL));
     KrakenRunResult *result = (KrakenRunResult *)calloc(1, sizeof(KrakenRunResult));
     if (!result)
         return -1;
 
-    result->target.host = mystrdup(target->host);
-    result->target.port = target->port;
-    add_log(result, "MQTT sys leakage assessment started");
+    result->target.host = mystrdup(host);
+    result->target.port = (uint16_t)port;
+    add_log(result, "MQTT $SYS disclosure assessment started");
 
-    const KrakenConnectionInfo *info = ops->get_info(conn);
+    char *username = json_extract_string(params_json, "username");
+    char *password = json_extract_string(params_json, "password");
+    char *sys_prefix = json_extract_string(params_json, "sys_prefix");
+    if (!sys_prefix)
+        sys_prefix = mystrdup("$SYS/");
 
-    // % TODO
+    int subscriber = -1;
+    int publisher = -1;
+    bool leak_detected = false;
+    char leaked_topic[256] = {0};
+
+    uint32_t op_timeout = effective_timeout(timeout_ms);
+
+    char client_id[48];
+    snprintf(client_id, sizeof(client_id), "krk-sub-%u", (unsigned)rand());
+    if (mqtt_client_connect(&subscriber, host, (uint16_t)port, client_id, username, password, op_timeout) != 0) {
+        add_log(result, "failed to open subscriber connection");
+        goto finalize;
+    }
+    add_log(result, "subscriber connected");
+
+    if (mqtt_client_subscribe(subscriber, "#", op_timeout) != 0) {
+        add_log(result, "failed to subscribe to '#' topic");
+        goto finalize;
+    }
+    add_log(result, "subscriber registered to '#' topic");
+
+    snprintf(client_id, sizeof(client_id), "krk-pub-%u", (unsigned)rand());
+    if (mqtt_client_connect(&publisher, host, (uint16_t)port, client_id, username, password, op_timeout) != 0) {
+        add_log(result, "failed to open publisher connection");
+        goto finalize;
+    }
+    add_log(result, "publisher connected");
+
+    char topic[128];
+    char payload[128];
+    snprintf(topic, sizeof(topic), "kraken/test/%u", (unsigned)rand());
+    snprintf(payload, sizeof(payload), "kraken_probe_%u", (unsigned)rand());
+
+    if (mqtt_client_publish(publisher, topic, payload, op_timeout) != 0) {
+        add_log(result, "publisher failed to send probe message");
+        goto finalize;
+    }
+    add_log(result, "probe message published");
+
+    uint32_t wait_window = op_timeout * 2;
+    leak_detected = mqtt_wait_for_sys_topic(subscriber, sys_prefix, wait_window, leaked_topic, sizeof(leaked_topic));
+    if (leak_detected) {
+        char logbuf[256];
+        snprintf(logbuf, sizeof(logbuf), "received $SYS topic via '#': %s", leaked_topic);
+        add_log(result, logbuf);
+    } else {
+        add_log(result, "no $SYS topic observed via '#' subscription");
+    }
+
+finalize:
+    if (subscriber >= 0)
+        close(subscriber);
+    if (publisher >= 0)
+        close(publisher);
+
+    KrakenFinding finding = {0};
+    finding.id = mystrdup("mqtt-sys-disclosure");
+    finding.module_id = mystrdup("MQTT-SYS-DISCLOSURE");
+    finding.success = leak_detected;
+    finding.title = mystrdup("MQTT $SYS topic disclosure");
+    finding.severity = mystrdup(leak_detected ? "high" : "info");
+    finding.description = mystrdup(leak_detected ? "Broker forwards $SYS topics to '#' subscribers" : "Broker filters $SYS topics from '#' subscribers");
+    finding.timestamp = time(NULL);
+    finding.target.host = mystrdup(host);
+    finding.target.port = (uint16_t)port;
+
+    if (leak_detected) {
+        finding.evidence.count = 1;
+        finding.evidence.items = (KrakenKeyValue *)calloc(1, sizeof(KrakenKeyValue));
+        if (finding.evidence.items) {
+            finding.evidence.items[0].key = mystrdup("topic");
+            finding.evidence.items[0].value = mystrdup(leaked_topic);
+        }
+    }
+
+    finding.tags.count = 2;
+    finding.tags.strings = (const char **)malloc(2 * sizeof(char *));
+    if (finding.tags.strings) {
+        finding.tags.strings[0] = mystrdup("mqtt");
+        finding.tags.strings[1] = mystrdup("sys");
+    }
+
+    add_finding(result, &finding);
+
+    free(username);
+    free(password);
+    free(sys_prefix);
 
     *out_result = result;
     return 0;
@@ -184,7 +515,7 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
 /* Memory Deallocator                                                 */
 /* ------------------------------------------------------------------ */
 
-KRAKEN_API void kraken_free_v2(void *p) {
+KRAKEN_API void kraken_free(void *p) {
     if (!p)
         return;
 
@@ -210,7 +541,7 @@ KRAKEN_API void kraken_free_v2(void *p) {
         for (size_t j = 0; j < f->tags.count; j++) {
             free((void *)f->tags.strings[j]);
         }
-        free(f->tags.strings);
+        free((void *)f->tags.strings);
     }
     free(result->findings);
 

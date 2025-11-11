@@ -177,3 +177,13 @@ tasks:
           params:
               sequence_num: "1"
               path0: "./modules/kraken/abi/mqtt_replay/CVE-2024-8376.txt"
+
+    - id: "mqtt-sys-disclosure"
+      required_tags: ["protocol:mqtt"]
+      max_duration: 5s
+      type: lib
+      exec:
+          abi:
+              api: v1
+              library_path: "./modules/kraken/abi/mqtt_sys_disclosure/build/mqtt_sys_disclosure"
+              symbol: kraken_run
