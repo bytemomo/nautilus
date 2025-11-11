@@ -10,11 +10,18 @@
 
 ### 1.1 Core Functionality
 
-- **HL-F1** --- Siren shall transparently intercept and analyze L2-L4 network traffic on a designated Linux network interface.
-- **HL-F2** --- Siren shall use eBPF/XDP/TC for high-performance packet interception at the kernel level.
-- **HL-F3** --- Siren shall provide a rule-based engine to match packet characteristics and apply actions such as **drop**, **modify**, **delay**, **log**, or **duplicate**.
+- **HL-F1** --- Siren shall transparently intercept and analyze L2-L4 network
+  traffic on a designated Linux network interface.
+- **HL-F2** --- Siren shall use eBPF/XDP/TC for high-performance packet
+  interception at the kernel level.
+- **HL-F3** --- Siren shall provide a rule-based engine to match packet
+  characteristics and apply actions such as **drop**, **modify**, **delay**,
+  **log**, or **duplicate**.
 - **HL-F4** --- Siren shall support custom, user-defined traffic processors written in Go.
 - **HL-F5** --- Siren shall record intercepted traffic and rule engine decisions to a structured format for offline analysis.
+- **HL-F6** --- Siren shall hook SSL/TLS functions to intercept master keys and
+  be able to decode traffic in user-space without the need of passing certificates
+  around. NOTE: Not important as this si quite advanced.
 
 ### 1.2 User Interaction
 
