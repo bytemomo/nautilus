@@ -9,7 +9,7 @@ default:
     @just --list
 
 build_mosquitto:
-    {{CONTAINER_RUNTIME}} build -f Dockerfile -t {{MOSQ_IMAGE_NAME}} {{project_dir}}/mosquitto
+    {{CONTAINER_RUNTIME}} build -f Dockerfile -t {{MOSQ_IMAGE_NAME}} {{project_dir}}/mqtt/mosquitto
 
 run_mosquitto:
     {{CONTAINER_RUNTIME}} run --rm -it \
@@ -21,12 +21,11 @@ coverage_mosquitto container_id:
 
 
 build_mosq_fume:
-    {{CONTAINER_RUNTIME}} build -f Dockerfile.FUME -t {{MOSQ_FUME_IMAGE_NAME}}  {{project_dir}}/mosquitto
+    {{CONTAINER_RUNTIME}} build -f Dockerfile.FUME -t {{MOSQ_FUME_IMAGE_NAME}}  {{project_dir}}/mqtt/mosquitto
 
 run_mosq_fume:
     {{CONTAINER_RUNTIME}} run --rm -it \
-        -v {{project_dir}}/mosquitto/fuzz-out:/mosquitto/data \
-        -v {{project_dir}}/mosquitto/fuzz-out:/mosquitto/log \
+        -v {{project_dir}}/mqtt/mosquitto/fuzz-out:/tmp/mosquitto/ \
         {{MOSQ_FUME_IMAGE_NAME}} \
         -t 127.0.0.1:1883 \
         --broker-command "/usr/local/sbin/mosquitto -c /opt/mosquitto/mosquitto.conf -v" \

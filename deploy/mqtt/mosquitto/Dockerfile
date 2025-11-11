@@ -54,9 +54,9 @@ WORKDIR /opt/mosquitto
 ENV ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1:fast_unwind_on_malloc=0:allocator_may_return_null=1" \
     UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1" \
     LSAN_OPTIONS="print_suppressions=0:detect_leaks=1" \
-    LLVM_PROFILE_FILE="/mosquitto/data/mosq-%p.profraw"
+    LLVM_PROFILE_FILE="/tmp/mosquitto/data/mosq-%p.profraw"
 
-RUN mkdir -p /mosquitto/data /mosquitto/log
+RUN mkdir -p /tmp/mosquitto/data /tmp/mosquitto/log
 
 COPY mosquitto.conf /opt/mosquitto/mosquitto.conf
 
