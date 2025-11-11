@@ -1,0 +1,122 @@
+@startuml
+' !pragma layout elk
+' left to right direction
+' skinparam componentStyle rectangle
+' skinparam packageStyle rectangle
+' skinparam linetype polyline
+' skinparam nodesep 30
+' skinparam ranksep 30
+' skinparam padding 6
+' skinparam wrapWidth 220
+
+title Siren — Component Diagram
+
+actor "Operator" as ACT
+artifact "siren.yaml" as CFG <<yaml>>
+artifact "Injection Requests (json)" as INJ_FILE <<json>>
+artifact "pcap/json recordings" as RECORDS <<artifact>>
+
+package "Siren" as S {
+
+  together {
+    package "Bootstrap & Control" as CTRL {
+      [CLI Entrypoint] as CLI <<cmd>>
+      [Config Loader] as CFG_L <<config>>
+      [Target Parser] as TARGETS <<helper>>
+      [Injector Loop] as INJ_LOOP <<injector>>
+      [Client Tracker] as TRACK <<tracker>>
+      () "ISirenConfig" as ISirenConfig
+      () "ITargetSelectors" as ITargetSelectors
+      () "IClientRegistry" as IClientRegistry
+    }
+
+    package "Processing Pipeline" as PIPE {
+      [Traffic Processor] as TP
+      [Intercept Engine] as ENG <<rules>>
+      [Manipulator Registry] as MAN <<manip>>
+      [Recorder] as REC <<recorder>>
+      () "IRuleEvaluation" as IRuleEvaluation
+      () "IManipulatorChain" as IManipulatorChain
+      () "IRecorderOutput" as IRecorderOutput
+    }
+
+    package "eBPF Integration" as BPF {
+      [eBPF Manager] as MGR
+      [eBPF Runtime] as RT
+      () "IPacketEvents" as IPacketEvents
+      () "IFlowActions" as IFlowActions
+      () "ITrafficContext" as ITrafficContext
+    }
+  }
+
+  [File Injector] as FILE_INJ
+  [Packet Crafter] as PKT
+  () "IInjectionRequests" as IInjectionRequests
+
+}
+
+node "Linux Kernel" as KRN {
+  component "siren_xdp\n(XDP Program)" as XDP <<ebpf>>
+  component "tc_siren\n(TC Program)" as TC <<ebpf>>
+}
+
+ACT --> CLI : run / monitor
+
+CFG --- ISirenConfig
+ISirenConfig --- CFG_L
+CLI --( ISirenConfig
+
+TARGETS --( ITargetSelectors
+MGR --( ITargetSelectors
+
+TRACK --( IClientRegistry
+TP --( IClientRegistry
+INJ_LOOP --( IClientRegistry
+
+ENG --( IRuleEvaluation
+TP --( IRuleEvaluation
+
+MAN --( IManipulatorChain
+TP --( IManipulatorChain
+
+REC --( IRecorderOutput
+RECORDS --- IRecorderOutput
+TP --( IRecorderOutput
+
+MGR --( IPacketEvents
+RT --( IPacketEvents
+
+MGR --( IFlowActions
+RT --( IFlowActions
+
+RT --( ITrafficContext
+TP --( ITrafficContext
+
+FILE_INJ --( IInjectionRequests
+INJ_LOOP --( IInjectionRequests
+INJ_FILE --- IInjectionRequests
+
+CLI --> CFG_L : bootstrap
+CLI --> MGR : control
+CLI --> RT : wire runtime
+CLI --> TP : configure pipeline
+CLI --> REC : recording
+CLI --> INJ_LOOP : start loop
+
+CFG_L --> TARGETS : parse selectors
+CFG_L --> ENG : load rules
+CFG_L --> MAN : configure manipulators
+CFG_L --> REC : recording config
+CFG_L --> FILE_INJ : injector config
+
+MGR --> XDP : attach + load
+MGR --> TC : attach + load
+XDP --> MGR : ring buffer events
+TC --> MGR : tc events
+
+RT --> MGR : drop programming
+
+INJ_LOOP --> PKT : craft packets
+PKT --> TC : inject frames
+
+@enduml

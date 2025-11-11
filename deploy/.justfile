@@ -24,18 +24,10 @@ build_mosq_fume:
     {{CONTAINER_RUNTIME}} build -f Dockerfile.FUME -t {{MOSQ_FUME_IMAGE_NAME}}  {{project_dir}}/mosquitto
 
 run_mosq_fume:
-    #!/bin/bash
-    cat << EOF
-    Run the following commands before fuzzing to prevent the kernel from running out of ports:
-        - sudo sysctl -w net.ipv4.tcp_fin_timeout=5
-        - sudo sysctl -w net.ipv4.tcp_tw_reuse=1
-        - sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
-    EOF
-
     {{CONTAINER_RUNTIME}} run --rm -it \
         -v {{project_dir}}/mosquitto/fuzz-out:/mosquitto/data \
         -v {{project_dir}}/mosquitto/fuzz-out:/mosquitto/log \
         {{MOSQ_FUME_IMAGE_NAME}} \
         -t 127.0.0.1:1883 \
-        --broker-command "/usr/local/sbin/mosquitto -c /opt/mosquitto/mosquitto.conf" \
+        --broker-command "/usr/local/sbin/mosquitto -c /opt/mosquitto/mosquitto.conf -v" \
         fuzz

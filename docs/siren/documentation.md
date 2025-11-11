@@ -28,6 +28,7 @@ kernel via BPF maps which allows Siren to stay invisible to the clients.
 
 ## Architecture
 
+<!--
 ```text
 ┌──────────┐       ┌─────────────────────────────┐        ┌──────────┐
 │ Client   │──────▶│    NIC + XDP (siren_xdp)    │───────▶│ Server   │
@@ -41,7 +42,9 @@ kernel via BPF maps which allows Siren to stay invisible to the clients.
                  │  - Manipulators                 │
                  │  - Recorder                     │
                  └─────────────────────────────────┘
-```
+```-->
+
+![architecture](./architecture.svg)
 
 ### Components
 

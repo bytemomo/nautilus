@@ -1,131 +1,112 @@
-# 🧜 Siren — System Requisites
+# 🧜 Siren System Requisites
 
-## 1) Architectural Requirements
+## Architecture Overview
 
-- **SRN-A1** — Siren shall implement a **transparent MITM proxy** architecture
-  for L2–L4 traffic testing.
-- **SRN-A2** — Siren shall be implemented in **Go** and built as a CLI app
-  (`cmd/siren`) plus internal packages.
-- **SRN-A3** — Siren shall use **Trident** conduits for upstream/server-side
-  connectivity and stacking (e.g., TCP→TLS, UDP→DTLS).
-- **SRN-A4** — The **Intercept Engine** shall be a pluggable pipeline that
-  evaluates rules and applies actions to flows/packets.
-- **SRN-A5** — The proxy core shall expose **Stream** and **Datagram** proxy
-  implementations with a common interface.
-- **SRN-A6** — **Spoof** utilities (ARP/DNS) shall be isolated from the proxy
-  core and invoked explicitly.
-- **SRN-A7** — The **Recorder** shall integrate passively with the proxy pipeline
-  to capture traffic without changing semantics.
-- **SRN-A8** — Configuration shall be **YAML-first**, with CLI flags as overrides
-  and a stable schema.
-- **SRN-A9** — A **REST API** (optional) shall control runtime operations
-  (rules, recording, status) without process restart.
-- **SRN-A10** — Siren shall support **rule evaluation order** and deterministic
-  action chaining.
+![architecture](./architecture.svg)
 
 ---
 
-## 2) Functional Requirements
+## 1. High-Level Requirements
 
-### 2.1 Proxy Core
+### 1.1 Core Functionality
 
-- **SRN-F1** — Provide **stream proxy** for TCP/TLS and **datagram proxy** for UDP/DTLS.
-- **SRN-F2** — Support **transparent** operation via ARP/DNS spoofing and
-  **explicit** proxy via listen/target flags.
-- **SRN-F3** — Permit **bidirectional interception**: client→server and server→client.
-- **SRN-F4** — Expose **conduit stacks** in config (e.g., `stack: [tcp, tls]`
-  with per-layer params).
-- **SRN-F5** — Support **TLS interception**: dynamic per-connection leaf certs
-  signed by a configured CA.
-- **SRN-F6** — Provide **connection lifecycle controls**: abrupt/graceful close,
-  timed disconnects, resets (where applicable).
-- **SRN-F7** — Support **connection limits**, timeouts, and buffer sizes (configurable).
+- **HL-F1** --- Siren shall transparently intercept and analyze L2-L4 network traffic on a designated Linux network interface.
+- **HL-F2** --- Siren shall use eBPF/XDP/TC for high-performance packet interception at the kernel level.
+- **HL-F3** --- Siren shall provide a rule-based engine to match packet characteristics and apply actions such as **drop**, **modify**, **delay**, **log**, or **duplicate**.
+- **HL-F4** --- Siren shall support custom, user-defined traffic processors written in Go.
+- **HL-F5** --- Siren shall record intercepted traffic and rule engine decisions to a structured format for offline analysis.
 
-### 2.2 Intercept Engine (Rules & Actions)
+### 1.2 User Interaction
 
-- **SRN-F8** — Load rules from YAML; allow **live updates** via REST API
-  (`POST /rules`, `DELETE /rules/:name`).
-- **SRN-F9** — Rule matching shall support **direction**, **content**
-  (contains/starts/ends/regex), **size**, **probability**, and **state**
-  (age, packet/byte counters).
-- **SRN-F10** — Provide protocol-aware matchers (HTTP method/path/header, TLS SNI).
-- **SRN-F11** — Actions shall include **drop**, **delay (+jitter)**, **modify**
-  (replace/corrupt/truncate/append), **duplicate**, **throttle**,
-  **disconnect**, **log**, and **chain** (sequences).
-- **SRN-F12** — Ensure **message boundary preservation** for datagrams;
-  safe mutation for streams with buffer-aware ops.
-- **SRN-F13** — Support **fault injection** (protocol violations, corrupted
-  bytes, malformed responses).
+- **HL-U1** --- Siren shall be configured via a single, comprehensive YAML file.
+- **HL-U2** --- Siren shall be operated as a standalone CLI application, requiring
+  `sudo` to attach its eBPF programs.
+- **HL-U3** --- Siren shall expose an optional REST API for runtime control over
+  rules and recording without requiring a restart.
 
-### 2.3 Spoofing (Positioning)
+### 1.3 System Qualities (Non-Functional)
 
-- **SRN-F14** — Provide **ARP spoofing** helper to place Siren on-path
-  (requires privileges).
-- **SRN-F15** — Provide **DNS spoofing** helper to redirect domains to Siren
-  while proxying upstream with real DNS.
-
-### 2.4 Recording
-
-- **SRN-F16** — Record proxied traffic to **pcap/json/raw** with optional payload
-  inclusion and per-flow indexing.
-- **SRN-F17** — Allow **start/stop recording** via CLI or REST (`/record/start`,
-  `/record/stop`).
-
-### 2.5 Configuration & Scenarios
-
-- **SRN-F18** — Support a YAML schema for proxy settings, rule sets, recording,
-  and pre-defined **scenarios**.
-- **SRN-F19** — Include bundled scenarios (packet loss, latency, jitter, throttle,
-  disconnects, corruption, reordering, duplicates, protocol violations).
-- **SRN-F20** — CLI flags (`-listen`, `-target`, `-proto`, `-config`, `-api`,
-  `-cert/key`, `-ca-cert/ca-key`, `-record`) shall override config.
-
-### 2.6 REST API
-
-- **SRN-F21** — Expose **/status** (connections, bytes, drops, uptime) and
-  **/connections** (active list).
-- **SRN-F22** — Support **dynamic rules** management and **recording controls**.
+- **HL-Q1** --- Siren shall operate with minimal performance overhead (e.g., <
+  10µs per-packet processing latency in userspace).
+- **HL-Q2** --- Siren shall be delivered as a single, self-contained binary with
+  no runtime dependencies other than a compatible Linux kernel (≥ 5.4).
+- **HL-Q3** --- The system shall be secure by default, requiring explicit configuration
+  for any features that might weaken security (e.g., TLS interception).
+- **HL-Q4** --- The system shall be easily deployable, avoiding complex setup
+  like `iptables` rules or `LD_PRELOAD`.
 
 ---
 
-## 3) Non-Functional Requirements
+## 2. Low-Level Requirements
 
-### 3.1 Security
+### 2.1 General
 
-- **SRN-N1** — TLS/DTLS interception shall be **opt-in**; require explicit CA
-  material; never intercept by default.
-- **SRN-N2** — **Sensitive keys** (CA, leaf, PSKs) shall never be logged and
-  shall be redacted from errors.
-- **SRN-N3** — Provide clear **warnings** and documentation; intended for
-  **authorized test environments only**.
-- **SRN-N4** — Honor Trident’s **secure defaults**; insecure modes (e.g., skip
-  verify) must be explicit and clearly labeled.
+- **LL-G1** --- The Siren CLI shall accept a `-config` flag to specify the path
+  to the YAML configuration file.
+- **LL-G2** --- The YAML configuration schema shall be versioned and documented,
+  covering eBPF settings, targets, rules, and recording.
 
-### 3.6 Testing & Tooling
+### 2.2 eBPF Engine (SRN-EBPF)
 
-- **SRN-N16** — unit test coverage for core packages (proxy, intercept
-  engine, recorder, config).
-- **SRN-N17** — Integration tests for TCP/TLS and UDP/DTLS paths
-- **SRN-N18** — Provide **mocks/fakes** for deterministic rule/action testing.
+#### 2.2.1 Architectural Requirements
 
-### 3.7 Documentation
+- **SRN-EBPF-A1** --- The eBPF component shall use an XDP program to gain read-only
+  access to all incoming packets on an interface.
+- **SRN-EBPF-A2** --- A BPF ring buffer (`ringbuf`) shall be used to pass packet
+  metadata and payloads efficiently to userspace.
+- **SRN-EBPF-A3** --- A BPF map (e.g., `LRU_HASH`) shall be used to receive
+  "drop" decisions from userspace and enforce them in-kernel for specific flows.
 
-- **SRN-N19** — GoDoc for public types; examples for TCP, TLS MITM, UDP/DTLS,
-  spoofing, recording, and rule chains.
-- **SRN-N20** — Document **security implications**, required privileges, and
-  configuration defaults.
+#### 2.2.2 Functional Requirements
 
-### 3.8 Dependencies
+- **SRN-EBPF-F1** --- The XDP program shall filter packets based on a target
+  list (IP, MAC, IP:Port, EtherCAT ID) defined in a BPF map.
+- **SRN-EBPF-F2** --- If the target list is empty, the XDP program shall capture
+  all traffic on the interface.
+- **SRN-EBPF-F3** --- The userspace component shall load, attach, and manage the
+  lifecycle of the eBPF program.
 
-- **SRN-N21** — Pin and audit external dependencies (e.g., Trident, DTLS lib);
-  keep transitive set minimal.
-- **SRN-N22** — Maintain compatibility with **Trident** public interfaces within
-  a major version.
+#### 2.2.3 Non-Functional Requirements
 
-### 3.9 Roadmap (Non-Blocking)
+- **SRN-EBPF-N1** --- The eBPF program must be compatible with Linux kernels
+  version 5.4 and newer.
+- **SRN-EBPF-N2** --- The pre-compiled eBPF object file shall be embedded in
+  the Siren Go binary.
+- **SRN-EBPF-N3** --- A `go generate` command shall be provided to recompile
+  the eBPF C code using `clang`.
 
-- **SRN-N23** — WebSocket proxy; HTTP/2/3 interception.
-- **SRN-N24** — GUI for real-time traffic visualization.
-- **SRN-N25** — Module system for custom protocols and matchers.
-- **SRN-N26** — Distributed multi-node proxying and performance mode.
-- **SRN-N27** — ML-based anomaly detection; Prometheus exporters.
+### 2.3 Intercept Engine (SRN-INT)
+
+#### 2.3.1 Architectural Requirements
+
+- **SRN-INT-A1** --- The Intercept Engine shall be a pluggable pipeline that
+  processes traffic contexts received from the eBPF engine.
+- **SRN-INT-A2** --- The engine shall first evaluate a list of rules and then pass
+  the traffic and result to any configured manipulators.
+
+#### 2.3.2 Functional Requirements
+
+- **SRN-INT-F1** --- Rule matching shall support packet direction (ingress/egress),
+  content (regex, contains, etc.), and size.
+- **SRN-INT-F2** --- Actions shall include `drop`, `delay`, `modify`, `duplicate`,
+  `throttle`, and `log`.
+- **SRN-INT-F3** --- Only the `drop` action shall be enforced in-kernel via (XDP)
+  the eBPF map; all other actions that are compatible should be done via TC the
+  remaining done in userspace.
+- **SRN-INT-F4** --- Rules shall be loaded from the YAML config and be updatable
+  at runtime via the REST API.
+
+### 2.4 Recorder (SRN-REC)
+
+#### 2.4.1 Functional Requirements
+
+- **SRN-REC-F1** --- The Recorder shall capture all intercepted traffic to a file.
+- **SRN-REC-F2** --- Supported output formats shall include PCAP and a structured
+  JSON format.
+- **SRN-REC-F3** --- Recording shall be enabled, disabled, and configured via the
+  YAML file and controllable via the REST API.
+
+#### 2.4.2 Non-Functional Requirements
+
+- **SRN-REC-N1** --- Recording shall have minimal performance impact on the core
+  interception loop.

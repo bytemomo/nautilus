@@ -1,174 +1,92 @@
-# ⚙️ **Trident --- System Requisites**
+# 🔱 Trident System Requisites
 
-## **Architecture Overview**
+## Architecture Overview
 
-Trident is a Go-based transport framework that provides a unified, layered
-**conduit abstraction** across OSI layers L2–L4.
-It enables consistent, composable network interactions for tools like **Kraken**
-and for standalone modules.
+Trident is a Go-based transport framework that provides a unified, layered **conduit abstraction** across OSI layers L2–L4. It enables consistent, composable network interactions for tools like Kraken and for standalone modules.
 
 ---
 
-## **1. Architectural Requirements**
+## 1. High-Level Requirements
 
-- **TRD-A1** --- Trident shall provide a unified, layered **conduit** abstraction
-  usable across OSI L2–L4.
-- **TRD-A2** --- Trident shall be implemented in **Go** and exposed as a stable
-  **library/package API**.
-- **TRD-A3** --- Trident shall support **composition** of conduits to
-  form layered protocols (e.g., TCP→TLS).
-- **TRD-A4** --- Trident shall remain **protocol-agnostic** and usable
-  independently from Kraken.
+These requirements define Trident's overall purpose, and quality attributes as
+a developer library.
 
-<!---
-**TRD-A5** --- The core API shall define a generic type-safe interface `Conduit[V any]` with:
-    - `Dial(context.Context) error`, `Close() error`
-    - `Kind() Kind` (Stream/Datagram/Network/Frame)
-    - `Stack() []string`
-    - `Underlying() V`
--->
+### 1.1 Core Functionality
 
-- **TRD-A6** --- Each conduit shall correctly record its **stack**.
-- **TRD-A7** --- Conduits shall expose **capabilities via type** at compile time.
-- **TRD-A8** --- `Dial(ctx)` shall be **idempotent**, and `Close()` shall safely
-  release resources and be re-callable.
-- **TRD-A9** --- Conduits shall be **context-aware**, with all operations
-  respecting cancellation and deadlines.
-- **TRD-A10** --- The library shall include **built-in conduits** for baseline protocols:
-  TCP, UDP, TLS, DTLS, Raw IP, and Ethernet Frame.
-- **TRD-A11** --- Allow **custom conduits** to be defined externally by implementing
-  the `Conduit` interface.
+- **HL-F1** --- Trident shall provide a unified `Conduit` interface to abstract network communications across L2 (Ethernet), L3 (IP), and L4 (TCP/UDP).
+- **HL-F2** --- Trident shall enable the composition of conduits to form layered protocol stacks (e.g., TLS over TCP).
+- **HL-F3** --- Trident shall include built-in, production-ready conduits for common protocols: TCP, UDP, TLS, and DTLS.
+- **HL-F4** --- Trident shall allow developers to implement and integrate custom conduits.
 
----
+### 1.2 User Interaction
 
-## **2. Functional Requirements**
+- **HL-U1** --- Trident shall be exposed as a Go library with a stable, versioned, and clearly documented public API.
+- **HL-U2** --- The API design shall be idiomatic Go, leveraging interfaces, `context`, and compile-time type safety.
 
-### **2.1 Layer Interfaces**
+### 1.3 System Qualities (Non-Functional)
 
-#### **Stream (L4 --- connection-oriented)**
-
-- **TRD-F1** --- Provide APIs `Recv(ctx, *RecvOptions) (*StreamChunk, error)` and
-  `Send(ctx, p []byte, buf Buffer, *SendOptions) (int, Metadata, error)`.
-- **TRD-F2** --- Implement `Close()`, `CloseWrite()`, `SetDeadline(time.Time)`,
-  `LocalAddr()`, and `RemoteAddr()`.
-- **TRD-F3** --- Support **half-close semantics** if underlying transport allows.
-
-#### **Datagram (L4 --- connectionless)**
-
-- **TRD-F4** --- Provide `Recv` / `RecvBatch` and `Send` / `SendBatch` APIs.
-- **TRD-F5** --- Implement `SetDeadline`, `LocalAddr()`, `RemoteAddr()`.
-- **TRD-F6** --- Preserve message boundaries (no implicit aggregation or fragmentation).
-
-#### **Network (L3 --- Raw IP)**
-
-- **TRD-F7** --- Provide `Recv/RecvBatch`, `Send/SendBatch`, and `SetDeadline`.
-- **TRD-F8** --- Expose `LocalAddr() netip.Addr`, `Proto() int`, and `IsIPv6() bool`.
-
-#### **Frame (L2 --- Ethernet)**
-
-- **TRD-F9** --- Provide `Recv/RecvBatch`, `Send/SendBatch`, `SetDeadline`.
-- **TRD-F10** --- Expose `Interface() *net.Interface`.
+- **HL-Q1** --- Trident shall be lightweight, with minimal external dependencies to ensure easy integration.
+- **HL-Q2** --- The library shall be high-performance, with an emphasis on low-allocation and zero-copy patterns in hot paths.
+- **HL-Q3** --- All conduits shall be safe for concurrent use by multiple goroutines
+  (even at the expense of speed).
+- **HL-Q4** --- Trident shall enforce secure defaults for all cryptographic conduits (e.g., TLS/DTLS).
+  NOTE: Don't really know if this is ok as it simply has to be used in kraken and the
+  options can be insecure.
+- **HL-Q5** --- The library shall be self-contained and independent.
+  NOTE: This is difficult for now it depends on standard lib and famous packages
+  for go.
 
 ---
 
-### **2.2 Metadata & Telemetry**
+## 2. Low-Level Requirements
 
-- **TRD-F11** --- Each send/recv operation shall produce `Metadata` with
-  timestamps, interface index, protocol, and flags.
-- **TRD-F12** --- Expose per-conduit **statistics** (bytes, packets, retries,
-  handshake time, errors).
+### 2.1 Core Conduit API (TRD-API)
 
----
+#### 2.1.1 Architectural Requirements
 
-### **2.3 Configuration & Options**
+- **TRD-API-A1** --- The core interface `Conduit[V any]` shall define the primary methods: `Dial`, `Close`, `Kind`, `Stack`, and `Underlying`.
+- **TRD-API-A2** --- `Dial(ctx)` shall be idempotent, and `Close()` shall be safe to call multiple times.
+- **TRD-API-A3** --- All potentially blocking operations shall accept a `context.Context` for cancellation and deadlines.
 
-- **TRD-F13** --- All conduits shall support **timeouts**
-  (connect/read/write/handshake) and **retry/backoff** options.
-- **TRD-F14** --- TLS/DTLS conduits shall expose configurable options:
-  protocol versions, cipher suites, SNI, certificates, PSKs.
-- **TRD-F15** --- Datagram conduits shall allow **tunable batch size**, socket
-  buffer, and MTU limits.
+#### 2.1.2 Functional Requirements
 
----
+- **TRD-API-F1** --- `Stack()` shall return a slice of strings representing the protocol layers (e.g., `["tls", "tcp"]`).
+- **TRD-API-F2** --- `Underlying() V` shall return the layer-specific interface, enabling compile-time type assertions for capabilities.
 
-### **2.4 Reliability & Flow Control**
+### 2.2 Built-in Conduits (TRD-IMPL)
 
-- **TRD-F16** --- Implement **exponential backoff with jitter** for reconnects.
-- **TRD-F17** --- All I/O operations shall honor **deadlines**, producing typed
-  timeout errors.
-- **TRD-F18** --- Support optional **connection pooling** hooks.
+#### 2.2.1 Functional Requirements
 
----
+- **TRD-IMPL-F1** --- Provide a **Stream** interface for connection-oriented conduits (TCP/TLS) with `Recv`, `Send`, and `CloseWrite` methods.
+- **TRD-IMPL-F2** --- Provide a **Datagram** interface for connectionless conduits (UDP/DTLS) with `RecvBatch` and `SendBatch` methods that preserve message boundaries.
+- **TRD-IMPL-F3** --- Provide **Network** (L3) and **Frame** (L2) conduits for raw socket operations, requiring elevated privileges.
+- **TRD-IMPL-F4** --- All send/receive operations shall return structured `Metadata` including timestamps and protocol details.
+- **TRD-IMPL-F5** --- All conduits shall support configurable timeouts (connect, read, write).
 
-### **2.5 Security**
+#### 2.2.2 Non-Functional Requirements
 
-- **TRD-F19** --- Default TLS/DTLS settings shall enforce **secure defaults**
-  (no weak ciphers).
-- **TRD-F20** --- Support **mTLS** and **DTLS client authentication** with
-  negotiated parameters exposed via metadata.
-- **TRD-F21** --- Sensitive keys or PSKs shall never be logged; redact from logs
-  and error strings.
-- **TRD-F22** --- Provide an **opt-in insecure mode** (`InsecureSkipVerify`)
-  that is **disabled by default** and clearly labeled.
+- **TRD-IMPL-N1** --- L2/L3 conduits that fail due to insufficient privileges must return clear, actionable errors.
+- **TRD-IMPL-N2** --- The library shall support both Linux and macOS as primary target platforms.
 
----
+### 2.3 Security (TRD-SEC)
 
-## **3. Non-Functional Requirements**
+#### 2.3.1 Functional Requirements
 
-### **3.1 Platform & Permissions**
+- **TRD-SEC-F1** --- TLS/DTLS conduits shall support configuration of certificates, SNI, and PSKs.
+- **TRD-SEC-F2** --- Support for mutual authentication (mTLS/mDTLS) shall be provided.
 
-- **TRD-N1** --- Support **Linux** and **macOS** as primary platforms.
-- **TRD-N2** --- L2/L3 conduits may require elevated privileges; failures must
-  produce clear guidance.
-- **TRD-N3** --- IPv6 behavior (zones, extension headers) shall remain
-  consistent across platforms.
+#### 2.3.2 Non-Functional Requirements
 
----
+- **TRD-SEC-N1** --- Sensitive materials like private keys and PSKs must be included
+  in logs if a specified flag is provided (being used for testing in kraken and
+  other modules this is usefull to save keys and use them later with Wireshark).
 
-### **3.2 Performance & Concurrency**
+### 2.4 Testing and Documentation (TRD-DOC)
 
-- **TRD-N4** --- Conduits shall be **goroutine-safe** where documented, or
-  provide safe wrappers.
-- **TRD-N5** --- Minimize allocations in hot paths; reuse
-  buffers for **zero-copy** efficiency.
+#### 2.4.1 Non-Functional Requirements
 
----
-
-### **3.3 API Stability & Extensibility**
-
-- **TRD-N6** --- Public interfaces shall be **versioned and stable**
-  within a major release.
-- **TRD-N7** --- Enable **Decorator pattern** for protocol layering.
-- **TRD-N8** --- Document and validate behavior for third-party conduit implementations.
-
----
-
-### **3.4 Testing & Tooling**
-
-- **TRD-N9** --- Provide unit tests for all conduits and interfaces (`go test ./...`).
-- **TRD-N10** --- Include integration tests for TCP/TLS, UDP/DTLS, raw IP, and
-  Ethernet.
-- **TRD-N11** --- Provide mock/fake conduits for deterministic tests.
-
----
-
-### **3.5 Documentation**
-
-- **TRD-N12** --- All public types and methods shall include GoDoc comments.
-- **TRD-N13** --- Provide examples for all conduit types: TCP, TLS, UDP, DTLS,
-  Raw IP, and Ethernet.
-- **TRD-N14** --- Document option defaults, security trade-offs, and
-  privilege requirements.
-
----
-
-### **3.6 Dependencies**
-
-- **TRD-N15** --- Avoid unnecessary dependencies; keep the library lightweight.
-
----
-
-### **3.7 Future Enhancements (Non-blocking)**
-
-- **TRD-N16** --- Add support for QUIC, SCTP, WebSocket, HTTP/2/3 conduits.
-- **TRD-N17** --- Explore asynchronous/non-blocking backends (e.g., `io_uring`).
+- **TRD-DOC-N1** --- All public APIs must have comprehensive GoDoc comments.
+- **TRD-DOC-N2** --- The `docs` directory shall include runnable examples for each built-in conduit type.
+- **TRD-DOC-N3** --- The project shall have high unit test coverage for all conduits.
+- **TRD-DOC-N4** --- The project shall include integration tests for layered conduits (TCP/TLS, UDP/DTLS).
+- **TRD-DOC-N5** --- The library shall provide mock/fake conduits to facilitate deterministic testing for consumers of Trident.

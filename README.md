@@ -12,7 +12,7 @@ The two agents do complementary jobs on network environments:
   security testing. A module can implement fuzzing, specific CVE, misconfiguration
   checks, etc...
 - **siren** tests clients by transparently intercepting traffic directly in the
-  kernel via eBPF/XDP. The agent attaches to an interface and copies packets
+  kernel via eBPF/XDP/TC. The agent attaches to an interface and copies packets
   that match the configured `targets` (IP, `ip:port`, MAC, or EtherCAT slave ID),
   keeping deployment simple while remaining invisible to endpoints. Siren's
   intercept engine exposes the same manipulation capabilities:
@@ -33,7 +33,7 @@ the concept of `conduit`. The idea is to have an abstraction that expose 5 metho
 dial, close, kind, stack and underlying. The main methods is the underlying one
 that returns the underlying layer-specific interface for performing I/O actions.
 With this abstraction kraken and siren are developed. This gives the advantage
-of now bothering with transport specific logic and use them as black boxes.
+of not bothering with transport specific logic and use them as black boxes.
 
 ```go
 // Conduit is the core abstraction in Trident, representing a connection or socket
@@ -88,7 +88,7 @@ type Conduit[V any] interface {
 ├── kraken-results      // Here will be placed the results of the kraken-campaigns
 │   ├── iot-standard
 │   └── kraken.log
-├── siren               // Siren eBPF MITM proxy
+├── siren               // Siren eBPF MITM
 │   ├── config
 │   ├── config.yaml
 │   ├── ebpf
@@ -112,7 +112,7 @@ type Conduit[V any] interface {
 
 - [Kraken docs](docs/kraken/documentation.md) --- Campaign orchestration, module APIs, attack trees, and usage.
 - [Trident docs](docs/trident/documentation.md) --- Transport abstraction and conduit system.
-- [Siren docs](docs/siren/documentation.md) --- Man-in-the-Middle proxy for client testing and fault injection.
+- [Siren docs](docs/siren/documentation.md) --- Man-in-the-Middle for client testing
 
 ### Code specific documentation
 
@@ -157,10 +157,7 @@ go test ./trident/...
 ```
 
 The tests for the network and ip layer needs `sudo` or at least `cap_net_raw`
-and `cap_net_admin+ep` permissions. For now these tests are done manually, the
-future idea, to make everything more easy and smooth to use is to run them in
-a safe environment like an isolated namespace or a container with the right
-capabilities.
+and `cap_net_admin+ep` permissions.
 
 ### kraken
 
@@ -172,12 +169,12 @@ go test ./kraken/...
 
 > [!WARNING]
 > The problem with kraken tests is that they are not nearly as completed.
-> Also kraken should have integration tests.
+> Also kraken is missing integration tests.
 
 ### siren
 
 Siren relies on an eBPF program that is pre-built inside the repository. If you
-touch `siren/ebpf/program/xdp_proxy.c`, regenerate the object with `go generate`
+change `siren/ebpf/program/xdp_proxy.c`, regenerate the object with `go generate`
 and then run:
 
 ```sh
@@ -186,7 +183,7 @@ go build ./siren
 sudo ./siren -config siren/config/example-ebpf.yaml
 ```
 
-Recording now produces PCAP files by default so you can open captures in
+Recording produces PCAP files by default so you can open captures in
 Wireshark immediately. Attaching the XDP hook requires root or the relevant
 capabilities, and you must pass the interface name via the configuration
 (`ebpf.interface`).
@@ -199,3 +196,25 @@ The optional `targets` list accepts strings such as:
 - `"ethercat:0x1234"`
 
 Leaving the list empty captures everything on the interface.
+
+## Deploy
+
+The deployment scripts are inside the `deploy/` folder, both _kraken_ and _siren_
+are conteinerized using Docker. Other than the two agents there can be found some
+examples of network environments to run the two agents.
+
+Naturally the environments reproduced are an abstraction of what a real environment
+would be. This environments are used to showcase the two agents and the relative
+modules.
+
+As _siren_ is still in development the majority of deployment environments is for
+_kraken_.
+
+For other information look at the ![readme](./deploy/README.md) inside the deloy
+folder. There, all the commands to build and run the agents and environments can be
+found.
+
+> [!NOTE]
+> Just as a note all the servers (or brokers) that have been tested and reproduced
+> via Docker are build with instrumentation **on** to potentially catch interesting
+> bugs while **fuzzing**.

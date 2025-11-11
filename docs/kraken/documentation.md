@@ -13,6 +13,10 @@ connection logic to the testing logic. This gives a high level of independence
 for what can be done inside modules but also overload the developer of with more
 work.
 
+## Architecture
+
+![architecture](./architecture.svg)
+
 ## Campaign
 
 The program is configured with a yaml file, this file define what is called a
