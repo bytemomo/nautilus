@@ -93,9 +93,10 @@ func (m *Module) Validate() error {
 	}
 
 	if count == 0 {
-		return fmt.Errorf("module must specify one execution type (abi, grpc, or cli)")
-	}
-	if count > 1 {
+		if m.Type != Native {
+			return fmt.Errorf("module must specify one execution type (abi, grpc, or cli)")
+		}
+	} else if count > 1 {
 		return fmt.Errorf("module can only specify one execution type")
 	}
 
@@ -132,6 +133,9 @@ func (m *Module) Validate() error {
 	if hasCLI {
 		if m.ExecConfig.CLI.Command == "" {
 			return fmt.Errorf("cli.path is required")
+		}
+		if m.Type != Cli {
+			return fmt.Errorf("cli execution requires type 'cli'")
 		}
 	}
 

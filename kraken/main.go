@@ -100,6 +100,7 @@ func setupAndRunScanner(log *logrus.Entry, camp *domain.Campaign, cidrs []string
 func setupAndRunModuleRunner(log *logrus.Entry, camp *domain.Campaign, reporter domain.ResultRepo, classifiedTargets []domain.ClassifiedTarget) ([]domain.RunResult, error) {
 	log.Info("Starting module runner")
 	executors := []runner.ModuleExecutor{
+		adapter.NewNativeBuiltinAdapter(),
 		adapter.NewABIModuleAdapter(),
 		adapter.NewCLIModuleAdapter(),
 		adapter.NewGRPCModuleAdapter(),

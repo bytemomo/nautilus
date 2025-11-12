@@ -3,7 +3,6 @@ package adapter
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"bytemomo/kraken/internal/domain"
@@ -11,9 +10,6 @@ import (
 	"bytemomo/kraken/internal/runner/contextkeys"
 	"bytemomo/kraken/internal/transport"
 	cnd "bytemomo/trident/conduit"
-	tridentlog "bytemomo/trident/conduit/logging"
-	tridenttransport "bytemomo/trident/conduit/transport"
-	tlscond "bytemomo/trident/conduit/transport/tls"
 )
 
 // ABIModuleAdapter is a runner for ABI modules.
@@ -58,7 +54,7 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 
 		switch cfg.Kind {
 		case cnd.KindStream:
-			streamConduit, err := a.buildStreamConduit(addr, cfg.Stack)
+			streamConduit, err := transport.BuildStreamConduit(addr, cfg.Stack)
 			if err != nil {
 				return domain.RunResult{Target: t}, fmt.Errorf("failed to build stream conduit: %w", err)
 			}
@@ -71,7 +67,7 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 			conduit = streamConduit.Underlying()
 			closeConduit = func() { streamConduit.Close() }
 		case cnd.KindDatagram:
-			datagramConduit, err := a.buildDatagramConduit(addr, cfg.Stack)
+			datagramConduit, err := transport.BuildDatagramConduit(addr, cfg.Stack)
 			if err != nil {
 				return domain.RunResult{Target: t}, fmt.Errorf("failed to build datagram conduit: %w", err)
 			}
@@ -99,42 +95,4 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 	defer module.Close()
 
 	return module.Run(abiCtx, mergedParams, t, timeout, conduit)
-}
-
-func (a *ABIModuleAdapter) buildStreamConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Stream], error) {
-	var current cnd.Conduit[cnd.Stream] = tridenttransport.TCP(addr)
-
-	for _, layer := range stack {
-		switch strings.ToLower(layer.Name) {
-		case "tcp":
-			continue
-		case "tls":
-			tlsConfig := transport.BuildTLSConfig(layer.Params)
-			current = tlscond.NewTlsClient(current, tlsConfig)
-		default:
-			return nil, fmt.Errorf("unknown stream layer: %s", layer.Name)
-		}
-	}
-
-	logCurrent := tridentlog.NewLoggingConduit(addr, current)
-	return logCurrent, nil
-}
-
-func (a *ABIModuleAdapter) buildDatagramConduit(addr string, stack []domain.LayerHint) (cnd.Conduit[cnd.Datagram], error) {
-	var current cnd.Conduit[cnd.Datagram] = tridenttransport.UDP(addr)
-
-	for _, layer := range stack {
-		switch strings.ToLower(layer.Name) {
-		case "udp":
-			continue
-		case "dtls":
-			dtlsConfig := transport.BuildDTLSConfig(layer.Params)
-			current = tlscond.NewDtlsClient(current, dtlsConfig)
-		default:
-			return nil, fmt.Errorf("unknown stream layer: %s", layer.Name)
-		}
-	}
-
-	logCurrent := tridentlog.NewLoggingConduit(addr, current)
-	return logCurrent, nil
 }

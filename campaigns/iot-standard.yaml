@@ -178,6 +178,11 @@ tasks:
               sequence_num: "1"
               path0: "./modules/kraken/abi/mqtt_replay/CVE-2024-8376.txt"
 
+    - id: "mqtt-conformance-test"
+      required_tags: ["protocol:mqtt"]
+      max_duration: 5s
+      type: native
+
     - id: "mqtt-sys-disclosure"
       required_tags: ["protocol:mqtt"]
       max_duration: 5s
