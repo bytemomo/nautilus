@@ -94,8 +94,6 @@ type RecvOptions struct {
 	Deadline time.Time
 	// MaxBytes provides a hint for buffer allocation size.
 	MaxBytes int
-	// Batch provides a hint for the desired number of messages to receive in a batch operation.
-	Batch int
 }
 
 // Buffer is an interface for a managed, recyclable memory buffer.
@@ -234,15 +232,9 @@ type Stream interface {
 type Datagram interface {
 	// Recv reads a single datagram. It blocks until a message is available or an error occurs.
 	Recv(ctx context.Context, opts *RecvOptions) (*DatagramMsg, error)
-	// RecvBatch reads multiple datagrams in a single call for efficiency.
-	// It returns the number of messages read.
-	RecvBatch(ctx context.Context, msgs []*DatagramMsg, opts *RecvOptions) (int, error)
 
 	// Send writes a single datagram.
 	Send(ctx context.Context, msg *DatagramMsg, opts *SendOptions) (n int, md Metadata, err error)
-	// SendBatch writes multiple datagrams in a single call for efficiency.
-	// It returns the number of messages sent.
-	SendBatch(ctx context.Context, msgs []*DatagramMsg, opts *SendOptions) (int, error)
 
 	// SetDeadline sets the read and write deadlines for the connection.
 	SetDeadline(t time.Time) error
@@ -260,13 +252,9 @@ type Datagram interface {
 type Network interface {
 	// Recv reads a single IP packet.
 	Recv(ctx context.Context, opts *RecvOptions) (*IPPacket, error)
-	// RecvBatch reads multiple IP packets in a single call.
-	RecvBatch(ctx context.Context, pkts []*IPPacket, opts *RecvOptions) (int, error)
 
 	// Send writes a single IP packet.
 	Send(ctx context.Context, pkt *IPPacket, opts *SendOptions) (n int, md Metadata, err error)
-	// SendBatch writes multiple IP packets in a single call.
-	SendBatch(ctx context.Context, pkts []*IPPacket, opts *SendOptions) (int, error)
 
 	// SetDeadline sets the read and write deadlines.
 	SetDeadline(t time.Time) error
@@ -286,13 +274,9 @@ type Network interface {
 type Frame interface {
 	// Recv reads a single Ethernet frame.
 	Recv(ctx context.Context, opts *RecvOptions) (*FramePkt, error)
-	// RecvBatch reads multiple Ethernet frames in a single call.
-	RecvBatch(ctx context.Context, pkts []*FramePkt, opts *RecvOptions) (int, error)
 
 	// Send writes a single Ethernet frame.
 	Send(ctx context.Context, pkt *FramePkt, opts *SendOptions) (n int, md Metadata, err error)
-	// SendBatch writes multiple Ethernet frames in a single call.
-	SendBatch(ctx context.Context, pkts []*FramePkt, opts *SendOptions) (int, error)
 
 	// SetDeadline sets the read and write deadlines.
 	SetDeadline(t time.Time) error

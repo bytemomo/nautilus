@@ -65,7 +65,7 @@ func (u *UdpConduit) Close() error {
 }
 
 func (u *UdpConduit) Kind() conduit.Kind { return conduit.KindDatagram }
-func (u *UdpConduit) Stack() []string { return []string{"udp"} }
+func (u *UdpConduit) Stack() []string    { return []string{"udp"} }
 
 func (u *UdpConduit) Underlying() conduit.Datagram { return (*udpDatagram)(u) }
 
@@ -145,22 +145,6 @@ func (u *udpDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*con
 	return &conduit.DatagramMsg{Data: buf, Src: src, Dst: local, MD: md}, rerr
 }
 
-func (u *udpDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
-	count := 0
-	var err error
-	for i := range msgs {
-		msgs[i], err = u.Recv(ctx, opts)
-		if err != nil {
-			if count > 0 {
-				return count, nil
-			}
-			return 0, err
-		}
-		count++
-	}
-	return count, nil
-}
-
 func (u *udpDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
 	if msg == nil {
 		return 0, conduit.Metadata{}, errors.New("udp: message is nil")
@@ -204,26 +188,6 @@ func (u *udpDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *con
 		},
 	}
 	return n, md, werr
-}
-
-func (u *udpDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
-	c, err := u.pkt()
-	if err != nil {
-		return 0, err
-	}
-	sent := 0
-	for _, m := range msgs {
-		_, _, e := u.Send(ctx, m, opts)
-		if e != nil {
-			if sent > 0 {
-				return sent, nil
-			}
-			return 0, e
-		}
-		sent++
-	}
-	_ = c
-	return sent, nil
 }
 
 func (u *udpDatagram) SetDeadline(t time.Time) error {

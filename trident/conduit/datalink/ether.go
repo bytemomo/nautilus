@@ -85,8 +85,8 @@ func (e *EthernetConduit) Close() error {
 	return nil
 }
 
-func (e *EthernetConduit) Kind() conduit.Kind { return conduit.KindFrame }
-func (e *EthernetConduit) Stack() []string { return []string{"eth"} }
+func (e *EthernetConduit) Kind() conduit.Kind        { return conduit.KindFrame }
+func (e *EthernetConduit) Stack() []string           { return []string{"eth"} }
 func (e *EthernetConduit) Underlying() conduit.Frame { return (*ethFrame)(e) }
 
 func (e *ethFrame) c() (*packetpkg.Conn, error) {
@@ -138,22 +138,6 @@ func (e *ethFrame) Recv(ctx context.Context, opts *conduit.RecvOptions) (*condui
 	}
 }
 
-func (e *ethFrame) RecvBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.RecvOptions) (int, error) {
-	count := 0
-	var err error
-	for i := range pkts {
-		pkts[i], err = e.Recv(ctx, opts)
-		if err != nil {
-			if count > 0 {
-				return count, nil
-			}
-			return 0, err
-		}
-		count++
-	}
-	return count, nil
-}
-
 func (e *ethFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := e.c()
 	if err != nil {
@@ -191,21 +175,6 @@ func (e *ethFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *condui
 		md := conduit.Metadata{Start: start, End: time.Now(), IfIndex: e.ifc.Index}
 		return n, md, werr
 	}
-}
-
-func (e *ethFrame) SendBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.SendOptions) (int, error) {
-	sent := 0
-	for _, p := range pkts {
-		_, _, err := e.Send(ctx, p, opts)
-		if err != nil {
-			if sent > 0 {
-				return sent, nil
-			}
-			return 0, err
-		}
-		sent++
-	}
-	return sent, nil
 }
 
 func htons(u uint16) uint16 { return (u<<8)&0xFF00 | (u>>8)&0x00FF }

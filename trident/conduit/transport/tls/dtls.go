@@ -140,22 +140,6 @@ func (d *dtlsDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (*co
 	return &conduit.DatagramMsg{Data: buf, Src: remote, Dst: local, MD: md}, rerr
 }
 
-func (d *dtlsDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
-	count := 0
-	var err error
-	for i := range msgs {
-		msgs[i], err = d.Recv(ctx, opts)
-		if err != nil {
-			if count > 0 {
-				return count, nil
-			}
-			return 0, err
-		}
-		count++
-	}
-	return count, nil
-}
-
 func (d *dtlsDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *conduit.SendOptions) (int, conduit.Metadata, error) {
 	c, err := d.c()
 	if err != nil {
@@ -185,21 +169,6 @@ func (d *dtlsDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, _ *co
 		},
 	}
 	return n, md, werr
-}
-
-func (d *dtlsDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
-	sent := 0
-	for _, m := range msgs {
-		_, _, err := d.Send(ctx, m, opts)
-		if err != nil {
-			if sent > 0 {
-				return sent, nil
-			}
-			return 0, err
-		}
-		sent++
-	}
-	return sent, nil
 }
 
 func (d *dtlsDatagram) SetDeadline(t time.Time) error {

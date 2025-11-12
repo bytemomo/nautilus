@@ -117,7 +117,7 @@ func (i *ipNetwork) Recv(ctx context.Context, opts *conduit.RecvOptions) (*condu
 
 	start := time.Now()
 	var (
-		n int
+		n    int
 		addr net.Addr
 		rerr error
 	)
@@ -145,11 +145,6 @@ func (i *ipNetwork) Recv(ctx context.Context, opts *conduit.RecvOptions) (*condu
 		nip := utils.ToNetip(addr)
 		return &conduit.IPPacket{Data: buf, Src: nip, Dst: i.laddr, Proto: i.proto, V6: i.v6, MD: md}, rerr
 	}
-}
-
-func (i *ipNetwork) RecvBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.RecvOptions) (int, error) {
-	// Not implemented
-	return 0, errors.New("not implemented")
 }
 
 func (i *ipNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
@@ -180,11 +175,6 @@ func (i *ipNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *condu
 		md := conduit.Metadata{Start: start, End: time.Now(), Proto: i.proto}
 		return n, md, werr
 	}
-}
-
-func (i *ipNetwork) SendBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.SendOptions) (int, error) {
-	// Not implemented
-	return 0, errors.New("not implemented")
 }
 
 func (i *ipNetwork) SetDeadline(t time.Time) error {

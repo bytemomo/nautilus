@@ -107,22 +107,6 @@ func (l *loggingNetwork) Recv(ctx context.Context, opts *conduit.RecvOptions) (*
 	return pkt, nil
 }
 
-func (l *loggingNetwork) RecvBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.RecvOptions) (int, error) {
-	l.log.Trace("RecvBatch(network)...")
-	start := time.Now()
-	n, err := l.inner.RecvBatch(ctx, pkts, opts)
-	duration := time.Since(start)
-	if err != nil {
-		l.log.WithError(err).WithField("duration", duration).Error("RecvBatch(network) failed")
-		return 0, err
-	}
-	l.log.WithFields(logrus.Fields{
-		"duration": duration,
-		"count":    n,
-	}).Info("RecvBatch(network) successful")
-	return n, nil
-}
-
 func (l *loggingNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	l.log.Trace("Send(network)...")
 	start := time.Now()
@@ -142,22 +126,6 @@ func (l *loggingNetwork) Send(ctx context.Context, pkt *conduit.IPPacket, opts *
 		l.log.WithField("duration", duration).Debug("Send(network) successful: empty packet")
 	}
 	return n, md, nil
-}
-
-func (l *loggingNetwork) SendBatch(ctx context.Context, pkts []*conduit.IPPacket, opts *conduit.SendOptions) (int, error) {
-	l.log.Trace("SendBatch(network)...")
-	start := time.Now()
-	n, err := l.inner.SendBatch(ctx, pkts, opts)
-	duration := time.Since(start)
-	if err != nil {
-		l.log.WithError(err).WithField("duration", duration).Error("SendBatch(network) failed")
-		return 0, err
-	}
-	l.log.WithFields(logrus.Fields{
-		"duration": duration,
-		"count":    n,
-	}).Info("SendBatch(network) successful")
-	return n, nil
 }
 
 func (l *loggingNetwork) SetDeadline(t time.Time) error {
@@ -209,22 +177,6 @@ func (l *loggingFrame) Recv(ctx context.Context, opts *conduit.RecvOptions) (*co
 	return pkt, nil
 }
 
-func (l *loggingFrame) RecvBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.RecvOptions) (int, error) {
-	l.log.Trace("RecvBatch(frame)...")
-	start := time.Now()
-	n, err := l.inner.RecvBatch(ctx, pkts, opts)
-	duration := time.Since(start)
-	if err != nil {
-		l.log.WithError(err).WithField("duration", duration).Error("RecvBatch(frame) failed")
-		return 0, err
-	}
-	l.log.WithFields(logrus.Fields{
-		"duration": duration,
-		"count":    n,
-	}).Info("RecvBatch(frame) successful")
-	return n, nil
-}
-
 func (l *loggingFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	l.log.Trace("Send(frame)...")
 	start := time.Now()
@@ -244,22 +196,6 @@ func (l *loggingFrame) Send(ctx context.Context, pkt *conduit.FramePkt, opts *co
 		l.log.WithField("duration", duration).Debug("Send(frame) successful: empty frame")
 	}
 	return n, md, nil
-}
-
-func (l *loggingFrame) SendBatch(ctx context.Context, pkts []*conduit.FramePkt, opts *conduit.SendOptions) (int, error) {
-	l.log.Trace("SendBatch(frame)...")
-	start := time.Now()
-	n, err := l.inner.SendBatch(ctx, pkts, opts)
-	duration := time.Since(start)
-	if err != nil {
-		l.log.WithError(err).WithField("duration", duration).Error("SendBatch(frame) failed")
-		return 0, err
-	}
-	l.log.WithFields(logrus.Fields{
-		"duration": duration,
-		"count":    n,
-	}).Info("SendBatch(frame) successful")
-	return n, nil
 }
 
 func (l *loggingFrame) SetDeadline(t time.Time) error {
@@ -367,22 +303,6 @@ func (l *loggingDatagram) Recv(ctx context.Context, opts *conduit.RecvOptions) (
 	return msg, nil
 }
 
-func (l *loggingDatagram) RecvBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.RecvOptions) (int, error) {
-	l.log.Trace("RecvBatch(datagram)...")
-	start := time.Now()
-	n, err := l.inner.RecvBatch(ctx, msgs, opts)
-	duration := time.Since(start)
-	if err != nil {
-		l.log.WithError(err).WithField("duration", duration).Error("RecvBatch(datagram) failed")
-		return 0, err
-	}
-	l.log.WithFields(logrus.Fields{
-		"duration": duration,
-		"count":    n,
-	}).Info("RecvBatch(datagram) successful")
-	return n, nil
-}
-
 func (l *loggingDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, opts *conduit.SendOptions) (int, conduit.Metadata, error) {
 	l.log.Trace("Send(datagram)...")
 	start := time.Now()
@@ -402,22 +322,6 @@ func (l *loggingDatagram) Send(ctx context.Context, msg *conduit.DatagramMsg, op
 		l.log.WithField("duration", duration).Debug("Send(datagram) successful: empty message")
 	}
 	return n, md, nil
-}
-
-func (l *loggingDatagram) SendBatch(ctx context.Context, msgs []*conduit.DatagramMsg, opts *conduit.SendOptions) (int, error) {
-	l.log.Trace("SendBatch(datagram)...")
-	start := time.Now()
-	n, err := l.inner.SendBatch(ctx, msgs, opts)
-	duration := time.Since(start)
-	if err != nil {
-		l.log.WithError(err).WithField("duration", duration).Error("SendBatch(datagram) failed")
-		return 0, err
-	}
-	l.log.WithFields(logrus.Fields{
-		"duration": duration,
-		"count":    n,
-	}).Info("SendBatch(datagram) successful")
-	return n, nil
 }
 
 func (l *loggingDatagram) SetDeadline(t time.Time) error {
