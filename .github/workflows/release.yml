@@ -27,7 +27,7 @@ jobs:
             - name: Install build dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y protobuf-compiler clang
+                  sudo apt-get install -y protobuf-compiler clang libbpf-dev libelf-dev
                   sudo snap install just --classic
 
             - name: Configure kernel headers include path for eBPF
