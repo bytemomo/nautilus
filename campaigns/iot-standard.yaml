@@ -166,7 +166,7 @@ tasks:
               creds_file: "./credentialdbs/creds.txt"
 
     - id: "mqtt-replay"
-      required_tags: ["protocol:mqtt"]
+      required_tags: ["protocol:mqtt", "protocol:tcp"]
       max_duration: 1m
       type: lib
       exec:
@@ -179,12 +179,12 @@ tasks:
               path0: "./modules/kraken/abi/mqtt_replay/CVE-2024-8376.txt"
 
     - id: "mqtt-conformance-test"
-      required_tags: ["protocol:mqtt"]
+      required_tags: ["protocol:mqtt", "protocol:tcp"]
       max_duration: 5s
       type: native
 
     - id: "mqtt-sys-disclosure"
-      required_tags: ["protocol:mqtt"]
+      required_tags: ["protocol:mqtt", "protocol:tcp"]
       max_duration: 5s
       type: lib
       exec:

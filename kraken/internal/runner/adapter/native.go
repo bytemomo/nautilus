@@ -30,12 +30,14 @@ func (n *NativeBuiltinAdapter) Supports(m *domain.Module) bool {
 
 // Run runs the builtin module function.
 func (n *NativeBuiltinAdapter) Run(ctx context.Context, m *domain.Module, params map[string]any, t domain.HostPort, timeout time.Duration) (domain.RunResult, error) {
-	fn, ok := native.Lookup(m.ModuleID)
+	desc, ok := native.Lookup(m.ModuleID)
 	if !ok {
 		return domain.RunResult{Target: t}, fmt.Errorf("unknown builtin module %q", m.ModuleID)
 	}
+	fn := desc.Run
 
 	merged := make(map[string]any)
+
 	for k, v := range m.ExecConfig.Params {
 		merged[k] = v
 	}
@@ -43,7 +45,7 @@ func (n *NativeBuiltinAdapter) Run(ctx context.Context, m *domain.Module, params
 		merged[k] = v
 	}
 
-	resources, err := n.buildResources(t, m.ExecConfig.Conduit.Kind, m.ExecConfig.Conduit.Stack)
+	resources, err := n.buildResources(t, desc.Kind, desc.Stack)
 	if err != nil {
 		return domain.RunResult{Target: t}, err
 	}
@@ -53,16 +55,16 @@ func (n *NativeBuiltinAdapter) Run(ctx context.Context, m *domain.Module, params
 
 func (n *NativeBuiltinAdapter) buildResources(target domain.HostPort, kind cnd.Kind, stack []domain.LayerHint) (native.Resources, error) {
 	var res native.Resources
-	if stack == nil || kind == 0 {
+	if kind == 0 {
 		return res, nil
 	}
 
 	addr := fmt.Sprintf("%s:%d", target.Host, target.Port)
 	switch kind {
 	case cnd.KindStream:
-		stack := stack
+		layerStack := stack
 		res.StreamFactory = func(ctx context.Context) (interface{}, func(), error) {
-			conduit, err := transport.BuildStreamConduit(addr, stack)
+			conduit, err := transport.BuildStreamConduit(addr, layerStack)
 			if err != nil {
 				return nil, nil, err
 			}

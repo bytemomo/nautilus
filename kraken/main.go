@@ -17,6 +17,8 @@ import (
 	"bytemomo/kraken/internal/runner/adapter"
 	"bytemomo/kraken/internal/scanner"
 
+	"bytemomo/kraken/internal/modules"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,6 +37,8 @@ func main() {
 	}
 
 	logger.SetLoggerToStructured(logrus.InfoLevel, fmt.Sprintf("%s/kraken.log", *outDir))
+
+	modules.Init()
 
 	if err := run(*campaignPath, *cidrsArg, *outDir); err != nil {
 		logrus.WithError(err).Fatal("Failed to run campaign")

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"bytemomo/kraken/internal/domain"
+
+	cnd "bytemomo/trident/conduit"
 )
 
 // StreamFactory creates a new conduit handle for a module along with a cleanup func.
@@ -18,18 +20,25 @@ type Resources struct {
 // ModuleFunc is the signature implemented by builtin Go modules.
 type ModuleFunc func(ctx context.Context, mod *domain.Module, target domain.HostPort, res Resources, params map[string]any, timeout time.Duration) (domain.RunResult, error)
 
-var registry = map[string]ModuleFunc{}
-
-// Register stores the module implementation under the provided ID.
-func Register(id string, fn ModuleFunc) {
-	if id == "" || fn == nil {
-		return
-	}
-	registry[id] = fn
+// Descriptor defines how a native module should be run.
+type Descriptor struct {
+	Run   ModuleFunc
+	Kind  cnd.Kind
+	Stack []domain.LayerHint
 }
 
-// Lookup returns the registered module implementation.
-func Lookup(id string) (ModuleFunc, bool) {
+var registry = map[string]Descriptor{}
+
+// Register stores the module implementation under the provided ID.
+func Register(id string, desc Descriptor) {
+	if id == "" || desc.Run == nil {
+		return
+	}
+	registry[id] = desc
+}
+
+// Lookup returns the registered module descriptor.
+func Lookup(id string) (Descriptor, bool) {
 	fn, ok := registry[id]
 	return fn, ok
 }
