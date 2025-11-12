@@ -218,3 +218,68 @@ found.
 > Just as a note all the servers (or brokers) that have been tested and reproduced
 > via Docker are build with instrumentation **on** to potentially catch interesting
 > bugs while **fuzzing**.
+
+## TODO
+
+### General
+
+- [ ] Module that checks a selection of particularly interesting properties of MQTT
+
+### Scenarios
+
+- [ ] Create simple mqtt scenario to test the agents, should have:
+    - [ ] MQTT Broker (interchangeable: Mosquitto, Emqx, Nanomq)
+    - [ ] Use clients like (mosquitto_sub and mosquitto_pub) to simulate traffic
+- [ ] Create simple RTSP scenario to test the agents
+- [ ] Create a simple Purdue example
+    - First network (operational)
+        - [ ] 2 Broker MQTT that talks with other devices (1 weak and 1 strong)
+        - [ ] Device that have weak creds
+        - [ ] Device that have weak ssh
+        - [ ] Device that have weak telnet
+        - [ ] Device that have multiple vulns
+        - [ ] Device that is secure
+    - Second network (it)
+        - [ ] RTSP camera (fake)
+        - [ ] RTSP server (weak conf)
+- [ ] Fuzzing scenario, this is different as the targets can be pre-defined and
+      can be accessed with more ease. We don't have only black box analysis (boofuzz)
+      but also a gray/white box one (AFL++).
+    - Multiple brokers
+        - [ ] Mosquitto
+        - [ ] Emqx
+        - [ ] Nanomq
+    - Clients
+        - [ ] mosquitto_sub
+        - [ ] mosquitto_pub
+
+### Fuzzing
+
+#### Black box
+
+Black box fuzzing work by interacting in the legit way with the server/broker.
+Boofuzz, grammar based, is an implementation
+
+- [x] Black box fuzzing module for MQTT
+    - [x] Boofuzz - grammarbased
+- [ ] Black box fuzzing module for RTSP
+    - [x] Boofuzz - grammarbased
+
+#### Gray box
+
+Gray box fuzzing work by interacting with the SUT using harnesses, the major exponent
+is AFL++, to run this against the target the source code has to be available and
+has to be recompiled (AFL++ can be run also using qemu but this is out of scope).
+
+- [ ] Gray box fuzzing module for MQTT
+    - [ ] AFL++ - mutation based
+- [ ] Gray box fuzzing module for RTSP
+    - [ ] AFL++ - mutation based
+
+#### White box
+
+White-box fuzzing, also known as source-code fuzzing or clear-box fuzzing,
+involves full knowledge of the program's internal structure and code. It is often
+implemented using dynamic symbolic execution (DSE) or concolic execution, which
+systematically explore program paths by solving mathematical constraints on inputs
+to force the program to take different branches

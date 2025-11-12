@@ -8,6 +8,12 @@ project_dir := source_dir()
 default:
     @just --list
 
+build_kraken:
+    {{CONTAINER_RUNTIME}} build -f {{project_dir}}/Dockerfile.kraken -t kraken:latest {{project_dir}}/..
+
+build_siren:
+    {{CONTAINER_RUNTIME}} build -f {{project_dir}}/Dockerfile.siren -t siren:latest {{project_dir}}/..
+
 build_mosquitto:
     {{CONTAINER_RUNTIME}} build -f Dockerfile -t {{MOSQ_IMAGE_NAME}} {{project_dir}}/mqtt/mosquitto
 
