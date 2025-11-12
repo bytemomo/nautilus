@@ -12,10 +12,6 @@ kraken_build_modules:
     cd modules/kraken/abi && just clean-all
     cd modules/kraken/abi && just build-all
 
-# siren_build:
-#     go build -o dist/siren ./siren/main.go
-
-
 siren_build:
     rm -f ./siren/ebpf/program/xdp_proxy.bpf.o
     go generate ./siren/ebpf
