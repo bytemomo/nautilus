@@ -27,6 +27,10 @@ func Init() {
 		Stack: []domain.LayerHint{
 			{Name: "tcp"},
 		},
+		Description: `This module tests the mandatory normative statement of the MQTT v5.0 specification for the broker.
+	Each statement is numbered with the same number as the one in the specification, everything can be found here: https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs01/mqtt-v5.0-cs01.html
+	This lists the normative statement that will be checked using this module: ... %TODO ...
+		`,
 	})
 }
 

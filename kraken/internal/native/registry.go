@@ -25,6 +25,8 @@ type Descriptor struct {
 	Run   ModuleFunc
 	Kind  cnd.Kind
 	Stack []domain.LayerHint
+
+	Description string // Optional
 }
 
 var registry = map[string]Descriptor{}
@@ -41,4 +43,22 @@ func Register(id string, desc Descriptor) {
 func Lookup(id string) (Descriptor, bool) {
 	fn, ok := registry[id]
 	return fn, ok
+}
+
+// List returns all registered native modules.
+func List() []struct {
+	ID         string
+	Descriptor Descriptor
+} {
+	entries := make([]struct {
+		ID         string
+		Descriptor Descriptor
+	}, 0, len(registry))
+	for id, desc := range registry {
+		entries = append(entries, struct {
+			ID         string
+			Descriptor Descriptor
+		}{ID: id, Descriptor: desc})
+	}
+	return entries
 }

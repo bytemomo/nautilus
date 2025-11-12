@@ -69,6 +69,11 @@ type LayerHint struct {
 	Params map[string]any `yaml:"params,omitempty"`
 }
 
+// String implements the fmt.Stringer interface for LayerHint.
+func (lh LayerHint) String() string {
+	return fmt.Sprintf("%s", lh.Name)
+}
+
 // Validate validates the module configuration.
 func (m *Module) Validate() error {
 	if m.ModuleID == "" {

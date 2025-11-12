@@ -13,11 +13,11 @@ import (
 	"bytemomo/kraken/internal/adapter/logger"
 	"bytemomo/kraken/internal/adapter/yamlconfig"
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/modules"
+	"bytemomo/kraken/internal/native"
 	"bytemomo/kraken/internal/runner"
 	"bytemomo/kraken/internal/runner/adapter"
 	"bytemomo/kraken/internal/scanner"
-
-	"bytemomo/kraken/internal/modules"
 
 	"github.com/sirupsen/logrus"
 )
@@ -27,11 +27,12 @@ func main() {
 		campaignPath = flag.String("campaign", "", "Path to campaign YAML (required)")
 		cidrsArg     = flag.String("cidrs", "", "Comma-separated CIDRs to scan (required)")
 		outDir       = flag.String("out", "./kraken-results", "Output directory")
+		module_list  = flag.Bool("native-modules", false, "Print the native modules and their capabilities")
 		help         = flag.Bool("help", false, "Print program usage")
 	)
 	flag.Parse()
 
-	if *campaignPath == "" || *cidrsArg == "" || *help {
+	if (*campaignPath == "" || *cidrsArg == "" || *help) && !*module_list {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -39,6 +40,15 @@ func main() {
 	logger.SetLoggerToStructured(logrus.InfoLevel, fmt.Sprintf("%s/kraken.log", *outDir))
 
 	modules.Init()
+	if *module_list {
+		for _, m := range native.List() {
+			fmt.Printf("   - %s --- conduit kind: %d, transport stack: %s\n", m.ID, m.Descriptor.Kind, m.Descriptor.Stack)
+			if m.Descriptor.Description != "" {
+				fmt.Printf("        %s", m.Descriptor.Description)
+			}
+		}
+		return
+	}
 
 	if err := run(*campaignPath, *cidrsArg, *outDir); err != nil {
 		logrus.WithError(err).Fatal("Failed to run campaign")
