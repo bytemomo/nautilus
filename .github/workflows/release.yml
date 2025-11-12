@@ -30,6 +30,9 @@ jobs:
                   sudo apt-get install -y protobuf-compiler clang
                   sudo snap install just --classic
 
+            - name: Configure kernel headers include path for eBPF
+              run: echo "C_INCLUDE_PATH=/usr/include/$(gcc -dumpmachine)" >> $GITHUB_ENV
+
             - name: Install protobuf generators
               run: |
                   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
