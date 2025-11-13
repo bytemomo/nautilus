@@ -62,3 +62,6 @@
 # Trident
 !trident/
 !trident/**
+
+
+.DS_Store
