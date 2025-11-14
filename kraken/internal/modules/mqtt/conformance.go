@@ -99,10 +99,6 @@ func runConformanceTests(ctx context.Context, mod *domain.Module, target domain.
 		{Code: "MQTT-3.3.1-6", Name: "Server deletes retained message", Run: testDeleteRetainedMessage},
 		{Code: "MQTT-4.7.3-2", Name: "Server rejects subscription to invalid UTF-8 topic", Run: testInvalidUTF8Subscription},
 		{Code: "MQTT-3.1.0-2", Name: "Server disconnects client on second CONNECT", Run: testSecondConnectDisconnect},
-		// TODO
-		// {Code: "MQTT-3.1.3.2", Name: "Server publishes Will Message on DISCONNECT", Run: testWillMessage, isDestructive: true},
-		// {Code: "MQTT-3.3.1-5", Name: "Server stores retained message", Run: testRetainMessage, isDestructive: true},
-		// {Code: "MQTT-3.1.2-4", Name: "Server preserves session state for Clean Start = 0", Run: testSessionPreservation, isDestructive: true},
 	}
 
 	for _, tc := range tests {
@@ -133,12 +129,7 @@ func runConformanceTests(ctx context.Context, mod *domain.Module, target domain.
 		log.WithField("test", tc.Code).WithError(err).Info(status + " " + tc.Name)
 
 		result.Logs = append(result.Logs, fmt.Sprintf("[%s] %s: %s", tc.Code, tc.Name, status))
-		// result.Logs = append(result.Logs, fmt.Sprintf("[%s] Err msg: %s", tc.Code, err))
 		result.Findings = append(result.Findings, buildFinding(mod.ModuleID, target, tc.Code, tc.Name, err))
-
-		// if err != nil {
-		// 	break
-		// }
 	}
 
 	return result, nil
@@ -272,13 +263,6 @@ func testKeepAliveTimeout(client *mqttClient) error {
 	return errors.New("server did not disconnect client after keep-alive timeout")
 }
 
-// TODO
-// func testWillMessage(client *mqttClient) error {
-// 	// This test requires a second client to witness the Will Message.
-// 	// We simulate this by creating a new connection within the test.
-// 	return errors.New("skipped: test requires a concurrent client which is not supported by this harness")
-// }
-
 func testSharedSubscription(client *mqttClient) error {
 	if err := client.connectDefault(); err != nil {
 		return err
@@ -299,24 +283,6 @@ func testSharedSubscription(client *mqttClient) error {
 	}
 	return nil
 }
-
-// TODO
-// func testRetainMessage(client *mqttClient) error {
-// 	// Step 1: Connect and publish a retained message.
-// 	if err := client.connectDefault(); err != nil {
-// 		return err
-// 	}
-// 	if err := client.sendHex(hexPublishRetained); err != nil {
-// 		return err
-// 	}
-// 	client.sendHex(hexDisconnectPacket) // Gracefully disconnect
-
-// 	// The calling function will create a new connection for the next test, so we can't do this in one go.
-// 	// This test is simplified to just check if the broker accepts the retain flag.
-// 	// To fully test, we need to reconnect, which is handled by the test runner.
-// 	// A placeholder success, a more robust test needs state between test cases.
-// 	return errors.New("skipped: cannot verify retain without state between connections")
-// }
 
 func testDeleteRetainedMessage(client *mqttClient) error {
 	// We just test if the broker accepts the zero-byte retain message publish.
@@ -348,29 +314,7 @@ func testDeleteRetainedMessage(client *mqttClient) error {
 			return fmt.Errorf("expected nothing, got %x", topicMsg)
 		}
 	}
-
-	return nil
 }
-
-// TODO
-// func testSessionPreservation(client *mqttClient) error {
-// 	// Step 1: Connect with Clean Start=0, subscribe, then disconnect.
-// 	if err := client.sendHex(hexConnectCleanStart0); err != nil {
-// 		return err
-// 	}
-// 	if _, err := client.recv(defaultTimeout); err != nil {
-// 		return err
-// 	} // Consume CONNACK
-// 	if err := client.sendHex(hexSubscribePacket); err != nil {
-// 		return err
-// 	}
-// 	if _, err := client.recv(defaultTimeout); err != nil {
-// 		return err
-// 	} // Consume SUBACK
-// 	client.sendHex(hexDisconnectPacket)
-
-// 	return errors.New("skipped: cannot verify session preservation without state between connections")
-// }
 
 func testInvalidUTF8Subscription(client *mqttClient) error {
 	if err := client.connectDefault(); err != nil {
