@@ -1,124 +1,163 @@
 # Siren
 
-Siren is a transparent MITM agent that now runs fully in the Linux kernel using
-eBPF + XDP for packet interception. Packets are copied into a userspace ring
-buffer where the Go intercept engine evaluates rules, logging, recording or
-injecting actions. Decisions such as “drop this flow” are pushed back into the
-kernel via BPF maps which allows Siren to stay invisible to the clients.
-
-## Key Features
-
-- **Kernel-level interception**: eBPF/XDP program copies packet metadata/payload
-  with < 1 µs overhead and can drop flows directly in the kernel.
-- **Rule-based engine**: YAML rules feed the classic intercept engine (regex,
-  payload matching, throttling metadata, etc.).
-- **Manipulators**: Optional user-defined processors (implemented in Go) can
-  augment or replace rule results.
-- **Recorder**: Structured JSON output of every intercepted packet/decision.
-- **Simple deployment**: Only needs the interface name and root privileges to
-  attach the XDP program; no iptables or LD_PRELOAD tricks.
-
-> [!WARNING]
-> Only Linux hosts with kernel ≥ 5.4 are supported right now. The code relies on
-> XDP and the eBPF ring-buffer helpers which are unavailable on older kernels.
-
-> [!NOTE]
-> The previous user-space proxy (Trident-based) has been removed to keep the
-> scope small. Reintroducing it would require re-adding the old proxy package.
+Siren is a transparent man-in-the-middle agent that lives almost entirely inside
+the Linux kernel. It pairs eBPF programs (XDP, TC and socket hooks) with optional
+TLS function probes to watch network conversations, apply lightweight edits and
+feed structured evidence back to analysts.
 
 ## Architecture
 
-<!--
-```text
-┌──────────┐       ┌─────────────────────────────┐        ┌──────────┐
-│ Client   │──────▶│    NIC + XDP (siren_xdp)    │───────▶│ Server   │
-└──────────┘       └─────────────────────────────┘        └──────────┘
-                        │                  ▲
-                        │  ring buffer     │ flow actions
-                        ▼                  │
-                 ┌─────────────────────────────────┐
-                 │    Userspace Siren runtime      │
-                 │  - Intercept engine             │
-                 │  - Manipulators                 │
-                 │  - Recorder                     │
-                 └─────────────────────────────────┘
-```-->
-
 ![architecture](./architecture.svg)
 
-### Components
+Traffic first touches the XDP program to decide whether the packet should be
+kept, mirrored or instantly dropped. Flows that need move to a TC (traffic Control)
+program where headers or payloads can be modified. Socket-level hooks
+observe connection metadata (latency, retransmits) while optional TLS uprobes
+copy plaintext buffers before they are encrypted. Everything is streamed to the
+userspace runtime which evaluates the YAML rules and feeds back decisions through
+BPF maps.
 
-1. **ebpf/program**: `xdp_proxy.c` compiled into `xdp_proxy.bpf.o`. Exports a ring
-   buffer (`events`) and an LRU map (`flow_actions`) used to enforce drops.
-2. **ebpf.Manager**: Loads the embedded object, attaches it to the requested NIC,
-   manages the ring buffer reader, and exposes helpers to install flow actions.
-3. **ebpf.Runtime**: Drains packets, translates them into `core.TrafficContext`,
-   passes everything through the rule engine + manipulators and pushes the result
-   back to the Manager (e.g., program a drop).
-4. **intercept**: Unchanged rule evaluation engine and action primitives.
-5. **proxy/recorder/pkg**: Shared infrastructure for stats, manipulators, logging
-   and structured recordings.
+## Playbook
 
-## Building the eBPF object
+Siren is configured with a single YAML file called a _playbook_. The playbook
+describes what to watch, how to record it and which actions should be taken.
 
-The repository ships with a pre-built object (`siren/ebpf/program/xdp_proxy.bpf.o`)
-so `go build ./siren` works out-of-the-box. When you change `xdp_proxy.c` you must
-recompile manually:
+- **General options**: describe the scenario and keep track of the playbook
+  version.
+
+    ```yaml
+    name: "factory-floor-mitm"
+    version: "1.2.0"
+    description: |
+        Inline inspection for the assembly VLAN, drop dangerous telnet
+        commands and mask MQTT credentials.
+    ```
+
+- **Network attachment**: decide where the eBPF programs run and which helpers
+  are enabled. `xdp` provides line-rate filtering, `tc` handles edits, and
+  `socket` emits per-flow events. TLS hooks attach to userland libraries so you
+  can see decrypted buffers when needed.
+
+    ```yaml
+    ebpf:
+        interface: eth0
+        programs:
+            xdp: ingress
+            tc: true
+            socket: true
+        drop_action_duration: 10s
+        targets:
+            - "ip:192.0.2.10"
+            - "ip_port:192.0.2.30:502"
+            - "mac:aa:bb:cc:dd:ee:ff"
+    tls:
+        enabled: true
+        providers:
+            - library: /usr/lib/libssl.so.3
+              read: SSL_read
+              write: SSL_write
+    ```
+
+- **Recording & telemetry**: control how evidence is stored. Siren can generate
+  only pcap for now.
+
+    ```yaml
+    recording:
+        enabled: true
+        format: pcap
+        output: /var/tmp/siren-floor-a.pcap
+    ```
+
+- **Rulebook**: list match conditions and the action to run when a packet or flow
+  matches. Matchers include payload regex, direction, and interface labels. Actions
+  map to the pipeline: `drop` happens in XDP, `rewrite` in TC, `throttle`/`mirror`
+  through socket helpers, and `inject` collaborates with userspace manipulators.
+
+    ```yaml
+    rules:
+        - name: block-dangerous-telnet
+          match:
+              payload_regex: "USER root"
+              l4_protocol: tcp
+              port: 23
+          action:
+              type: drop
+
+        - name: soften-modbus
+          match:
+              target_selector: "ip_port:192.0.2.30:502"
+          action:
+              type: throttle
+              rate: 40pps
+              duration: 20s
+
+        - name: hide-mqtt-credentials
+          match:
+              payload_regex: "username:"
+          action:
+              type: rewrite
+              payload_patch: "username: <redacted>"
+
+        - name: inject-smtp-banner
+          match:
+              direction: server
+              payload_regex: "^EHLO"
+          action:
+              type: inject
+              template: "smtp_banner.txt"
+    ```
+
+If the `targets` list is empty the playbook applies to every frame on the
+interface. TLS providers are optional; when omitted Siren still operates, but
+payload rules will only see ciphertext.
+
+## Pipelines
+
+### XDP pipeline
+
+Runs at the earliest point in the NIC driver. It samples packets into the ring
+buffer, enforces drop decisions, and tags flows that
+need extra processing.
+
+### TC pipeline
+
+TC is where Siren rewrites headers, pads payloads or injects canned responses.
+Because the packets never leave the kernel, edits are fast and opaque to endpoints.
+
+### TLS hooks
+
+Optional probes on userland TLS libraries expose the plaintext seen
+by `SSL_read`/`SSL_write`. Siren only touches the libraries listed
+in the playbook, if a server is not using OpenSSl but BoringSSL then it would not
+be able to inspect the encrypted traffic.
+
+## Running Siren
+
+```sh
+sudo ./siren -config siren/config/playbook.yaml
+```
+
+The CLI attaches the selected eBPF programs, loads TLS hooks when requested and
+starts streaming events. If the NIC refuses XDP, run `ethtool -K <iface> rxvlan off
+gro off` and try again. Outputs land in the files you specified in the playbook
+and can be opened directly in Wireshark.
+
+## Building the eBPF objects
+
+First the kernel eBPF programs needs to be compiled using the following command.
 
 ```sh
 go generate ./siren/ebpf
 ```
 
-Requirements:
+> [!NOTE]
+> Be sure to have LLVM, linux headers, ebpf headers and clang installed.
 
-- Clang/LLVM ≥ 11
-- Kernel headers (`linux/types.h`, etc.)
-- Root or capabilities to attach XDP (run Siren with sudo)
+Then simply using `go build ./siren` should build the program.
 
-## Configuration
-
-```yaml
-name: demo
-description: Demo rule-set
-ebpf:
-    interface: eth0
-    drop_action_duration: 5s
-    targets:
-        - "ip:192.0.2.10"
-        - "ip_port:192.0.2.10:1883"
-        - "mac:aa:bb:cc:dd:ee:ff"
-        - "ethercat:0x1234"
-recording:
-    enabled: true
-    output: /tmp/siren.pcap
-    format: pcap
-rules:
-    - name: drop-telnet
-      match:
-          payload_regex: "USER root"
-      action:
-          type: drop
-```
-
-`drop_action_duration` controls how long the kernel will keep dropping packets for
-a matching 5‑tuple. Rules still have access to delay/duplicate/modify actions; at
-the moment only `drop` is enforced inside XDP, other actions are logged.
-
-`targets` accepts the following selectors (all strings):
-
-- `ip:<address>` — capture IPv4 traffic to/from that address.
-- `ip_port:<address>:<port>` — restrict to a single TCP/UDP port.
-- `mac:<mac>` — match Ethernet address irrespective of IP.
-- `ethercat:<slave_id>` — match EtherCAT frames by slave ID.
-
-If the list is omitted or empty, Siren captures every frame on the interface.
-
-## Running Siren
+Finally to attach XDP/TC programs there is the need of network capabilities or
+root privileges.
 
 ```sh
-sudo ./siren -config siren/config/example-ebpf.yaml
+sudo ./siren -config siren/config/config.yaml
 ```
-
-Use `ethtool -K <iface> rxvlan off gro off` if the NIC refuses to attach XDP.
-Siren writes captured frames into the configured PCAP file, so you can open them
-directly in Wireshark, while logging rule matches to stdout.
