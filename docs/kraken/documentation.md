@@ -10,7 +10,7 @@ to be very permissive, infact to the modules are passed configuration parameters
 and the target (ip:port).
 From that point on it's the module resposibility to handle everything from the
 connection logic to the testing logic. This gives a high level of independence
-for what can be done inside modules but also overload the developer of with more
+for what can be done inside modules but also overload the developer with more
 work.
 
 ## Architecture
@@ -19,7 +19,7 @@ work.
 
 ## Campaign
 
-The program is configured with a yaml file, this file define what is called a
+The program is configured with a yaml file, this file defines what is called a
 _campaign_, the campaign define how the application behave and what it should do.
 The campaign is divided in four main sections:
 
@@ -66,7 +66,7 @@ The campaign is divided in four main sections:
 
 - **Tasks configuration**: this section define the modules to run and with which
   options to run them. As it can be seen a module is defined by: `id`, the `required_tags`
-  to which trigger its running on a target, `max_duration`, `type` can be of three
+  that trigger its running on a target, `max_duration`, `type` that can be of three
   types lib/grpc/cli (will be explained later on), `exec` this varies from type
   of module and defines the runtime parameters.
 
@@ -143,13 +143,15 @@ This configuration gives us flexibility and is easy to understand.
 
 ## Modules
 
-As said in the campaign section, the modules are of three types: lib/grpc/cli.
+Modules come in three flavors-lib, gRPC, and CLI so Kraken stays flexible. It
+can be distributed by running gRPC modules on remote machines for heavy tasks,
+or keep everything local by using lib plugins on a single host.
+
+<!--As said in the campaign section, the modules are of three types: lib/grpc/cli.
 This gives the application flexibility to be used in different ways and adapt within
-different environments, it can be used in a distributed fashion, with grpc, and
-offload some heavy lifting plugin that can run on another machine. Can also be self
-contained on a single machine leveraging the lib plugins, this will make it work
-in an environment where the connection to other machine is not possible or if the
-use of grpc is overkill for the plugin.
+different environments, it can be used in a distributed fashion, with grpc, to
+offload some heavy lifting plugin that can run on another machine. It can also be self
+contained on a single machine leveraging the lib plugins.-->
 
 ### LIB Modules
 
@@ -157,7 +159,7 @@ The lib modules can be implemented with two APIs:
 
 - The **v1** ABI will require the module to handle everything, also the transport
   settings. If the module needs to use TLS then with this API the module developer
-  needs to handle itself.
+  needs to handle him/herself.
 - The **v2** ABI will instead lift the ownership of the transport implementation
   from the developer, infact with the v2 there are some standard transports that
   can be used by the plugin (the used transport needs to be specified in the

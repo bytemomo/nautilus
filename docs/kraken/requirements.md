@@ -21,7 +21,7 @@
 - **HL-U2** --- Kraken shall provide a web-based graphical interface for real-time monitoring and control of campaigns.
 - **HL-U3** --- Campaigns shall be defined in a structured format (e.g., YAML) that specifies modules and targets.
 
-### 1.3 System Qualities (Non-Functional)
+### 1.3 System Qualities
 
 - **HL-Q1** --- Kraken shall be delivered as a single, fast, and lightweight binary executable (e.g., final binary size < 50MB).
 - **HL-Q2** --- The system shall be modular, with clear separation of concerns between its subsystems.
@@ -30,7 +30,7 @@
 
 ---
 
-## 2. Low-Level Requirements (Implementation Details)
+## 2. Low-Level Requirements
 
 These requirements provide detailed specifications for the implementation of each component.
 
@@ -87,8 +87,7 @@ These requirements provide detailed specifications for the implementation of eac
 - **KRK-SCN-F4** --- The Scanner shall assign classification tags to identified targets.
 - **KRK-SCN-F5** --- The Scanner shall be configurable via YAML parameters.
 - **KRK-SCN-F6** --- The Scanner shall use non-invasive and non-aggressive options by default (e.g., avoiding scans or scripts considered intrusive).
-- **KRK-SCN-F7** --- The Scanner shall output structured data consumable by the Runner.
-- **KRK-SCN-F8** --- The Scanner shall support both IPv4 and IPv6 scanning.
+- **KRK-SCN-F7** --- The Scanner shall support both IPv4 and IPv6 scanning.
 
 #### 2.3.3 Non-Functional Requirements
 
@@ -115,9 +114,8 @@ These requirements provide detailed specifications for the implementation of eac
 - **KRK-REP-F3** --- The Reporter shall produce reports in three formats:
     1.  **Markdown** --- for human readability
     2.  **JSON** --- for machine readability.
-    3.  **Interactive HTML** --- a self-contained report for interactive viewing in a browser.
-- **KRK-REP-F4** --- The Reporter shall support per-module and per-target report breakdowns.
-- **KRK-REP-F5** --- The Reporter shall include severity levels and result statuses (success/failure).
+    3.  **Interactive HTML** --- for viewing in a browser.
+- **KRK-REP-F4** --- The Reporter shall include severity levels and result statuses (success/failure).
 
 #### 2.4.3 Non-Functional Requirements
 
