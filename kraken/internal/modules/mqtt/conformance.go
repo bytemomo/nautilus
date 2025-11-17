@@ -51,6 +51,11 @@ var (
 )
 
 func Init() {
+	registerConformance()
+	registerDictionaryAttack()
+}
+
+func registerConformance() {
 	native.Register("mqtt-conformance-test", native.Descriptor{
 		Run:  runConformanceTests,
 		Kind: cnd.KindStream,
@@ -439,7 +444,11 @@ func (c *mqttClient) sendHex(hexPayload string) error {
 	if err != nil {
 		return err
 	}
-	_, _, err = c.stream.Send(c.ctx, data, nil, nil)
+	return c.sendPacket(data)
+}
+
+func (c *mqttClient) sendPacket(data []byte) error {
+	_, _, err := c.stream.Send(c.ctx, data, nil, nil)
 	return err
 }
 

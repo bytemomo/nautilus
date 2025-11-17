@@ -36,6 +36,11 @@ var defaultProbePaths = []string{
 }
 
 func Init() {
+	registerSurfaceScan()
+	registerDictionaryAttack()
+}
+
+func registerSurfaceScan() {
 	native.Register("rtsp-surface-scan", native.Descriptor{
 		Run:  runSurfaceScan,
 		Kind: cnd.KindStream,

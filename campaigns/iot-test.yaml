@@ -39,14 +39,14 @@ tasks:
     #   max_duration: 10s
     #   type: native
 
-    - id: "rtsp-surface-scan"
-      required_tags: ["protocol:rtsp", "protocol:tcp"]
-      max_duration: 10s
-      type: native
-      exec:
-          params:
-              user_agent: "Kraken-RTSP/1.0"
-              probe_paths: ["/", "/live.sdp", "/cam/realmonitor"]
+    # - id: "rtsp-surface-scan"
+    #   required_tags: ["protocol:rtsp", "protocol:tcp"]
+    #   max_duration: 10s
+    #   type: native
+    #   exec:
+    #      params:
+    #           user_agent: "Kraken-RTSP/1.0"
+    #           probe_paths: ["/", "/live.sdp", "/cam/realmonitor"]
 
     # - id: "mqtt-sys-disclosure"
     #   required_tags: ["protocol:mqtt", "protocol:tcp"]
@@ -57,3 +57,28 @@ tasks:
     #           api: v1
     #           library_path: "./modules/kraken/abi/mqtt_sys_disclosure/build/mqtt_sys_disclosure"
     #           symbol: kraken_run
+
+    - id: "rtsp-dict-attack"
+      required_tags: ["protocol:rtsp", "protocol:tcp"]
+      max_duration: 30s
+      type: native
+      exec:
+          params:
+              path: "/live.sdp"
+              # credentials_file: "./wordlists/rtsp.txt"
+              # credentials:
+              #     - "admin:admin"
+              #     - { username: "root", password: "pass" }
+
+    - id: "mqtt-dict-attack"
+      required_tags: ["protocol:mqtt", "protocol:tcp"]
+      max_duration: 30s
+      type: native
+      exec:
+          params:
+              client_id: "kraken-dict"
+              keep_alive: 30
+              # credentials_file: "./wordlists/mqtt.txt"
+              # credentials:
+              #     - "admin:admin"
+              #     - "user:password"
