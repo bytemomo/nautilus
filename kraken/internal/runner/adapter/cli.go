@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"time"
 
 	"bytemomo/kraken/internal/domain"
@@ -26,7 +27,7 @@ func (a *CLIModuleAdapter) Supports(m *domain.Module) bool {
 	if m == nil {
 		return false
 	}
-	return m.ExecConfig.CLI != nil && m.Type == domain.Cli
+	return m.ExecConfig.CLI != nil && (m.Type == domain.Cli || m.Type == domain.Fuzz)
 }
 
 // Run runs the CLI module.
@@ -40,18 +41,23 @@ func (a *CLIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 
 	var result domain.RunResult
 
-	args := []string{
-		m.ExecConfig.CLI.Command,
-		"--host", t.Host,
-		"--port", fmt.Sprintf("%d", t.Port),
+	args := []string{m.ExecConfig.CLI.Command}
+
+	if m.Type != domain.Fuzz && (t.Host != "" || t.Port != 0) {
+		args = append(args, "--host", t.Host, "--port", fmt.Sprintf("%d", t.Port))
 	}
 
-	if outDir, ok := ctx.Value(contextkeys.OutDir).(*string); ok {
+	if outDir, ok := ctx.Value(contextkeys.OutDir).(*string); ok && *outDir != "" {
 		args = append(args, "--output-dir", *outDir)
 	}
 
-	for k, v := range params {
-		args = append(args, k, fmt.Sprintf("%v", v))
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, k, fmt.Sprintf("%v", params[k]))
 	}
 
 	cmd := exec.CommandContext(ctx, m.ExecConfig.CLI.Executable, args...)

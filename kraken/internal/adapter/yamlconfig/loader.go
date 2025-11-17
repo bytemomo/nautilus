@@ -36,6 +36,13 @@ func LoadCampaignWithModules(campaignPath string) (*domain.Campaign, error) {
 		return nil, fmt.Errorf("failed to parse campaign: %w", err)
 	}
 
+	if err := campaign.Type.Validate(); err != nil {
+		return nil, err
+	}
+	if campaign.Type == "" {
+		campaign.Type = domain.CampaignNetwork
+	}
+
 	for i, mod := range campaign.Tasks {
 		if mod == nil {
 			return nil, fmt.Errorf("step %d is nil", i)

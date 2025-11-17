@@ -1,0 +1,43 @@
+id: "iot-afl-fuzzing"
+version: "1.0.0"
+
+type: fuzz
+name: "IoT AFL++ Fuzzing"
+description: |
+    Stand-alone fuzzing campaign for MQTT brokers using AFL++ harnesses.
+    This configuration skips all network discovery and runs each fuzzer
+    directly. It assumes harness binaries and seed corpora are already
+    available inside the container image at the referenced paths.
+runner:
+    max_parallel_targets: 1
+
+tasks:
+    - id: "mosquitto-afl-docker"
+      max_duration: 2h
+      type: fuzz
+      exec:
+          docker:
+              image: "ghcr.io/aflplusplus/aflplusplus"
+              workdir: "/opt/fuzz"
+              command: "/bin/sh"
+              network: "host"
+              auto_pull: true
+          params:
+              -c: >
+                  AFL_SKIP_CPUFREQ=1 AFL_NO_UI=1 afl-fuzz -i /opt/fuzz/seeds/mqtt -o /opt/fuzz/out/mosquitto
+                  -m 512 -t 1000+ -- /opt/fuzz/targets/mosquitto/mosquitto-afl-harness @@
+
+    - id: "nanomq-afl-docker"
+      max_duration: 2h
+      type: fuzz
+      exec:
+          docker:
+              image: "ghcr.io/aflplusplus/aflplusplus"
+              workdir: "/opt/fuzz"
+              command: "/bin/sh"
+              network: "host"
+              auto_pull: true
+          params:
+              -c: >
+                  AFL_SKIP_CPUFREQ=1 AFL_NO_UI=1 afl-fuzz -i /opt/fuzz/seeds/nanomq -o /opt/fuzz/out/nanomq
+                  -m 512 -t 1000+ -- /opt/fuzz/targets/nanomq/nanomq-afl-harness @@

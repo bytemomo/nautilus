@@ -7,6 +7,11 @@ yaml files.
 
 - `id`, `name` and `version` are not essential to the run, they are used to
   describe the campaign.
+- `type` switches the execution mode. The default `network` mode performs
+  discovery via the scanner and then runs each module against every classified
+  target. The `fuzz` mode skips scanning entirely and executes each module as a
+  stand-alone task, which is useful for grey/white-box fuzzers that only need
+  to emit findings on stdout.
 - runner: contains every option to set the EXECUTION phase of the Kraken. This phase
   handles the life cycle of the execution of each module.
     1. global_timeout: timeout for modules, if the module does not specify its
@@ -39,7 +44,10 @@ yaml files.
 
 - attack_trees_def_path: relative path to load from the attack tree definition file.
 
-- steps: TODO
+- steps: TODO. Modules can be executed via ABI/GRPC/CLI or through `exec.docker`
+  to run CLI/fuzz modules inside a container. Docker-backed modules must emit a
+  JSON `RunResult` on stdout; Kraken mounts the output directory into the
+  container when it is available so artifacts can be persisted.
 
 ## Attack Trees
 

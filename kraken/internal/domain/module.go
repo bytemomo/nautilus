@@ -18,6 +18,8 @@ const (
 	Grpc ModuleType = "grpc"
 	// Cli is a CLI module.
 	Cli ModuleType = "cli"
+	// Fuzz is a fuzzing module.
+	Fuzz ModuleType = "fuzz"
 )
 
 // ModuleAPIVersion is the version of the module API.
@@ -35,7 +37,7 @@ type Module struct {
 	ModuleID     string        `yaml:"id"`
 	RequiredTags []string      `yaml:"required_tags,omitempty"`
 	MaxDuration  time.Duration `yaml:"max_duration,omitempty"`
-	Type         ModuleType    `yaml:"type"` // native|lib|grpc|cli
+	Type         ModuleType    `yaml:"type"` // native|lib|grpc|cli|fuzz
 
 	ExecConfig struct {
 		ABI *struct {
@@ -53,6 +55,15 @@ type Module struct {
 			Executable string `yaml:"exec"`
 			Command    string `yaml:"command"`
 		} `yaml:"cli,omitempty"`
+
+		Docker *struct {
+			Image    string `yaml:"image"`
+			Workdir  string `yaml:"workdir,omitempty"`
+			Command  string `yaml:"command,omitempty"`
+			User     string `yaml:"user,omitempty"`
+			Network  string `yaml:"network,omitempty"`
+			AutoPull bool   `yaml:"auto_pull,omitempty"`
+		} `yaml:"docker,omitempty"`
 
 		Conduit *struct {
 			Kind  cnd.Kind    `yaml:"kind"`
@@ -85,6 +96,7 @@ func (m *Module) Validate() error {
 	hasABI := m.ExecConfig.ABI != nil
 	hasGRPC := m.ExecConfig.GRPC != nil
 	hasCLI := m.ExecConfig.CLI != nil
+	hasDocker := m.ExecConfig.Docker != nil
 
 	count := 0
 	if hasABI {
@@ -96,10 +108,13 @@ func (m *Module) Validate() error {
 	if hasCLI {
 		count++
 	}
+	if hasDocker {
+		count++
+	}
 
 	if count == 0 {
 		if m.Type != Native {
-			return fmt.Errorf("module must specify one execution type (abi, grpc, or cli)")
+			return fmt.Errorf("module must specify one execution type (abi, grpc, cli, or docker)")
 		}
 	} else if count > 1 {
 		return fmt.Errorf("module can only specify one execution type")
@@ -139,8 +154,18 @@ func (m *Module) Validate() error {
 		if m.ExecConfig.CLI.Command == "" {
 			return fmt.Errorf("cli.path is required")
 		}
-		if m.Type != Cli {
-			return fmt.Errorf("cli execution requires type 'cli'")
+		if m.Type != Cli && m.Type != Fuzz {
+			return fmt.Errorf("cli execution requires type 'cli' or 'fuzz'")
+		}
+	}
+
+	// Validate Docker config
+	if hasDocker {
+		if m.ExecConfig.Docker.Image == "" {
+			return fmt.Errorf("docker.image is required")
+		}
+		if m.Type != Cli && m.Type != Fuzz {
+			return fmt.Errorf("docker execution requires type 'cli' or 'fuzz'")
 		}
 	}
 

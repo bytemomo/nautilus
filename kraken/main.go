@@ -32,7 +32,7 @@ func main() {
 	)
 	flag.Parse()
 
-	if (*campaignPath == "" || *cidrsArg == "" || *help) && !*module_list {
+	if (*campaignPath == "" || *help) && !*module_list {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -66,9 +66,9 @@ func run(campaignPath, cidrsArg, outDir string) error {
 		return fmt.Errorf("could not load campaign: %w", err)
 	}
 	log = log.WithField("campaign_id", camp.ID)
+	campType := camp.EffectiveType()
 
-	cidrs := splitCSV(cidrsArg)
-	if len(cidrs) == 0 {
+	if campType == domain.CampaignNetwork && len(splitCSV(cidrsArg)) == 0 {
 		return errors.New("no CIDRs specified")
 	}
 
@@ -76,6 +76,15 @@ func run(campaignPath, cidrsArg, outDir string) error {
 	jsonReporter := jsonreport.New(resultDir)
 	camp.Runner.ResultDirectory = resultDir
 
+	if campType == domain.CampaignFuzz {
+		results, err := setupAndRunFuzzingRunner(log, camp, jsonReporter)
+		if err != nil {
+			return err
+		}
+		return report(log, jsonReporter, results, camp)
+	}
+
+	cidrs := splitCSV(cidrsArg)
 	classifiedTargets, err := setupAndRunScanner(log, camp, cidrs)
 	if err != nil {
 		return err
@@ -113,12 +122,7 @@ func setupAndRunScanner(log *logrus.Entry, camp *domain.Campaign, cidrs []string
 
 func setupAndRunModuleRunner(log *logrus.Entry, camp *domain.Campaign, reporter domain.ResultRepo, classifiedTargets []domain.ClassifiedTarget) ([]domain.RunResult, error) {
 	log.Info("Starting module runner")
-	executors := []runner.ModuleExecutor{
-		adapter.NewNativeBuiltinAdapter(),
-		adapter.NewABIModuleAdapter(),
-		adapter.NewCLIModuleAdapter(),
-		adapter.NewGRPCModuleAdapter(),
-	}
+	executors := newModuleExecutors()
 
 	r := runner.Runner{
 		Log:       log,
@@ -135,6 +139,41 @@ func setupAndRunModuleRunner(log *logrus.Entry, camp *domain.Campaign, reporter 
 
 	log.WithField("result_count", len(results)).Info("Module runner finished")
 	return results, nil
+}
+
+func setupAndRunFuzzingRunner(log *logrus.Entry, camp *domain.Campaign, reporter domain.ResultRepo) ([]domain.RunResult, error) {
+	log.Info("Starting fuzzing runner")
+	executors := newModuleExecutors()
+
+	r := runner.Runner{
+		Log:       log,
+		Executors: executors,
+		Store:     reporter,
+		Config:    camp.Runner,
+	}
+
+	runnerCtx := context.Background()
+	classifiedTargets := []domain.ClassifiedTarget{{
+		Target: domain.HostPort{Host: camp.ID},
+	}}
+
+	results, err := r.Execute(runnerCtx, *camp, classifiedTargets)
+	if err != nil {
+		return nil, fmt.Errorf("failed fuzzing execution: %w", err)
+	}
+
+	log.WithField("result_count", len(results)).Info("Fuzzing runner finished")
+	return results, nil
+}
+
+func newModuleExecutors() []runner.ModuleExecutor {
+	return []runner.ModuleExecutor{
+		adapter.NewNativeBuiltinAdapter(),
+		adapter.NewABIModuleAdapter(),
+		adapter.NewCLIModuleAdapter(),
+		adapter.NewDockerModuleAdapter(),
+		adapter.NewGRPCModuleAdapter(),
+	}
 }
 
 func report(log *logrus.Entry, reportWriter domain.ReportWriter, results []domain.RunResult, camp *domain.Campaign) error {
