@@ -178,11 +178,6 @@ tasks:
               sequence_num: "1"
               path0: "./modules/kraken/abi/mqtt_replay/CVE-2024-8376.txt"
 
-    - id: "mqtt-conformance-test"
-      required_tags: ["protocol:mqtt", "protocol:tcp"]
-      max_duration: 5s
-      type: native
-
     - id: "mqtt-sys-disclosure"
       required_tags: ["protocol:mqtt", "protocol:tcp"]
       max_duration: 5s
@@ -192,3 +187,17 @@ tasks:
               api: v1
               library_path: "./modules/kraken/abi/mqtt_sys_disclosure/build/mqtt_sys_disclosure"
               symbol: kraken_run
+
+    - id: "mqtt-conformance-test"
+      required_tags: ["protocol:mqtt", "protocol:tcp"]
+      max_duration: 10s
+      type: native
+
+    - id: "rtsp-surface-scan"
+      required_tags: ["protocol:rtsp", "protocol:tcp"]
+      max_duration: 10s
+      type: native
+      exec:
+          params:
+              user_agent: "Kraken-RTSP/1.0" # optional override
+              probe_paths: ["/", "/live.sdp", "/cam/realmonitor"]

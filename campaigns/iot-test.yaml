@@ -1,4 +1,4 @@
-id: "iot-standard"
+id: "iot-test"
 version: "2.0.0"
 
 name: "IoT Network Assessment"
@@ -34,10 +34,19 @@ tasks:
     #           sequence_num: "1"
     #           path0: "./modules/kraken/abi/mqtt_replay/CVE-2024-8376.txt"
 
-    - id: "mqtt-conformance-test"
-      required_tags: ["protocol:mqtt", "protocol:tcp"]
+    # - id: "mqtt-conformance-test"
+    #   required_tags: ["protocol:mqtt", "protocol:tcp"]
+    #   max_duration: 10s
+    #   type: native
+
+    - id: "rtsp-surface-scan"
+      required_tags: ["protocol:rtsp", "protocol:tcp"]
       max_duration: 10s
       type: native
+      exec:
+          params:
+              user_agent: "Kraken-RTSP/1.0"
+              probe_paths: ["/", "/live.sdp", "/cam/realmonitor"]
 
     # - id: "mqtt-sys-disclosure"
     #   required_tags: ["protocol:mqtt", "protocol:tcp"]

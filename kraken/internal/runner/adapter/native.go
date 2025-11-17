@@ -36,21 +36,12 @@ func (n *NativeBuiltinAdapter) Run(ctx context.Context, m *domain.Module, params
 	}
 	fn := desc.Run
 
-	merged := make(map[string]any)
-
-	for k, v := range m.ExecConfig.Params {
-		merged[k] = v
-	}
-	for k, v := range params {
-		merged[k] = v
-	}
-
 	resources, err := n.buildResources(t, desc.Kind, desc.Stack)
 	if err != nil {
 		return domain.RunResult{Target: t}, err
 	}
 
-	return fn(ctx, m, t, resources, merged, timeout)
+	return fn(ctx, m, t, resources, params, timeout)
 }
 
 func (n *NativeBuiltinAdapter) buildResources(target domain.HostPort, kind cnd.Kind, stack []domain.LayerHint) (native.Resources, error) {

@@ -9,11 +9,12 @@ import (
 var (
 	// serviceKeywords maps keywords found in service names or products to their corresponding protocol tags.
 	serviceKeywords = map[string]domain.Tag{
-		"mqtt":    "protocol:mqtt",
+		"mqtt":      "protocol:mqtt",
 		"mosquitto": "protocol:mqtt",
-		"coap":    "protocol:coap",
-		"http":    "protocol:http",
-		"modbus":  "protocol:modbus",
+		"rtsp":      "protocol:rtsp",
+		"coap":      "protocol:coap",
+		"http":      "protocol:http",
+		"modbus":    "protocol:modbus",
 	}
 
 	// portProtocolTags maps port numbers to a list of tags that should be applied.
@@ -21,6 +22,8 @@ var (
 		80:   {"protocol:http"},
 		443:  {"protocol:http", "supports:tls"},
 		502:  {"protocol:modbus"},
+		554:  {"protocol:rtsp"},
+		8554: {"protocol:rtsp"},
 		1883: {"protocol:mqtt"},
 		5683: {"protocol:coap"},
 		5684: {"protocol:coap", "supports:tls"},
