@@ -201,3 +201,43 @@ tasks:
           params:
               user_agent: "Kraken-RTSP/1.0" # optional override
               probe_paths: ["/", "/live.sdp", "/cam/realmonitor"]
+
+    - id: "rtsp-dict-attack"
+      required_tags: ["protocol:rtsp", "protocol:tcp"]
+      max_duration: 30s
+      type: native
+      exec:
+          params:
+              path: "/live.sdp"
+              # credentials_file: "./wordlists/rtsp.txt"
+              # credentials:
+              #     - "admin:admin"
+              #     - { username: "root", password: "pass" }
+
+    - id: "mqtt-dict-attack"
+      required_tags: ["protocol:mqtt", "protocol:tcp"]
+      max_duration: 30s
+      type: native
+      exec:
+          params:
+              client_id: "kraken-dict"
+              keep_alive: 30
+              # credentials_file: "./wordlists/mqtt.txt"
+              # credentials:
+              #     - "admin:admin"
+              #     - "user:password"
+
+    - id: "telnet-dict-attack"
+      required_tags: ["protocol:tcp", "protocol:telnet"]
+      max_duration: 30s
+      type: native
+      exec:
+          params:
+              # # credentials_file: "./wordlists/telnet.txt" # optional
+              # credentials:
+              # - "admin:admin"
+              # - { username: "root", password: "password" }
+              username_prompts: ["login:", "username:"]
+              password_prompts: ["Password:"]
+              login_timeout: "5s"
+              post_login_wait: "3s"
