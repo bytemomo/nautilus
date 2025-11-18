@@ -4,10 +4,11 @@ default:
     @just --list
 
 build_afl name:
-    podman build -t {{project_dir}}/aflpp/aflpp-{{name}}:latest ./{{project_dir}}/aflpp/{{name}}
+    podman build -t aflpp-{{name}}:latest {{project_dir}}/aflpp/{{name}}
 
 run_afl name:
     podman run --rm -it \
+        -v "{{project_dir}}/aflpp/{{name}}/my_dict:/work/dict" \
         -v "{{project_dir}}/aflpp/{{name}}/my_seeds:/work/seeds" \
         -v "{{project_dir}}/aflpp/{{name}}/my_output:/work/output" \
         aflpp-{{name}}:latest

@@ -5,15 +5,14 @@
 !README.md
 
 !aflpp/
-!aflpp/nanomq
+!aflpp/*
 
 !Dockerfile
 !Dockerfile.aflpp
 
 !harness.c
 
-!aflpp/nanomq/my_seeds/
-!aflpp/nanomq/my_seeds/*
-
-!aflpp/nanomq/my_output/
-!aflpp/nanomq/my_output/.gitkeep
+!aflpp/*/my_seeds/
+!aflpp/*/my_seeds/*
+!aflpp/*/my_output/
+!aflpp/*/my_output/.gitkeep
