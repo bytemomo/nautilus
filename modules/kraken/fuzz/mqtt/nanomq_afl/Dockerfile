@@ -45,4 +45,4 @@ RUN mkdir seeds output
 COPY --from=builder /work/fuzz_nanomq .
 
 # CMD ["afl-fuzz", "-i", "/work/seeds", "-o", "/work/output", "-x", "/work/dict/mqtt.dict", "--", "./fuzz_nanomq", "@@"]
-CMD ["afl-fuzz", "-i", "/work/seeds", "-o", "/work/output", "--", "./fuzz_nanomq", "@@"]
+CMD ["afl-fuzz", "-i", "/work/seeds", "-o", "/work/output", "--", "./fuzz_nanomq"]
