@@ -56,14 +56,7 @@ type Module struct {
 			Command    string `yaml:"command"`
 		} `yaml:"cli,omitempty"`
 
-		Docker *struct {
-			Image    string `yaml:"image"`
-			Workdir  string `yaml:"workdir,omitempty"`
-			Command  string `yaml:"command,omitempty"`
-			User     string `yaml:"user,omitempty"`
-			Network  string `yaml:"network,omitempty"`
-			AutoPull bool   `yaml:"auto_pull,omitempty"`
-		} `yaml:"docker,omitempty"`
+		Docker *DockerConfig `yaml:"docker,omitempty"`
 
 		Conduit *struct {
 			Kind  cnd.Kind    `yaml:"kind"`
@@ -72,6 +65,21 @@ type Module struct {
 
 		Params map[string]any `yaml:"params,omitempty"`
 	} `yaml:"exec"`
+}
+
+// DockerConfig configures the execution of a dockerized module.
+type DockerConfig struct {
+	Runtime string        `yaml:"runtime,omitempty"`
+	Image   string        `yaml:"image"`
+	Command []string      `yaml:"command,omitempty"`
+	Mounts  []DockerMount `yaml:"mounts,omitempty"`
+}
+
+// DockerMount defines a bind mount to inject into the container.
+type DockerMount struct {
+	HostPath      string `yaml:"host_path"`
+	ContainerPath string `yaml:"container_path"`
+	ReadOnly      bool   `yaml:"read_only,omitempty"`
 }
 
 // LayerHint is a hint for a layer in a conduit stack.
@@ -166,6 +174,14 @@ func (m *Module) Validate() error {
 		}
 		if m.Type != Cli && m.Type != Fuzz {
 			return fmt.Errorf("docker execution requires type 'cli' or 'fuzz'")
+		}
+		for i, mount := range m.ExecConfig.Docker.Mounts {
+			if mount.HostPath == "" {
+				return fmt.Errorf("docker.mounts[%d].host_path is required", i)
+			}
+			if mount.ContainerPath == "" {
+				return fmt.Errorf("docker.mounts[%d].container_path is required", i)
+			}
 		}
 	}
 

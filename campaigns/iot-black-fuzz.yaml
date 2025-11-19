@@ -10,7 +10,6 @@ description: |
     fuzz them with fine tuned modules for the said protocols, for now the supported protocols
     are:
         - MQTT
-        - EtherCAT
         - RTSP
 
     The campaign can require a lot of time to execute and also could find anything usefull.
@@ -56,7 +55,7 @@ tasks:
           # The orchestrator will to set the --output-dir parameter automatically
           # so that the outputs of boofuzz will be placed in the right directory.
           cli:
-              exec: "/home/momo/repos/uni/nautilus/modules/kraken/cli/boofuzz_mqtt/boofuzz_poc.py"
+              exec: "/home/momo/repos/uni/nautilus/modules/kraken/fuzz/mqtt/boofuzz/boofuzz_poc.py"
               command: "fuzz"
           # Params will be translated in arguments, entry, e.g.:
           #     --test-case-index: 10-20

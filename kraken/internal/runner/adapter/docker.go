@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
 
 	"bytemomo/kraken/internal/domain"
-	"bytemomo/kraken/internal/runner/contextkeys"
 )
 
 // DockerModuleAdapter executes modules packaged as Docker images.
@@ -38,36 +39,32 @@ func (a *DockerModuleAdapter) Run(ctx context.Context, m *domain.Module, params 
 
 	var result domain.RunResult
 
-	if m.ExecConfig.Docker.AutoPull {
-		if err := exec.CommandContext(ctx, "docker", "pull", m.ExecConfig.Docker.Image).Run(); err != nil {
-			return result, fmt.Errorf("pull docker image %s: %w", m.ExecConfig.Docker.Image, err)
+	cidFile, err := os.CreateTemp("", "kraken-cid-*")
+	if err != nil {
+		return result, fmt.Errorf("creating cidfile: %w", err)
+	}
+	if err := cidFile.Close(); err != nil {
+		return result, fmt.Errorf("closing cidfile: %w", err)
+	}
+	defer os.Remove(cidFile.Name())
+
+	args := []string{"run", "--rm", "--cidfile", cidFile.Name()}
+	for _, mount := range m.ExecConfig.Docker.Mounts {
+		spec := fmt.Sprintf("%s:%s", mount.HostPath, mount.ContainerPath)
+		if mount.ReadOnly {
+			spec = spec + ":ro"
 		}
-	}
-
-	args := []string{"run", "--rm"}
-	if m.ExecConfig.Docker.Workdir != "" {
-		args = append(args, "-w", m.ExecConfig.Docker.Workdir)
-	}
-	if m.ExecConfig.Docker.User != "" {
-		args = append(args, "-u", m.ExecConfig.Docker.User)
-	}
-	if m.ExecConfig.Docker.Network != "" {
-		args = append(args, "--network", m.ExecConfig.Docker.Network)
-	}
-
-	if outDir, ok := ctx.Value(contextkeys.OutDir).(*string); ok && *outDir != "" {
-		args = append(args, "-v", fmt.Sprintf("%s:%s", *outDir, *outDir))
+		args = append(args, "-v", spec)
 	}
 
 	args = append(args, m.ExecConfig.Docker.Image)
-	if m.ExecConfig.Docker.Command != "" {
-		args = append(args, m.ExecConfig.Docker.Command)
+	if len(m.ExecConfig.Docker.Command) > 0 {
+		args = append(args, m.ExecConfig.Docker.Command...)
 	}
 	if m.Type != domain.Fuzz && (t.Host != "" || t.Port != 0) {
 		args = append(args, "--host", t.Host, "--port", fmt.Sprintf("%d", t.Port))
 	}
 
-	// Keep parameter ordering stable for reproducibility.
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		keys = append(keys, k)
@@ -77,19 +74,48 @@ func (a *DockerModuleAdapter) Run(ctx context.Context, m *domain.Module, params 
 		args = append(args, k, fmt.Sprintf("%v", params[k]))
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	runtimeBin := m.ExecConfig.Docker.Runtime
+	if runtimeBin == "" {
+		runtimeBin = os.Getenv("KRAKEN_CONTAINER_RUNTIME")
+	}
+	if runtimeBin == "" {
+		runtimeBin = "podman"
+	}
+	cmd := exec.CommandContext(ctx, runtimeBin, args...)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
 	if err := cmd.Run(); err != nil {
+		cleanupContainer(runtimeBin, cidFile.Name())
 		return result, fmt.Errorf("error running docker module %s: %w: %s", m.ModuleID, err, out.String())
+	}
+	cleanupContainer(runtimeBin, cidFile.Name())
+
+	if out.Available() == 0 {
+		return result, fmt.Errorf("error the module did not output any data")
 	}
 
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		return result, fmt.Errorf("error unmarshaling module output: %w", err)
+		return result, fmt.Errorf("error unmarshaling module output: %w: %s", err, out.String())
 	}
 
 	return result, nil
+}
+
+func cleanupContainer(runtimeBin, cidFilePath string) {
+	data, err := os.ReadFile(cidFilePath)
+	if err != nil {
+		return
+	}
+	cid := strings.TrimSpace(string(data))
+	if cid == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, runtimeBin, "rm", "-f", cid)
+	_ = cmd.Run()
 }

@@ -72,6 +72,10 @@ func (a *CLIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 		fmt.Printf("Running cmd: %s %v", m.ExecConfig.CLI.Command, args)
 	}
 
+	if out.Available() == 0 {
+		return result, fmt.Errorf("error the module did not output any data")
+	}
+
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		return result, fmt.Errorf("error unmarshaling module output: %w", err)
 	}

@@ -2,6 +2,9 @@
 set shell := ["bash", "-c"]
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
+default:
+    @just --list
+
 kraken_build_all: kraken_build kraken_build_modules
 
 kraken_build:
