@@ -19,3 +19,9 @@
 !nanomq_afl/Dockerfile
 !nanomq_afl/my_output/
 !nanomq_afl/my_output/.gitkeep
+
+!wolfmqtt_afl/
+!wolfmqtt_afl/harness.c
+!wolfmqtt_afl/Dockerfile
+!wolfmqtt_afl/my_output/
+!wolfmqtt_afl/my_output/.gitkeep
