@@ -9,18 +9,21 @@
 !requirements.txt
 
 !mosquitto_afl/
+!mosquitto_afl/run.sh
 !mosquitto_afl/harness.c
 !mosquitto_afl/Dockerfile
 !mosquitto_afl/my_output/
 !mosquitto_afl/my_output/.gitkeep
 
 !nanomq_afl/
+!nanomq_afl/run.sh
 !nanomq_afl/harness.c
 !nanomq_afl/Dockerfile
 !nanomq_afl/my_output/
 !nanomq_afl/my_output/.gitkeep
 
 !wolfmqtt_afl/
+!wolfmqtt_afl/run.sh
 !wolfmqtt_afl/harness.c
 !wolfmqtt_afl/Dockerfile
 !wolfmqtt_afl/my_output/
