@@ -15,7 +15,6 @@ from boofuzz.utils.process_monitor_local import ProcessMonitorLocal
 
 OUTDIR: String = "boofuzz-results"
 
-# (mqtt_varlen_encoder and its unit tests remain the same as before)
 def mqtt_varlen_encoder(value):
     n = int.from_bytes(value, byteorder="big", signed=False) if value else 0
     if n < 0 or n > 268_435_455: raise ValueError(f"Remaining Length out of range for MQTT varint: {n}")
@@ -45,7 +44,7 @@ def build_mqtt_packet(name: str, control_header: Union[int, dict], variable_head
             elif ftype == "byte": elements.append(Byte(name=fname, default_value=fval, fuzzable=fuzzable))
             elif ftype == "word": elements.append(Word(name=fname, default_value=fval, endian=endian, fuzzable=fuzzable))
             elif ftype == "string":
-                elements.append(Word(name=f"{fname}_len", default_value=len(fval), endian=endian, fuzzable=False))
+                elements.append(Size(name=f"{fname}_len", block_name=fname, length=2, endian=">", fuzzable=False))
                 elements.append(String(name=fname, default_value=fval, fuzzable=fuzzable, max_len=max_len))
             elif ftype == "raw": elements.append(Bytes(name=fname, default_value=fval, fuzzable=fuzzable))
 
@@ -63,7 +62,7 @@ def build_mqtt_packet(name: str, control_header: Union[int, dict], variable_head
     return Request(name, children=(
         Block(name="FixedHeader", children=(
             ch, # Control Header
-            Block(name="RemainingLength", children=Size(name="RemainingLengthRaw", block_name="Body", fuzzable=True, length=4, endian=">"), encoder=mqtt_varlen_encoder, fuzzable=False)
+            Block(name="RemainingLength", children=Size(name="RemainingLengthRaw", block_name="Body", fuzzable=False, length=4, endian=">"), encoder=mqtt_varlen_encoder, fuzzable=False)
         )),
         Block(name="Body", children=(
             Block(name="VariableHeader", children=build_fields(variable_header_fields)),
@@ -312,6 +311,9 @@ def ping_callback(target, fuzz_data_logger, session, test_case_context, *args, *
 
 # General TODOS:
 # - Look at AUTH
+# - Lighten the protocol graph
+# - Add mutation strategies
+# - Look into 1-bit LLMs
 
 # UTILS ------------------------------
 
@@ -321,7 +323,7 @@ def cli():
 
 @click.command()
 @click.option('--host', help='Host or IP address of target', prompt=True)
-@click.option('--port', type=int, default=21, help='Network port of target')
+@click.option('--port', type=int, default=1883, help='Network port of target')
 @click.option('--test-case-index', help='Test case index', type=str)
 @click.option('--test-case-name', help='Name of node or specific test case')
 @click.option('--csv-out', help='Output to CSV file')
@@ -356,7 +358,7 @@ def fuzz(target_cmdline, host, port, test_case_index, test_case_name, csv_out, s
     elif file_dump:
         fuzz_loggers.append(FuzzLoggerText(file_handle=io.TextIOWrapper(open(LOG_FILEPATH, "wb+"), encoding="utf-8")))
     if csv_out is not None:
-        f = open('ftp-fuzz.csv', 'wb')
+        f = open(csv_out, 'w', encoding='utf-8', newline='')
         fuzz_loggers.append(FuzzLoggerCsv(file_handle=f))
 
     local_procmon = None
@@ -366,7 +368,7 @@ def fuzz(target_cmdline, host, port, test_case_index, test_case_name, csv_out, s
     procmon_options = {}
     if procmon_start is not None:
         procmon_options['start_commands'] = [procmon_start]
-    if target_cmdline is not None:
+    if target_cmdline and len(target_cmdline) > 0:
         procmon_options['start_commands'] = [list(target_cmdline)]
     if procmon_capture:
         procmon_options['capture_output'] = True
@@ -462,7 +464,7 @@ def fuzz(target_cmdline, host, port, test_case_index, test_case_name, csv_out, s
 
 
     if fuzz_only_one_case is not None:
-        session.fuzz_single_case(mutant_index=full_only_one_case)
+        session.fuzz_single_case(mutant_index=fuzz_only_one_case)
     else:
         session.fuzz()
     print("Fuzzing session finished.")

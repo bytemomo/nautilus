@@ -246,12 +246,12 @@ found.
       can be accessed with more ease. We don't have only black box analysis (boofuzz)
       but also a gray/white box one (AFL++).
     - Multiple brokers
-        - [ ] Mosquitto
+        - [x] Mosquitto
+        - [x] Nanomq
         - [ ] Emqx
-        - [ ] Nanomq
+        - [ ] HiveMQ
     - Clients
-        - [ ] mosquitto_sub
-        - [ ] mosquitto_pub
+        - [?]
 
 ### Fuzzing
 
@@ -263,7 +263,7 @@ Boofuzz, grammar based, is an implementation
 - [x] Black box fuzzing module for MQTT
     - [x] Boofuzz - grammarbased
 - [ ] Black box fuzzing module for RTSP
-    - [x] Boofuzz - grammarbased
+    - [ ] Boofuzz - grammarbased
 
 #### Gray box
 
@@ -271,10 +271,10 @@ Gray box fuzzing work by interacting with the SUT using harnesses, the major exp
 is AFL++, to run this against the target the source code has to be available and
 has to be recompiled (AFL++ can be run also using qemu but this is out of scope).
 
-- [ ] Gray box fuzzing module for MQTT
-    - [ ] AFL++ - mutation based
-- [ ] Gray box fuzzing module for RTSP
-    - [ ] AFL++ - mutation based
+- [x] Gray box fuzzing module for MQTT
+    - [x] AFL++ - mutation based
+- [x] Gray box fuzzing module for RTSP
+    - [x] AFL++ - mutation based
 
 #### White box
 
@@ -283,3 +283,19 @@ involves full knowledge of the program's internal structure and code. It is ofte
 implemented using dynamic symbolic execution (DSE) or concolic execution, which
 systematically explore program paths by solving mathematical constraints on inputs
 to force the program to take different branches
+
+---
+
+Idea
+
+Add a mutation strategy from seeds into boofuzz, this can help the grammar
+
+---
+
+TODO
+
+- Create repo for modules
+- Review Attack trees
+- Runner remove shall be a core subsystem
+- Instead of targets in parallel into sequential (runner)
+-
