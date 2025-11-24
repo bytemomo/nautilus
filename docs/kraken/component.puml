@@ -29,14 +29,15 @@ skinparam artifact {
 
 title Kraken — Component Diagram
 
-' top to bottom direction
+' left to right direction
+left to right direction
 
 actor "Operator" as ACT
 
 package "Artificats" {
-    artifact "campaign.yaml" as CAMPAIGN_YAML <<campaign>>
-    artifact "attack_trees.yaml" as ATTACK_TREES_YAML <<attack_trees>>
-    artifact "report.json" as REPORT_JSON <<report>>
+    artifact "campaign.yaml" as CAMPAIGN_YAML
+    artifact "attack_trees.yaml" as ATTACK_TREES_YAML
+    artifact "report.json" as REPORT_JSON
 }
 
 package "Kraken" as K {
@@ -48,30 +49,38 @@ package "Kraken" as K {
   }
 
   package "Scanning & Classification" as SCAN {
-    [Scanner Service] as SCN
+    package "Scanner Core" as SCAN_CORE {
+      [Scan Coordinator] as SCN
+      [CIDR Normalizer] as SCN_NORM
+      [Target Classifier] as SCN_CLASS
+    }
     interface IScannerEngine
-    [Nmap Engine] as SCN_NMAP <<implementation>>
+    [Nmap Engine] as SCN_NMAP <<impl>>
   }
 
   package "Execution Orchestrator" as EXEC {
-    [Runner] as RUNNER
+    package "Runner Core" as RUNNER_CORE {
+      [Campaign Orchestrator] as RUN_ORCH
+      [Per-Target Planner] as RUN_PLAN
+      [Module Dispatcher] as RUN_DISPATCH
+    }
     interface IModuleExecutor
-    [Native Builtin Adapter] as EXEC_NATIVE <<adapter>>
-    [ABI Module Adapter] as EXEC_ABI <<adapter>>
-    [CLI Module Adapter] as EXEC_CLI <<adapter>>
-    [Docker Module Adapter] as EXEC_DOCKER <<adapter>>
-    [gRPC Module Adapter] as EXEC_GRPC <<adapter>>
+    [Native Builtin Adapter] as EXEC_NATIVE
+    [ABI Module Adapter] as EXEC_ABI
+    [CLI Module Adapter] as EXEC_CLI
+    [Docker Module Adapter] as EXEC_DOCKER
+    [gRPC Module Adapter] as EXEC_GRPC
 
     package "Native Builtins" as EXEC_NATIVE_PKG {
       [Native Registry] as REGISTRY
-      interface INativeModule <<native_structure>>
-      [Generic Native Module] as MOD_NATIVE_GENERIC <<native_structure>>
+      interface INativeModule
+      [Generic Native Module] as MOD_NATIVE_GENERIC
     }
   }
 
   package "Knowledge & Reporting" as KNOW {
     [Attack Tree Evaluator] as ATK
-    [JSON Reporter] as REP_JSON <<reporter>>
+    [JSON Reporter] as REP_JSON
   }
 
   package "IO & Serialization" as IO {
@@ -81,11 +90,15 @@ package "Kraken" as K {
 }
 
 package "External Modules" as EXT {
-  [ABI Module]  as MOD_ABI  <<module>>
-  [gRPC Module] as MOD_GRPC <<module>>
-  [CLI Module]  as MOD_CLI  <<module>>
-  [Docker Module] as MOD_DOCKER <<module>>
+  [ABI Module]  as MOD_ABI
+  [gRPC Module] as MOD_GRPC
+  [CLI Module]  as MOD_CLI
+  [Docker Module] as MOD_DOCKER
 }
+
+artifact "Dockerfile" as DOCKERFILE
+interface IDockerImage
+DOCKERFILE --( IDockerImage
 
 ' Operator workflow
 ACT --> CAMPAIGN_YAML : defines
@@ -100,14 +113,20 @@ YAML_DEC --> TREE_DEF
 TREE_DEF --> ATK
 
 ' Scanner
-CAMP --> SCN : scanner config
-SCN --( IScannerEngine
+CAMP --> SCN : scanner config + CIDRs
+SCN --> SCN_NORM : sanitize target scope
+SCN_NORM --> SCN : normalized CIDRs
+SCN --( IScannerEngine : configure + run engine
 SCN_NMAP .up.. IScannerEngine
+SCN --> SCN_CLASS : raw scan results
+SCN_CLASS --> RUN_ORCH : classified targets
 
 ' Runner orchestration
-CAMP --> RUNNER : runner config + tasks
-SCN --> RUNNER : classified targets
-RUNNER --( IModuleExecutor
+CAMP --> RUN_ORCH : runner config + tasks
+RUN_ORCH --> RUN_PLAN : build target plans
+RUN_ORCH --> RUN_DISPATCH : schedule executions
+RUN_PLAN --> RUN_DISPATCH : module steps
+RUN_DISPATCH --( IModuleExecutor
 EXEC_NATIVE .up.. IModuleExecutor
 EXEC_ABI .up.. IModuleExecutor
 EXEC_CLI .up.. IModuleExecutor
@@ -120,15 +139,16 @@ MOD_NATIVE_GENERIC .up.. INativeModule
 ' External modules
 EXEC_ABI --> MOD_ABI
 EXEC_CLI --> MOD_CLI
+MOD_DOCKER .up.. IDockerImage : implements
 EXEC_DOCKER --> MOD_DOCKER
 EXEC_GRPC --> MOD_GRPC
 
 ' Reporting + attack trees
-RUNNER --> REP_JSON : run results
+RUN_DISPATCH --> REP_JSON : run results
 REP_JSON --> JSON_ENC
 JSON_ENC --> REPORT_JSON : writes
-RUNNER --> ATK : findings
+RUN_DISPATCH --> ATK : findings
 ATK --> ACT : alerts
-ACT --( REPORT_JSON
+ACT --> REPORT_JSON: defines
 
 @enduml
