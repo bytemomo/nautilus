@@ -1,105 +1,134 @@
 @startuml
-'!theme toy
 
-title Kraken — Component Diagram 
-'!pragma layout elk
+!theme vibrant
+skinparam linetype poly
+skinparam roundcorner 20
+skinparam stereotype {
+  BackgroundColor<<campaign>> #F2C5A1
+  BackgroundColor<<attack_trees>> #F2A1A1
+  BackgroundColor<<report>> #A1F2B5
+  BackgroundColor<<native_structure>> #E8E0FF
+  BorderColor #5C5C5C
+}
+skinparam actor {
+  BackgroundColor #A1B5F2
+  BorderColor #5C5C5C
+}
+skinparam package {
+  BackgroundColor #D9D9D9
+  BorderColor #5C5C5C
+}
+skinparam component {
+  BackgroundColor #F2E3A1
+  BorderColor #5C5C5C
+}
+skinparam artifact {
+  BackgroundColor #FFFFFF
+  BorderColor #5C5C5C
+}
 
-' left to right direction
-' skinparam componentStyle rectangle
-skinparam linetype polyline
-' skinparam shadowing false
-' skinparam wrapWidth 240
-' skinparam nodesep 40
-' skinparam ranksep 35
-' skinparam packageStyle rectangle
+title Kraken — Component Diagram
+
+' top to bottom direction
 
 actor "Operator" as ACT
-artifact "campaign.yaml" as YAML <<yaml>>
+
+package "Artificats" {
+    artifact "campaign.yaml" as CAMPAIGN_YAML <<campaign>>
+    artifact "attack_trees.yaml" as ATTACK_TREES_YAML <<attack_trees>>
+    artifact "report.json" as REPORT_JSON <<report>>
+}
 
 package "Kraken" as K {
 
-  package "Ingress" as L1 {
-    [Campaign Parser] as PARSE
-    () "ICampaignYAML" as ICampaignYAML
-    () "ICampaignSpec" as ICampaignSpec
+  package "Configuration" as CONF {
+    [Campaign Model] as CAMP
+    [Attack Tree Definitions] as TREE_DEF
+    [Module Definitions] as MODDEF
   }
 
-  package "Scanning" as L2 {
-    [Scanner] as SCN
-    () "ITargets" as ITargets
+  package "Scanning & Classification" as SCAN {
+    [Scanner Service] as SCN
+    interface IScannerEngine
+    [Nmap Engine] as SCN_NMAP <<implementation>>
   }
 
-  package "Execution" as L3 {
-    [Runner] as RUN
-    [Module Executor] as EXEC
-    () "IModuleExecutor" as IModuleExecutor
-    () "IModule" as IModule
-    () "IResults" as IResults
-    () "IModuleAssertions" as IModuleAssertions
+  package "Execution Orchestrator" as EXEC {
+    [Runner] as RUNNER
+    interface IModuleExecutor
+    [Native Builtin Adapter] as EXEC_NATIVE <<adapter>>
+    [ABI Module Adapter] as EXEC_ABI <<adapter>>
+    [CLI Module Adapter] as EXEC_CLI <<adapter>>
+    [Docker Module Adapter] as EXEC_DOCKER <<adapter>>
+    [gRPC Module Adapter] as EXEC_GRPC <<adapter>>
+
+    package "Native Builtins" as EXEC_NATIVE_PKG {
+      [Native Registry] as REGISTRY
+      interface INativeModule <<native_structure>>
+      [Generic Native Module] as MOD_NATIVE_GENERIC <<native_structure>>
+    }
   }
 
-  package "Reporting" as L4 {
+  package "Knowledge & Reporting" as KNOW {
+    [Attack Tree Evaluator] as ATK
     [JSON Reporter] as REP_JSON <<reporter>>
-    [Markdown Reporter] as REP_MD <<reporter>>
-    () "IReport" as IReport
   }
 
-  package "Attack Logic" as L5 {
-    [Attack Tree] as ATK
-    () "IAttackReport" as IAttackReport
-  }
-
-  package "Control Plane (Web API)" as L6 {
-    [Web API] as WEB
-    () "IWebCommands" as IWebCommands
-    () "IScannerCommand" as IScannerCmd
-    () "IRunnerCommand" as IRunnerCmd
-    () "IScannerInfo" as IScannerInfo
-    () "IRunnerInfo" as IRunnerInfo
+  package "IO & Serialization" as IO {
+    [YAML Decoder] as YAML_DEC
+    [JSON Encoder] as JSON_ENC
   }
 }
 
 package "External Modules" as EXT {
   [ABI Module]  as MOD_ABI  <<module>>
-  [gRPC Module] as MOD_GPR  <<module>>
+  [gRPC Module] as MOD_GRPC <<module>>
   [CLI Module]  as MOD_CLI  <<module>>
+  [Docker Module] as MOD_DOCKER <<module>>
 }
 
-ACT               --> YAML: Defines
-ICampaignYAML     --- YAML
-ICampaignSpec     --- PARSE
-ITargets          --- SCN
-IModuleExecutor   --- EXEC
-IModule           --- MOD_ABI
-IModule           --- MOD_GPR
-IModule           --- MOD_CLI
-IResults          --- RUN
-IModuleAssertions --- RUN
-IReport           --- REP_JSON
-IReport           --- REP_MD
-IAttackReport     --- ATK
-IWebCommands      --- WEB
-IScannerCmd       --- WEB
-IRunnerCmd        --- WEB
-IScannerInfo      --- SCN
-IRunnerInfo       --- RUN
+' Operator workflow
+ACT --> CAMPAIGN_YAML : defines
+ACT --> ATTACK_TREES_YAML : defines
 
-PARSE  --( ICampaignYAML
-SCN    --( ICampaignSpec
-RUN    --( ICampaignSpec
-RUN    --( ITargets
-RUN    --( IModuleExecutor
-EXEC   --( IModule
-REP_JSON --( IResults
-REP_MD   --( IResults
-ATK    --( IModuleAssertions
-ACT    --( IReport
-ACT    --( IAttackReport
-ACT    --( IWebCommands
-SCN    --( IScannerCmd
-RUN    --( IRunnerCmd
-WEB    --( IScannerInfo
-WEB    --( IRunnerInfo
+' Configuration loading
+CAMPAIGN_YAML --> YAML_DEC
+ATTACK_TREES_YAML --> YAML_DEC
+YAML_DEC --> CAMP
+YAML_DEC --> MODDEF
+YAML_DEC --> TREE_DEF
+TREE_DEF --> ATK
+
+' Scanner
+CAMP --> SCN : scanner config
+SCN --( IScannerEngine
+SCN_NMAP .up.. IScannerEngine
+
+' Runner orchestration
+CAMP --> RUNNER : runner config + tasks
+SCN --> RUNNER : classified targets
+RUNNER --( IModuleExecutor
+EXEC_NATIVE .up.. IModuleExecutor
+EXEC_ABI .up.. IModuleExecutor
+EXEC_CLI .up.. IModuleExecutor
+EXEC_DOCKER .up.. IModuleExecutor
+EXEC_GRPC .up.. IModuleExecutor
+EXEC_NATIVE --> REGISTRY : lookup descriptor
+REGISTRY --( INativeModule : exposes descriptors
+MOD_NATIVE_GENERIC .up.. INativeModule
+
+' External modules
+EXEC_ABI --> MOD_ABI
+EXEC_CLI --> MOD_CLI
+EXEC_DOCKER --> MOD_DOCKER
+EXEC_GRPC --> MOD_GRPC
+
+' Reporting + attack trees
+RUNNER --> REP_JSON : run results
+REP_JSON --> JSON_ENC
+JSON_ENC --> REPORT_JSON : writes
+RUNNER --> ATK : findings
+ATK --> ACT : alerts
+ACT --( REPORT_JSON
 
 @enduml
-
