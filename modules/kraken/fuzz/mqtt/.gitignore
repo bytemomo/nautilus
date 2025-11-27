@@ -10,6 +10,7 @@
 
 !mosquitto_afl/
 !mosquitto_afl/run.sh
+!mosquitto_afl/repro.c
 !mosquitto_afl/harness.cc
 !mosquitto_afl/Dockerfile
 !mosquitto_afl/my_output/
@@ -17,6 +18,7 @@
 
 !nanomq_afl/
 !nanomq_afl/run.sh
+!nanomq_afl/repro.c
 !nanomq_afl/harness.cc
 !nanomq_afl/Dockerfile
 !nanomq_afl/my_output/
@@ -24,6 +26,7 @@
 
 !wolfmqtt_afl/
 !wolfmqtt_afl/run.sh
+!wolfmqtt_afl/repro.c
 !wolfmqtt_afl/harness.cc
 !wolfmqtt_afl/Dockerfile
 !wolfmqtt_afl/my_output/
