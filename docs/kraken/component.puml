@@ -29,10 +29,7 @@ skinparam artifact {
 
 title Kraken — Component Diagram
 
-' left to right direction
-left to right direction
 
-actor "Operator" as ACT
 
 package "Artificats" {
     artifact "campaign.yaml" as CAMPAIGN_YAML
@@ -40,7 +37,18 @@ package "Artificats" {
     artifact "report.json" as REPORT_JSON
 }
 
+actor "Operator" as ACT
+
 package "Kraken" as K {
+
+  [CLI]
+
+  package "IO & Serialization" as IO {
+    [YAML Decoder] as YAML_DEC
+    [JSON Encoder] as JSON_ENC
+  }
+
+  CLI -[hidden]right- IO
 
   package "Configuration" as CONF {
     [Campaign Model] as CAMP
@@ -83,10 +91,7 @@ package "Kraken" as K {
     [JSON Reporter] as REP_JSON
   }
 
-  package "IO & Serialization" as IO {
-    [YAML Decoder] as YAML_DEC
-    [JSON Encoder] as JSON_ENC
-  }
+
 }
 
 package "External Modules" as EXT {
@@ -101,8 +106,9 @@ interface IDockerImage
 DOCKERFILE --( IDockerImage
 
 ' Operator workflow
-ACT --> CAMPAIGN_YAML : defines
-ACT --> ATTACK_TREES_YAML : defines
+ACT --> CLI : executes
+CLI --> CAMPAIGN_YAML : reads
+CLI --> ATTACK_TREES_YAML : reads
 
 ' Configuration loading
 CAMPAIGN_YAML --> YAML_DEC
@@ -148,7 +154,7 @@ RUN_DISPATCH --> REP_JSON : run results
 REP_JSON --> JSON_ENC
 JSON_ENC --> REPORT_JSON : writes
 RUN_DISPATCH --> ATK : findings
-ATK --> ACT : alerts
-ACT --> REPORT_JSON: defines
+REPORT_JSON --> ACT : is read by
+REPORT_JSON --> ACT : is read by
 
 @enduml
