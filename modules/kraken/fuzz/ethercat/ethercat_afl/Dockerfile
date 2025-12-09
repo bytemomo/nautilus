@@ -8,7 +8,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential git ca-certificates \
     autoconf automake libtool pkg-config \
-    lld-18 llvm-18 llvm-18-dev clang-18 && \
+    lld-18 llvm-18 llvm-18-dev clang-18 libclang-rt-18-dev && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
@@ -16,9 +16,8 @@ WORKDIR /work
 RUN git clone --depth 1 https://gitlab.com/etherlab.org/ethercat
 
 COPY harness.cc /work/ethercat/
-WORKDIR /work/ethercat
 
-RUN ./bootstrap && \
+RUN cd /work/ethercat/ && ./bootstrap && \
     ./configure \
     --enable-static \
     --disable-shared \
@@ -29,21 +28,19 @@ RUN ./bootstrap && \
     make -j$(nproc)
 
 RUN ${CXX} -O2 -g -fno-omit-frame-pointer \
-    -fsanitize=address,undefined \
-    -I. \
-    -Ilib \
-    -Iinclude \
-    harness.cc \
+    -fsanitize=fuzzer,address,undefined \
+    -I/work/ethercat/ \
+    -I/work/ethercat/lib \
+    -I/work/ethercat/include \
+    /work/ethercat/harness.cc \
     -o fuzz_ethercat \
-    ./lib/.libs/libethercat.a
+    /work/ethercat/lib/.libs/libethercat.a
 
 FROM aflpp:latest
 
 WORKDIR /work
 RUN mkdir -p seeds output
 
-RUN echo -n -e "\x00\x00\x00\x00\xBE\xBA\xFE\xCA\xEF\xBE\xAD\xDE\x00\x10\x01\x55" > seeds/seed1
-
-COPY --from=builder /work/ethercat/fuzz_ethercat .
+COPY --from=builder /work/fuzz_ethercat .
 
 CMD ["afl-fuzz", "-i", "seeds", "-o", "output", "--", "./fuzz_ethercat"]
