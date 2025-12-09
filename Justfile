@@ -15,13 +15,19 @@ _default:
 # == Main Applications
 # ==============================================================================
 
-
+[doc('Builds the complete Kraken application.
+This is a convenience recipe that first builds the main Go binary and then
+compiles all the necessary ABI modules.')]
 kraken-build-all: kraken-build abi-clean-all abi-build-all
 
+[doc('Builds the main Kraken Go application binary.
+It first generates the required protobuf files before compiling the application.')]
 kraken-build:
     cd kraken/pkg/modulepb && go generate
     cd kraken && go build -o ../dist/kraken main.go
 
+[doc('Builds the Siren application.
+This process involves generating the eBPF object file from the C source and then compiling the application.')]
 siren-build:
     rm -f ./siren/ebpf/program/xdp_proxy.bpf.o
     go generate ./siren/ebpf
@@ -31,10 +37,14 @@ siren-build:
 # == Fuzzing
 # ==============================================================================
 
+[doc('Builds a containerized AFL++ fuzzing environment for a specific target.
+The `name` parameter should correspond to a directory in `modules/kraken/fuzz`.')]
 fuzz-build-afl name:
     @echo "==> Building AFL fuzzer for {{name}}"
     podman build -t aflpp-{{name}}:latest {{FUZZ_DIR}}/{{name}}/{{name}}_afl
 
+[doc('Runs a specific AFL++ fuzzer using a pre-built container.
+This will start the fuzzing process, mounting the necessary directories.')]
 fuzz-run-afl name:
     #!/bin/bash
     echo "==> Running AFL fuzzer for {{name}}"
@@ -42,6 +52,9 @@ fuzz-run-afl name:
     ./run.sh
     popd > /dev/null
 
+[doc('Configures the host system for optimal fuzzing performance.
+This sets the core dump pattern to `core` and changes the CPU frequency scaling
+governor to `performance` (need sudo)')]
 fuzz-setup:
     @echo "==> Setting up AFL++ fuzzing environment"
     echo core | sudo tee /proc/sys/kernel/core_pattern
@@ -51,19 +64,28 @@ fuzz-setup:
 # == ABI Modules
 # ==============================================================================
 
+[doc('Builds all ABI modules (Rust/C++).')]
 abi-build-all:
-	@just {{ if os() == "windows" { "_abi-build-all-windows" } else { "_abi-build-all-unix" } }}
+		@just {{ if os() == "windows" { "_abi-build-all-windows" } else { "_abi-build-all-unix" } }}
 
+[doc('Cleans all build artifacts and then recompiles all ABI modules from scratch.
+Useful for ensuring a clean and consistent build state.')]
 abi-rebuild-all:
-	@just {{ if os() == "windows" { "_abi-clean-all-windows && just _abi-build-all-windows" } else { "_abi-clean-all-unix && just _abi-build-all-unix" } }}
+		@just {{ if os() == "windows" { "_abi-clean-all-windows && just _abi-build-all-windows" } else { "_abi-clean-all-unix && just _abi-build-all-unix" } }}
 
+[doc('Builds a single, specific ABI module by its directory name.')]
 abi-build-one name:
-	@just {{ if os() == "windows" { "_abi-build-one-windows " + name } else { "_abi-build-one-unix " + name } }}
+		@just {{ if os() == "windows" { "_abi-build-one-windows " + name } else { "_abi-build-one-unix " + name } }}
 
+[doc('Removes all build artifacts from all ABI modules.')]
 abi-clean-all:
-	@just {{ if os() == "windows" { "_abi-clean-all-windows" } else { "_abi-clean-all-unix" } }}
+		@just {{ if os() == "windows" { "_abi-clean-all-windows" } else { "_abi-clean-all-unix" } }}
 
-# ---------- Unix implementations ----------
+
+# ==============================================================================
+# == Private Recipes
+# ==============================================================================
+
 _abi-build-all-unix:
 	#!/usr/bin/env bash
 	set -euo pipefail
@@ -110,7 +132,6 @@ _abi-clean-all-unix:
 		fi
 	done
 
-# ---------- Windows implementations ----------
 _abi-build-all-windows:
 	#! pwsh
 	$ErrorActionPreference = "Stop"
