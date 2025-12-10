@@ -10,7 +10,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential git ca-certificates \
     autoconf automake libtool pkg-config cmake libyaml-dev libyaml-cpp-dev \
-    lld-18 llvm-18 llvm-18-dev clang-18 libclang-rt-18-dev && \
+    lld-18 llvm-18 llvm-18-dev clang-18 libclang-rt-18-dev linux-headers-generic && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
@@ -24,7 +24,6 @@ RUN git clone --depth 1 https://gitlab.com/etherlab.org/rtipc.git && \
     make install
 
 RUN git clone --depth 1 https://gitlab.com/etherlab.org/ethercat.git
-COPY harness.cc /work/ethercat/
 RUN cd ethercat && \
     ./bootstrap && \
     CXXFLAGS="" CC=clang-18 CXX=clang++-18 ./configure \
@@ -38,12 +37,14 @@ RUN cd ethercat && \
     make -j$(nproc) && \
     make install
 
+COPY harness.cc shim.cc shim.h /work/ethercat/
 RUN ${CXX} -O2 -g -fno-omit-frame-pointer \
     -fsanitize=fuzzer,address,undefined \
     -I/work/ethercat/ \
     -I/work/ethercat/lib \
     -I/work/ethercat/include \
     -I/work/ethercat/fake_lib \
+    /work/ethercat/shim.cc \
     /work/ethercat/harness.cc \
     -o fuzz_ethercat \
     /work/ethercat/fake_lib/.libs/libfakeethercat.a \

@@ -1,69 +1,46 @@
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <errno.h>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
 
-#include "ecrt.h"
+#include "shim.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (size < 16) {
+    // Need at least frame header + one datagram header + footer.
+    if (size < EC_FRAME_HEADER_SIZE + EC_DATAGRAM_HEADER_SIZE +
+                       EC_DATAGRAM_FOOTER_SIZE) {
         return 0;
     }
 
-    // ecrt_request_master(0) will now use the fake library
-    ec_master_t *master = ecrt_request_master(0);
-    if (!master) {
-        return 0;
-    }
+    // Extract the first datagram metadata to seed the queue entry the parser
+    // will try to match.
+    const uint8_t dgram_type = data[2];
+    const uint8_t dgram_index = data[3];
+    const size_t declared_data_size =
+            (static_cast<uint16_t>(data[8]) |
+             static_cast<uint16_t>(data[9]) << 8) &
+            EC_DATAGRAM_SIZE_MASK;
 
-    ec_domain_t *domain = ecrt_master_create_domain(master);
-    if (!domain) {
-        ecrt_release_master(master);
-        return 0;
-    }
+    ec_master master{};
+    INIT_LIST_HEAD(&master.datagram_queue);
+    master.devices[EC_DEVICE_MAIN].name = "fuzz0";
+    master.devices[EC_DEVICE_MAIN].cycles_poll = 0;
+    master.devices[EC_DEVICE_MAIN].jiffies_poll = 0;
 
-    uint16_t alias = *((uint16_t *)(data));
-    uint16_t pos   = *((uint16_t *)(data + 2));
-    uint32_t vend  = *((uint32_t *)(data + 4));
-    uint32_t prod  = *((uint32_t *)(data + 8));
+    // Prepare a datagram that matches the header so the parser exercises the
+    // received-path instead of early dropping everything as unmatched.
+    ec_datagram dgram{};
+    INIT_LIST_HEAD(&dgram.queue);
+    dgram.state = EC_DATAGRAM_SENT;
+    dgram.type = static_cast<ec_datagram_type_t>(dgram_type);
+    dgram.index = dgram_index;
+    dgram.data_size = declared_data_size;
 
-    ec_slave_config_t *sc = ecrt_master_slave_config(
-            master, alias, pos, vend, prod);
-    if (!sc) {
-        ecrt_release_master(master);
-        return 0;
-    }
+    std::vector<uint8_t> dgram_buf(declared_data_size ? declared_data_size : 1);
+    dgram.data = dgram_buf.data();
 
-    size_t cursor = 12;
-    while (cursor + 4 < size) {
-        uint16_t index = *((uint16_t *)(data + cursor));
-        uint8_t  sub   = data[cursor + 2];
-        uint8_t  val   = data[cursor + 3];
-        cursor += 4;
+    list_add_tail(&dgram.queue, &master.datagram_queue);
 
-        ecrt_slave_config_sdo8(sc, index, sub, val);
-    }
-
-    static const ec_pdo_entry_reg_t domain_regs[] = {
-        {0,0,0,0,0,0,NULL},
-    };
-    ecrt_domain_reg_pdo_entry_list(domain, domain_regs);
-
-    // This will now succeed because we are using the fake library
-    if (ecrt_master_activate(master)) {
-        ecrt_release_master(master);
-        return 0;
-    }
-
-    // Run a few cycles of the fake operational state
-    for (int i = 0; i < 5; i++) {
-        ecrt_master_receive(master);
-        ecrt_domain_process(domain);
-        ecrt_domain_queue(domain);
-        ecrt_master_send(master);
-    }
-
-    ecrt_release_master(master);
+    ec_master_receive_datagrams(&master, &master.devices[EC_DEVICE_MAIN],
+                                data, size);
     return 0;
 }

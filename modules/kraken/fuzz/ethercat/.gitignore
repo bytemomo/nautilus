@@ -6,7 +6,8 @@
 
 !ethercat_afl/
 !ethercat_afl/run.sh
-!ethercat_afl/repro.c
+!ethercat_afl/shim.h
+!ethercat_afl/shim.cc
 !ethercat_afl/harness.cc
 !ethercat_afl/Dockerfile
 !ethercat_afl/my_output/
