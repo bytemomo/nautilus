@@ -76,6 +76,24 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
             f->target.host = mystrdup(target->host);
             f->target.port = target->port;
 
+            size_t banner_len = (size_t)received;
+            if (banner_len > 64)
+                banner_len = 64;
+            char *banner_hex = (char *)calloc((banner_len * 2) + 1, sizeof(char));
+            if (banner_hex) {
+                for (size_t i = 0; i < banner_len; i++) {
+                    snprintf(banner_hex + (i * 2), (banner_len * 2) + 1 - (i * 2), "%02x", recv_buffer[i]);
+                }
+                f->evidence.count = 1;
+                f->evidence.items = (KrakenKeyValue *)calloc(1, sizeof(KrakenKeyValue));
+                if (f->evidence.items) {
+                    f->evidence.items[0].key = mystrdup("banner_hex");
+                    f->evidence.items[0].value = banner_hex;
+                } else {
+                    free(banner_hex);
+                }
+            }
+
             f->tags.count = 2;
             f->tags.strings = (const char **)malloc(2 * sizeof(char *));
             f->tags.strings[0] = mystrdup("telnet");

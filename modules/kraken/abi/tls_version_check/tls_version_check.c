@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <ctype.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -41,7 +42,29 @@ KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION = KRAKEN_ABI_VERSION;
 /* TLS Check Logic                                                    */
 /* ------------------------------------------------------------------ */
 
-static int try_tls_version(const char *host, uint16_t port, int version) {
+static int parse_tls_version(const char *vstr) {
+    if (!vstr)
+        return -1;
+    char buf[16];
+    size_t n = strlen(vstr);
+    if (n >= sizeof(buf))
+        return -1;
+    for (size_t i = 0; i < n; i++)
+        buf[i] = (char)tolower((unsigned char)vstr[i]);
+    buf[n] = '\0';
+
+    if (strcmp(buf, "tls1.0") == 0 || strcmp(buf, "1.0") == 0)
+        return TLS1_VERSION;
+    if (strcmp(buf, "tls1.1") == 0 || strcmp(buf, "1.1") == 0)
+        return TLS1_1_VERSION;
+    if (strcmp(buf, "tls1.2") == 0 || strcmp(buf, "1.2") == 0)
+        return TLS1_2_VERSION;
+    if (strcmp(buf, "tls1.3") == 0 || strcmp(buf, "1.3") == 0)
+        return TLS1_3_VERSION;
+    return -1;
+}
+
+static int try_tls_version(const char *host, uint16_t port, const char *sni, int version) {
     if (version == 0) {
         return -1; // Indicates the version is not available in this OpenSSL build
     }
@@ -68,7 +91,7 @@ static int try_tls_version(const char *host, uint16_t port, int version) {
     BIO_get_ssl(bio, &ssl);
     if (ssl) {
         // Set SNI, which is crucial for many modern servers
-        SSL_set_tlsext_host_name(ssl, host);
+        SSL_set_tlsext_host_name(ssl, sni ? sni : host);
     }
 
     // Attempt to connect and perform handshake
@@ -80,7 +103,11 @@ static int try_tls_version(const char *host, uint16_t port, int version) {
 }
 
 static const char *status_str(int v) {
-    return v < 0 ? "not_available" : (v ? "supported" : "not_supported");
+    if (v == -1)
+        return "not_available";
+    if (v == -2)
+        return "skipped";
+    return v ? "supported" : "not_supported";
 }
 
 /* ------------------------------------------------------------------ */
@@ -99,6 +126,13 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     SSL_load_error_strings();
 #endif
 
+    // Parameters
+    char *min_version_str = json_extract_string(params_json, "min_version");
+    char *max_version_str = json_extract_string(params_json, "max_version");
+    char *sni_override = json_extract_string(params_json, "sni");
+    int min_version = parse_tls_version(min_version_str);
+    int max_version = parse_tls_version(max_version_str);
+
     // 1. Allocate and initialize the main result structure
     KrakenRunResult *result = (KrakenRunResult *)calloc(1, sizeof(KrakenRunResult));
     if (!result)
@@ -114,8 +148,17 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     int results[4];
 
     for (int i = 0; i < 4; ++i) {
-        results[i] = try_tls_version(host, (uint16_t)port, versions_to_check[i]);
-        char log_buf[128];
+        int ver = versions_to_check[i];
+        if (ver == 0) {
+            results[i] = -1;
+        } else if (min_version > 0 && ver < min_version) {
+            results[i] = -2;
+        } else if (max_version > 0 && ver > max_version) {
+            results[i] = -2;
+        } else {
+            results[i] = try_tls_version(host, (uint16_t)port, sni_override ? sni_override : host, ver);
+        }
+        char log_buf[160];
         snprintf(log_buf, sizeof(log_buf), "Check %s: %s", version_names[i], status_str(results[i]));
         add_log(result, log_buf);
     }
@@ -129,8 +172,9 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     f->module_id = mystrdup("tls_version_check");
     f->success = true;
     f->title = mystrdup("TLS Protocol Support Summary");
-    f->severity = mystrdup("info");
-    f->description = mystrdup("A summary of the TLS protocol versions supported by the target server.");
+    int weak = (results[0] == 1 || results[1] == 1) ? 1 : 0;
+    f->severity = mystrdup(weak ? "medium" : "info");
+    f->description = mystrdup(weak ? "Weak TLS protocol versions accepted (1.0/1.1). Review hardening." : "TLS protocol support summary.");
     f->timestamp = time(NULL);
     f->target.host = mystrdup(host);
     f->target.port = (uint16_t)port;
@@ -150,6 +194,9 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     f->tags.strings[1] = mystrdup("ssl");
 
     // 6. Finalize and return
+    free(min_version_str);
+    free(max_version_str);
+    free(sni_override);
     *out_result = result;
 
 #ifdef _WIN32

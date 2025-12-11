@@ -51,6 +51,8 @@ static inline void call_kraken_free_v2(KrakenFreeV2Fn f, void* p) { f(p); }
 int64_t go_conduit_send(KrakenConnectionHandle conn, uint8_t* data, size_t len, uint32_t timeout_ms);
 int64_t go_conduit_recv(KrakenConnectionHandle conn, uint8_t* buffer, size_t buffer_size, uint32_t timeout_ms);
 KrakenConnectionInfo* go_conduit_get_info(KrakenConnectionHandle conn);
+KrakenConnectionHandle go_conduit_open(KrakenConnectionHandle conn, uint32_t timeout_ms);
+void go_conduit_close(KrakenConnectionHandle conn);
 
 */
 import "C"
@@ -68,7 +70,7 @@ func (m *nativeModule) Run(ctx context.Context, params map[string]any, t domain.
 	}
 
 	if strings.HasSuffix(symbol, "_v2") || symbol == "kraken_run_v2" {
-		return m.runV2(symbol, params, t, timeout, conduit)
+		return m.runV2(ctx, symbol, params, t, timeout, conduit)
 	}
 
 	return m.runV1(symbol, params, t, timeout)
@@ -128,7 +130,7 @@ func (m *nativeModule) runV1(symbol string, params map[string]any, t domain.Host
 	return decodeRunResult(outResult)
 }
 
-func (m *nativeModule) runV2(symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
+func (m *nativeModule) runV2(ctx context.Context, symbol string, params map[string]any, t domain.HostPort, timeout time.Duration, conduit interface{}) (domain.RunResult, error) {
 	csym := C.CString(symbol)
 	defer C.free(unsafe.Pointer(csym))
 
@@ -152,84 +154,58 @@ func (m *nativeModule) runV2(symbol string, params map[string]any, t domain.Host
 	}
 	freeFn := (C.KrakenFreeV2Fn)(freePtr)
 
+	var factory v2ConduitFactory
+	if v := ctx.Value(contextkeys.ConduitFactory); v != nil {
+		if f, ok := v.(v2ConduitFactory); ok {
+			factory = f
+		}
+	}
+
+	// Dial initial conduit if not provided but a factory exists.
+	if conduit == nil && factory != nil {
+		c, _, layers, err := factory(timeout)
+		if err != nil {
+			return domain.RunResult{}, fmt.Errorf("failed to dial conduit: %w", err)
+		}
+		conduit = c
+		if len(layers) > 0 {
+			ctx = context.WithValue(ctx, contextkeys.StackLayers, layers)
+		}
+	}
+
+	var stackLayers []string
+	if v := ctx.Value(contextkeys.StackLayers); v != nil {
+		if sl, ok := v.([]string); ok {
+			stackLayers = sl
+		}
+	}
+
+	if len(stackLayers) == 0 {
+		switch conduit.(type) {
+		case cnd.Datagram:
+			stackLayers = []string{"udp"}
+		default:
+			stackLayers = []string{"tcp"}
+		}
+	}
+
 	v2HandleMutex.Lock()
 	handleID := v2HandleCounter
 	v2HandleCounter++
 	connHandle := C.KrakenConnectionHandle(unsafe.Pointer(handleID))
 
-	info := (*C.KrakenConnectionInfo)(C.malloc(C.sizeof_KrakenConnectionInfo))
 	remoteAddr := fmt.Sprintf("%s:%d", t.Host, t.Port)
-	info.remote_addr = C.CString(remoteAddr)
-	info.local_addr = C.CString("0.0.0.0:0")
+	info := buildConnectionInfo(conduit, stackLayers, remoteAddr)
 
-	var stackLayers []string
-	if conduit != nil {
-		switch c := conduit.(type) {
-		case cnd.Stream:
-			*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
-			if c.LocalAddr() != nil {
-				C.free(unsafe.Pointer(info.local_addr))
-				info.local_addr = C.CString(c.LocalAddr().String())
-			}
-			if c.RemoteAddr() != nil {
-				C.free(unsafe.Pointer(info.remote_addr))
-				info.remote_addr = C.CString(c.RemoteAddr().String())
-			}
-			stackLayers = []string{"tcp"}
-
-		case cnd.Datagram:
-			*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_DATAGRAM
-			if c.LocalAddr().IsValid() {
-				C.free(unsafe.Pointer(info.local_addr))
-				info.local_addr = C.CString(c.LocalAddr().String())
-			}
-			if c.RemoteAddr().IsValid() {
-				C.free(unsafe.Pointer(info.remote_addr))
-				info.remote_addr = C.CString(c.RemoteAddr().String())
-			}
-			stackLayers = []string{"udp"}
-
-		default:
-			*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
-			stackLayers = []string{"tcp"}
-		}
-	} else {
-		*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
-		stackLayers = []string{"tcp"}
-	}
-
-	info.stack_layers_count = C.size_t(len(stackLayers))
-	info.stack_layers = (**C.char)(C.malloc(C.size_t(len(stackLayers)) * C.sizeof_uintptr_t))
-	for i, layer := range stackLayers {
-		layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
-		*layerPtr = C.CString(layer)
-	}
-
-	v2HandleMap[handleID] = &v2ConnectionHandle{
-		conduit: conduit,
-		info:    info,
-	}
+	v2HandleMap[handleID] = &v2ConnectionHandle{conduit: conduit, info: info, factory: factory, stackLayers: stackLayers}
 	v2HandleMutex.Unlock()
-
-	defer func() {
-		v2HandleMutex.Lock()
-		delete(v2HandleMap, handleID)
-		v2HandleMutex.Unlock()
-
-		C.free(unsafe.Pointer(info.remote_addr))
-		C.free(unsafe.Pointer(info.local_addr))
-		for i := 0; i < len(stackLayers); i++ {
-			layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
-			C.free(unsafe.Pointer(*layerPtr))
-		}
-		C.free(unsafe.Pointer(info.stack_layers))
-		C.free(unsafe.Pointer(info))
-	}()
 
 	var ops C.KrakenConnectionOps
 	ops.send = C.KrakenSendFn(C.go_conduit_send)
 	ops.recv = C.KrakenRecvFn(C.go_conduit_recv)
 	ops.get_info = C.KrakenGetConnectionInfoFn(C.go_conduit_get_info)
+	ops.open = C.KrakenOpenFn(C.go_conduit_open)
+	ops.close = C.KrakenCloseFn(C.go_conduit_close)
 
 	hostC := C.CString(t.Host)
 	defer C.free(unsafe.Pointer(hostC))
@@ -248,13 +224,16 @@ func (m *nativeModule) runV2(symbol string, params map[string]any, t domain.Host
 
 	ret := C.call_kraken_run_v2(run, connHandle, &ops, &target, timeoutMs, cParams, &outResult)
 	if int(ret) != 0 {
+		cleanupHandle(handleID, true)
 		return domain.RunResult{}, fmt.Errorf("module returned error code %d", int(ret))
 	}
 
 	if outResult == nil {
+		cleanupHandle(handleID, true)
 		return domain.RunResult{}, errors.New("module returned empty result")
 	}
 	defer C.call_kraken_free_v2(freeFn, unsafe.Pointer(outResult))
+	cleanupHandle(handleID, true)
 
 	return decodeRunResult(outResult)
 }

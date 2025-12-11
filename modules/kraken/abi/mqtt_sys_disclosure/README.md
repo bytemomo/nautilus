@@ -15,3 +15,27 @@ This module will:
 3. See if the subscriber gets the $SYS topic update.
 
 In the case in which the $SYS topic update is reached it flags the findings as true.
+
+## Parameters
+
+- `username` / `password` (optional): credentials for both publisher and subscriber.
+- `sys_prefix` (optional, default `$SYS/`): custom sys-topic prefix to watch.
+- Evidence includes leaked topic and a hex-encoded payload preview when observed.
+
+## Usage (campaign snippet)
+
+```yaml
+steps:
+    - id: mqtt-sys-disclosure
+      type: lib
+      api: 0
+      required_tags: ["protocol:mqtt"]
+      exec:
+          abi:
+              library_path: "./modules/kraken/abi/mqtt_sys_disclosure/build/mqtt_sys_disclosure"
+              symbol: "kraken_run"
+      params:
+          username: "probe"
+          password: "probe"
+          sys_prefix: "$SYS/"
+```

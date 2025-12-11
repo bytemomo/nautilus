@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"bytemomo/kraken/internal/domain"
+	"bytemomo/kraken/internal/runner/contextkeys"
 
 	cnd "bytemomo/trident/conduit"
 	utils "bytemomo/trident/conduit/utils"
@@ -29,9 +30,15 @@ type LoadableModule interface {
 	Close() error
 }
 
+type v2ConduitFactory = contextkeys.ConduitFactoryFunc
+
 type v2ConnectionHandle struct {
-	conduit interface{}
-	info    *C.KrakenConnectionInfo
+	conduit     interface{}
+	info        *C.KrakenConnectionInfo
+	close       func()
+	factory     v2ConduitFactory
+	stackLayers []string
+	children    []uintptr
 }
 
 var (
@@ -39,6 +46,72 @@ var (
 	v2HandleCounter uintptr = 1
 	v2HandleMutex   sync.RWMutex
 )
+
+// buildConnectionInfo allocates a KrakenConnectionInfo for the provided conduit.
+func buildConnectionInfo(conduit interface{}, stackLayers []string, defaultRemote string) *C.KrakenConnectionInfo {
+	info := (*C.KrakenConnectionInfo)(C.malloc(C.sizeof_KrakenConnectionInfo))
+	info.remote_addr = C.CString(defaultRemote)
+	info.local_addr = C.CString("0.0.0.0:0")
+
+	layers := stackLayers
+
+	switch c := conduit.(type) {
+	case cnd.Stream:
+		*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
+		if c.LocalAddr() != nil {
+			C.free(unsafe.Pointer(info.local_addr))
+			info.local_addr = C.CString(c.LocalAddr().String())
+		}
+		if c.RemoteAddr() != nil {
+			C.free(unsafe.Pointer(info.remote_addr))
+			info.remote_addr = C.CString(c.RemoteAddr().String())
+		}
+		if len(layers) == 0 {
+			layers = []string{"tcp"}
+		}
+	case cnd.Datagram:
+		*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_DATAGRAM
+		if c.LocalAddr().IsValid() {
+			C.free(unsafe.Pointer(info.local_addr))
+			info.local_addr = C.CString(c.LocalAddr().String())
+		}
+		if c.RemoteAddr().IsValid() {
+			C.free(unsafe.Pointer(info.remote_addr))
+			info.remote_addr = C.CString(c.RemoteAddr().String())
+		}
+		if len(layers) == 0 {
+			layers = []string{"udp"}
+		}
+	default:
+		*(*C.KrakenConnectionType)(unsafe.Pointer(info)) = C.KRAKEN_CONN_TYPE_STREAM
+		if len(layers) == 0 {
+			layers = []string{"tcp"}
+		}
+	}
+
+	info.stack_layers_count = C.size_t(len(layers))
+	info.stack_layers = (**C.char)(C.malloc(C.size_t(len(layers)) * C.sizeof_uintptr_t))
+	for i, layer := range layers {
+		layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
+		*layerPtr = C.CString(layer)
+	}
+
+	return info
+}
+
+func freeConnectionInfo(info *C.KrakenConnectionInfo, stackLayers []string) {
+	if info == nil {
+		return
+	}
+	C.free(unsafe.Pointer(info.remote_addr))
+	C.free(unsafe.Pointer(info.local_addr))
+	for i := 0; i < len(stackLayers); i++ {
+		layerPtr := (**C.char)(unsafe.Pointer(uintptr(unsafe.Pointer(info.stack_layers)) + uintptr(i)*unsafe.Sizeof(uintptr(0))))
+		C.free(unsafe.Pointer(*layerPtr))
+	}
+	C.free(unsafe.Pointer(info.stack_layers))
+	C.free(unsafe.Pointer(info))
+}
 
 //export go_conduit_send
 func go_conduit_send(conn C.KrakenConnectionHandle, data *C.uint8_t, length C.size_t, timeout_ms C.uint32_t) C.int64_t {
@@ -183,6 +256,56 @@ func go_conduit_get_info(conn C.KrakenConnectionHandle) *C.KrakenConnectionInfo 
 	return handle.info
 }
 
+//export go_conduit_open
+func go_conduit_open(conn C.KrakenConnectionHandle, timeout_ms C.uint32_t) C.KrakenConnectionHandle {
+	v2HandleMutex.RLock()
+	parent, ok := v2HandleMap[uintptr(conn)]
+	v2HandleMutex.RUnlock()
+	if !ok || parent.factory == nil {
+		return nil
+	}
+
+	timeout := time.Duration(timeout_ms) * time.Millisecond
+	conduit, closeFn, layers, err := parent.factory(timeout)
+	if err != nil {
+		return nil
+	}
+	if len(layers) == 0 {
+		layers = parent.stackLayers
+	}
+
+	info := buildConnectionInfo(conduit, layers, C.GoString(parent.info.remote_addr))
+
+	v2HandleMutex.Lock()
+	handleID := v2HandleCounter
+	v2HandleCounter++
+	v2HandleMap[handleID] = &v2ConnectionHandle{conduit: conduit, info: info, close: closeFn, factory: parent.factory, stackLayers: layers}
+	parent.children = append(parent.children, handleID)
+	v2HandleMutex.Unlock()
+
+	return C.KrakenConnectionHandle(unsafe.Pointer(handleID))
+}
+
+//export go_conduit_close
+func go_conduit_close(conn C.KrakenConnectionHandle) {
+	id := uintptr(conn)
+	v2HandleMutex.Lock()
+	handle, ok := v2HandleMap[id]
+	if ok {
+		delete(v2HandleMap, id)
+	}
+	v2HandleMutex.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if handle.close != nil {
+		handle.close()
+	}
+	freeConnectionInfo(handle.info, handle.stackLayers)
+}
+
 func decodeRunResult(cResult *C.KrakenRunResult) (domain.RunResult, error) {
 	var res domain.RunResult
 	res.Target.Host = C.GoString(cResult.target.host)
@@ -242,4 +365,29 @@ func decodeRunResult(cResult *C.KrakenRunResult) (domain.RunResult, error) {
 	}
 
 	return res, nil
+}
+
+// cleanupHandle removes the handle and its children, releasing resources.
+func cleanupHandle(id uintptr, includeChildren bool) {
+	v2HandleMutex.Lock()
+	handle, ok := v2HandleMap[id]
+	if ok {
+		delete(v2HandleMap, id)
+	}
+	v2HandleMutex.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if includeChildren {
+		for _, child := range handle.children {
+			cleanupHandle(child, true)
+		}
+	}
+
+	if handle.close != nil {
+		handle.close()
+	}
+	freeConnectionInfo(handle.info, handle.stackLayers)
 }

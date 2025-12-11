@@ -5,11 +5,14 @@
 ```
 modules/kraken/
 ├── abi/              # ABI-based modules (C/C++/Rust shared libraries)
-│   ├── tls_version_check/     # TLS version detection
-│   ├── mqtt_auth_check/       # MQTT authentication testing
-│   ├── telnel_default_creds/  # Telnet default credentials
-│   └── cert_inspect/          # TLS certificate inspection (Rust)
-└── cli/              # CLI-based modules (external executables)
+│   ├── tls_version_check/     # TLS version detection (v1)
+│   ├── mqtt_auth_check/       # MQTT authentication testing (v2)
+│   ├── telnel_default_creds/  # Telnet default credentials (v2 sample)
+│   ├── cert_inspect/          # TLS certificate inspection (Rust, v1)
+│   ├── mqtt_sys_disclosure/   # $SYS topic leakage (v1)
+│   └── mqtt_replay/           # MQTT packet replay (v1)
+├── cli/              # CLI-based modules (external executables) [currently empty]
+└── fuzz/             # Seeds and fuzz harness inputs
 ```
 
 ## Module API Versions
@@ -70,12 +73,14 @@ cmake --build build --config Release
 
 ## Module Status
 
-| Module               | V1  | V2  | Language | Description                                  |
-| -------------------- | --- | --- | -------- | -------------------------------------------- |
-| tls_version_check    | ❌  | ✅  | C        | Detects TLS version and analyzes connection  |
-| mqtt_auth_check      | ✅  | ✅  | C        | Tests MQTT authentication (anon, weak creds) |
-| telnet_default_creds | ✅  | ✅  | C        | Tests default telnet credentials             |
-| cert_inspect         | ✅  | ❌  | Rust     | Inspects TLS certificates                    |
+| Module               | Type          | Language | Description                                       |
+| -------------------- | ------------- | -------- | ------------------------------------------------- |
+| tls_version_check    | ABI v1        | C        | Summarizes accepted TLS protocol versions         |
+| mqtt_auth_check      | ABI v2        | C        | Tests anonymous MQTT auth and pub/sub on conduit  |
+| telnet_default_creds | ABI v2        | C        | Telnet banner/probe; brute-force not in v2        |
+| cert_inspect         | ABI v1 (Rust) | Rust     | Certificate posture checks (expiry, key, SAN)     |
+| mqtt_sys_disclosure  | ABI v1        | C        | Detects `$SYS` topic leakage via `#` subscription |
+| mqtt_replay          | ABI v1        | C        | Replays MQTT packet sequences (e.g., CVE repros)  |
 
 ## Usage in Campaigns
 
@@ -83,27 +88,26 @@ cmake --build build --config Release
 
 ```yaml
 steps:
-    - id: "mqtt-auth-check"
+    - id: "tls-version-check"
       type: lib
       api: 0 # V1
+      required_tags: ["supports:tls"]
       exec:
           abi:
-              library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check"
+              library_path: "./modules/kraken/abi/tls_version_check/build/tls_version_check.so"
               symbol: "kraken_run"
-          params:
-              creds_file: "./credentialdbs/creds.txt"
 ```
 
 ### V2 Module Example
 
 ```yaml
 steps:
-    - id: "tls-version-check-v2"
+    - id: "mqtt-auth-check-v2"
       type: lib
       api: 1 # V2
       exec:
           abi:
-              library_path: "./modules/kraken/abi/tls_version_check/build/tls_version_check_v2"
+              library_path: "./modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check_v2"
               symbol: "kraken_run_v2"
           conduit: # Runner establishes this connection
               kind: 1 # Stream
@@ -111,8 +115,9 @@ steps:
                   - name: tcp
                   - name: tls
                     params:
-                        skip_verify: false
-                        min_version: TLS1.2
+                        skip_verify: true
+      params:
+          creds_file: "./wordlists/mqtt.txt" # logged only; v2 lacks multi-conn brute-force
 ```
 
 ## Creating New Modules

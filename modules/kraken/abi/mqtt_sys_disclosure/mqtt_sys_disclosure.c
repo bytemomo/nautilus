@@ -346,7 +346,7 @@ static uint64_t now_ms(void) {
     return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
 }
 
-static bool mqtt_wait_for_sys_topic(int sock, const char *prefix, uint32_t wait_window_ms, char *topic_buf, size_t topic_buf_len) {
+static bool mqtt_wait_for_sys_topic(int sock, const char *prefix, uint32_t wait_window_ms, char *topic_buf, size_t topic_buf_len, char *payload_buf, size_t payload_buf_len) {
     if (!prefix || !*prefix)
         prefix = "$SYS/";
     if (topic_buf_len == 0)
@@ -387,14 +387,29 @@ static bool mqtt_wait_for_sys_topic(int sock, const char *prefix, uint32_t wait_
         if (topic_len == 0 || offset + topic_len > (size_t)got)
             continue;
 
-        size_t copy_len = topic_len;
-        if (copy_len >= topic_buf_len)
-            copy_len = topic_buf_len - 1;
-        memcpy(topic_buf, packet + offset, copy_len);
-        topic_buf[copy_len] = '\0';
+        size_t topic_copy_len = topic_len;
+        if (topic_copy_len >= topic_buf_len)
+            topic_copy_len = topic_buf_len - 1;
+        memcpy(topic_buf, packet + offset, topic_copy_len);
+        topic_buf[topic_copy_len] = '\0';
 
-        if (strncmp(topic_buf, prefix, prefix_len) == 0)
+        offset += topic_len;
+
+        if (strncmp(topic_buf, prefix, prefix_len) == 0) {
+            if (payload_buf && payload_buf_len > 0) {
+                size_t payload_len = 0;
+                if ((size_t)got > offset)
+                    payload_len = (size_t)got - offset;
+                size_t max_bytes = (payload_buf_len - 1) / 2; // hex encoding
+                if (payload_len > max_bytes)
+                    payload_len = max_bytes;
+                for (size_t i = 0; i < payload_len; i++) {
+                    snprintf(payload_buf + (i * 2), payload_buf_len - (i * 2), "%02x", packet[offset + i]);
+                }
+                payload_buf[payload_len * 2] = '\0';
+            }
             return true;
+        }
     }
     return false;
 }
@@ -423,6 +438,7 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     int publisher = -1;
     bool leak_detected = false;
     char leaked_topic[256] = {0};
+    char leaked_payload[256] = {0};
 
     uint32_t op_timeout = effective_timeout(timeout_ms);
 
@@ -459,11 +475,18 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     add_log(result, "probe message published");
 
     uint32_t wait_window = op_timeout * 2;
-    leak_detected = mqtt_wait_for_sys_topic(subscriber, sys_prefix, wait_window, leaked_topic, sizeof(leaked_topic));
+    if (wait_window > 15000)
+        wait_window = 15000;
+    leak_detected = mqtt_wait_for_sys_topic(subscriber, sys_prefix, wait_window, leaked_topic, sizeof(leaked_topic), leaked_payload, sizeof(leaked_payload));
     if (leak_detected) {
         char logbuf[256];
         snprintf(logbuf, sizeof(logbuf), "received $SYS topic via '#': %s", leaked_topic);
         add_log(result, logbuf);
+        if (leaked_payload[0] != '\0') {
+            char paybuf[300];
+            snprintf(paybuf, sizeof(paybuf), "payload preview: %s", leaked_payload);
+            add_log(result, paybuf);
+        }
     } else {
         add_log(result, "no $SYS topic observed via '#' subscription");
     }
@@ -486,11 +509,15 @@ finalize:
     finding.target.port = (uint16_t)port;
 
     if (leak_detected) {
-        finding.evidence.count = 1;
-        finding.evidence.items = (KrakenKeyValue *)calloc(1, sizeof(KrakenKeyValue));
+        finding.evidence.count = leaked_payload[0] ? 2 : 1;
+        finding.evidence.items = (KrakenKeyValue *)calloc(finding.evidence.count, sizeof(KrakenKeyValue));
         if (finding.evidence.items) {
             finding.evidence.items[0].key = mystrdup("topic");
             finding.evidence.items[0].value = mystrdup(leaked_topic);
+            if (finding.evidence.count > 1) {
+                finding.evidence.items[1].key = mystrdup("payload_preview");
+                finding.evidence.items[1].value = mystrdup(leaked_payload);
+            }
         }
     }
 

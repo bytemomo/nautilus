@@ -47,45 +47,63 @@ func (a *ABIModuleAdapter) Run(ctx context.Context, m *domain.Module, params map
 
 	var conduit interface{}
 	var closeConduit func()
+	var stackLayers []string
+
+	// For ABI v2 modules, prepare a conduit factory so modules can request reconnections.
+	var factory contextkeys.ConduitFactoryFunc
 
 	if m.ExecConfig.ABI.Version == domain.ModuleV2 && m.ExecConfig.Conduit != nil {
 		addr := fmt.Sprintf("%s:%d", t.Host, t.Port)
 		cfg := m.ExecConfig.Conduit
 
-		switch cfg.Kind {
-		case cnd.KindStream:
-			streamConduit, err := transport.BuildStreamConduit(addr, cfg.Stack)
-			if err != nil {
-				return domain.RunResult{Target: t}, fmt.Errorf("failed to build stream conduit: %w", err)
+		factory = func(timeout time.Duration) (interface{}, func(), []string, error) {
+			dialCtx := context.Background()
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				dialCtx, cancel = context.WithTimeout(context.Background(), timeout)
+				defer cancel()
 			}
 
-			err = streamConduit.Dial(ctx)
-			if err != nil {
-				return domain.RunResult{Target: t}, fmt.Errorf("failed to dial stream conduit: %w", err)
+			layers := make([]string, 0, len(cfg.Stack))
+			for _, l := range cfg.Stack {
+				layers = append(layers, l.Name)
 			}
 
-			conduit = streamConduit.Underlying()
-			closeConduit = func() { streamConduit.Close() }
-		case cnd.KindDatagram:
-			datagramConduit, err := transport.BuildDatagramConduit(addr, cfg.Stack)
-			if err != nil {
-				return domain.RunResult{Target: t}, fmt.Errorf("failed to build datagram conduit: %w", err)
+			switch cfg.Kind {
+			case cnd.KindStream:
+				streamConduit, err := transport.BuildStreamConduit(addr, cfg.Stack)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				if err := streamConduit.Dial(dialCtx); err != nil {
+					return nil, nil, nil, err
+				}
+				return streamConduit.Underlying(), func() { streamConduit.Close() }, layers, nil
+			case cnd.KindDatagram:
+				datagramConduit, err := transport.BuildDatagramConduit(addr, cfg.Stack)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				if err := datagramConduit.Dial(dialCtx); err != nil {
+					return nil, nil, nil, err
+				}
+				return datagramConduit.Underlying(), func() { datagramConduit.Close() }, layers, nil
+			default:
+				return nil, nil, nil, fmt.Errorf("unsupported conduit kind: %v", cfg.Kind)
 			}
-
-			err = datagramConduit.Dial(ctx)
-			if err != nil {
-				return domain.RunResult{Target: t}, fmt.Errorf("failed to dial datagram conduit: %w", err)
-			}
-
-			conduit = datagramConduit.Underlying()
-			closeConduit = func() { datagramConduit.Close() }
-		default:
-			return domain.RunResult{Target: t}, fmt.Errorf("unsupported conduit kind: %v", cfg.Kind)
 		}
 
+		var err error
+		conduit, closeConduit, stackLayers, err = factory(timeout)
+		if err != nil {
+			return domain.RunResult{Target: t}, fmt.Errorf("failed to dial conduit: %w", err)
+		}
 		if closeConduit != nil {
 			defer closeConduit()
 		}
+
+		abiCtx = context.WithValue(abiCtx, contextkeys.ConduitFactory, factory)
+		abiCtx = context.WithValue(abiCtx, contextkeys.StackLayers, stackLayers)
 	}
 
 	module, err := loader.Load(abiConfig.LibraryPath)

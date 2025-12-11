@@ -59,10 +59,23 @@ typedef int64_t (*KrakenRecvFn)(KrakenConnectionHandle conn, uint8_t *buffer, si
    Returns: pointer to connection info struct (valid until conn is closed) */
 typedef const KrakenConnectionInfo *(*KrakenGetConnectionInfoFn)(KrakenConnectionHandle conn);
 
+/* Open a new connection using the same conduit configuration as the provided handle.
+   - conn: existing connection handle (used to pick configuration)
+   - timeout_ms: dial timeout in milliseconds (0 = default)
+   Returns: new connection handle or NULL on error */
+typedef KrakenConnectionHandle (*KrakenOpenFn)(KrakenConnectionHandle conn, uint32_t timeout_ms);
+
+/* Close a connection previously obtained via KrakenOpenFn.
+   - conn: connection handle to close
+*/
+typedef void (*KrakenCloseFn)(KrakenConnectionHandle conn);
+
 typedef struct {
     KrakenSendFn send;
     KrakenRecvFn recv;
     KrakenGetConnectionInfoFn get_info;
+    KrakenOpenFn open;   /* optional, may be NULL */
+    KrakenCloseFn close; /* optional, may be NULL */
 } KrakenConnectionOps;
 
 /* Main entrypoint: run the kraken with a connected conduit handle
