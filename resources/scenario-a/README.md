@@ -176,6 +176,65 @@ This environment is designed to test the following threats from Section 9.3:
 | R-1 | Non-repudiable actions           | mqtt-dict-attack                                  | DEFAULT-CREDENTIALS                       |
 | L-1 | Lateral movement via bridge      | mqtt-dict-attack, mqtt-acl-probe                  | MQTT-VALID-CREDS, MQTT-ACL-\*             |
 
+## Security Profiles
+
+The scenario includes three security configuration profiles for testing different
+vulnerability levels. Profiles are selected via the `SECURITY_PROFILE` environment variable:
+
+| Profile  | Security Level | Expected Kraken Findings    |
+| -------- | -------------- | --------------------------- |
+| insecure | None           | All checks fail (default)   |
+| partial  | Medium         | Some checks pass, some fail |
+| hardened | High           | No findings (clean scan)    |
+
+### Switching Profiles
+
+```bash
+# Use insecure profile (default - maximum vulnerabilities)
+docker compose up -d
+
+# Use partial security profile
+SECURITY_PROFILE=partial docker compose up -d
+
+# Use hardened profile (zero vulnerabilities)
+SECURITY_PROFILE=hardened docker compose up -d
+
+# Switch profile on running environment (requires recreate)
+SECURITY_PROFILE=hardened docker compose up -d --force-recreate broker
+```
+
+See `profiles/README.md` for detailed documentation.
+
+### CVE Replay Testing (Destructive)
+
+The insecure profile includes a CVE replay campaign that demonstrates
+Kraken's ability to reproduce known vulnerabilities:
+
+```bash
+# WARNING: This will crash the broker!
+# Start with insecure profile (default)
+docker compose up -d
+# Run the CVE replay campaign (see profiles/insecure/campaign-cve-replay.yaml)
+```
+
+This demonstrates CVE-2024-8376, a denial-of-service vulnerability in
+Mosquitto < 2.0.18.
+
+## Additional Tools
+
+Start Kraken and packet capture containers:
+
+```bash
+# Start tools profile
+docker compose --profile tools up -d
+
+# Access Kraken container
+docker exec -it scenario-a-kraken sh
+
+# Capture MQTT traffic
+docker exec scenario-a-capture tcpdump -i any -w /captures/mqtt.pcap port 1883 or port 8883
+```
+
 ## Files
 
 ```
@@ -184,18 +243,30 @@ scenario-a/
 ├── campaign.yaml           # Kraken campaign configuration
 ├── attack-tree.yaml        # Attack tree with actual finding IDs
 ├── README.md               # This file
-├── config/
-│   ├── mosquitto.conf      # Broker configuration
-│   ├── acl.conf            # Access control lists
-│   ├── passwd              # User credentials (hashed)
-│   ├── bridge.conf         # Bridge configuration
-│   └── test-credentials.txt # Credentials for ACL probing
+├── profiles/
+│   ├── README.md           # Profile documentation
+│   ├── common/             # Shared config (passwd, bridge, credentials)
+│   │   ├── passwd          # User credentials (hashed at runtime)
+│   │   ├── bridge.conf     # Bridge configuration
+│   │   └── test-credentials.txt
+│   ├── insecure/           # Maximum vulnerabilities
+│   │   ├── mosquitto.conf
+│   │   ├── acl.conf
+│   │   └── campaign-cve-replay.yaml
+│   ├── partial/            # Some security, some vulnerabilities
+│   │   ├── mosquitto.conf
+│   │   └── acl.conf
+│   └── hardened/           # Full security, no vulnerabilities
+│       ├── mosquitto.conf
+│       └── acl.conf
 ├── scripts/
 │   ├── generate-certs.sh   # TLS certificate generation
 │   ├── plc-publisher.sh    # PLC telemetry simulator
 │   ├── rtu-publisher.sh    # RTU telemetry simulator
 │   ├── scada-subscriber.sh # SCADA/HMI simulator
 │   └── seed-topics.sh      # Initial topic seeding
+├── results/                # Kraken scan results (created at runtime)
+├── captures/               # Packet captures (created at runtime)
 └── certs/                  # Generated certificates (created at runtime)
     ├── ca.crt / ca.key
     ├── server.crt / server.key

@@ -12,21 +12,30 @@
 set -e
 
 BROKER="${MQTT_BROKER:-mqtt-broker}"
-PORT="${MQTT_PORT:-1883}"  # Use plaintext port for seeding
+PORT="${MQTT_PORT:-1883}"
+USERNAME="${MQTT_USER:-admin}"
+PASSWORD="${MQTT_PASS:-admin123}"
+USE_TLS="${MQTT_TLS:-false}"
 
 echo "=== Topic Seeder Starting ==="
 echo "Broker: $BROKER:$PORT"
+echo "User: $USERNAME"
 
 # Wait for broker to be ready
 sleep 3
+
+# Build connection options
+CONN_OPTS="-h $BROKER -p $PORT -u $USERNAME -P $PASSWORD"
+if [ "$USE_TLS" = "true" ]; then
+    CONN_OPTS="$CONN_OPTS --cafile /certs/ca.crt --insecure"
+fi
 
 # Function to publish retained message
 seed_topic() {
     local topic=$1
     local message=$2
     
-    mosquitto_pub -h "$BROKER" -p "$PORT" \
-        -t "$topic" -m "$message" -r -q 1
+    mosquitto_pub $CONN_OPTS -t "$topic" -m "$message" -r -q 1
     
     echo "Seeded: $topic"
 }
