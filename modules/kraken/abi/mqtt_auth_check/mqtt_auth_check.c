@@ -11,6 +11,13 @@
 /* ABI Version Export                                                 */
 /* ------------------------------------------------------------------ */
 KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION_V2 = KRAKEN_ABI_VERSION_V2;
+static const char *LOG_PREFIX = "[mqtt-auth-check] ";
+
+static void log_prefixed(KrakenRunResult *res, const char *msg) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s%s", LOG_PREFIX, msg);
+    add_log(res, buf);
+}
 
 /* -------------------------------------------------------- */
 /* Minimal MQTT Helper                                      */
@@ -230,7 +237,7 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
     result->target.host = mystrdup(target->host);
     result->target.port = target->port;
 
-    add_log(result, "MQTT authentication assessment started (V2 with conduit)");
+    log_prefixed(result, "MQTT authentication assessment started (V2 with conduit)");
 
     // 2. Get connection info
     const KrakenConnectionInfo *info = ops->get_info(conn);
@@ -242,7 +249,7 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
     time_t ts = time(NULL);
 
     // 3. Test anonymous authentication
-    add_log(result, "Testing anonymous MQTT authentication...");
+    log_prefixed(result, "Testing anonymous MQTT authentication...");
 
     int anon_result = mqtt_check_auth(conn, ops, NULL, NULL, timeout_ms);
 
@@ -265,10 +272,10 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
         f.tags.strings[2] = mystrdup("anonymous");
 
         add_finding(result, &f);
-        add_log(result, "FINDING: Anonymous authentication is allowed!");
+        log_prefixed(result, "FINDING: Anonymous authentication is allowed!");
 
         // 3b. Test publish/subscribe capabilities for anonymous
-        add_log(result, "Testing anonymous publish/subscribe...");
+        log_prefixed(result, "Testing anonymous publish/subscribe...");
         int pubsub_ok = mqtt_check_pubsub(conn, ops, timeout_ms);
 
         if (pubsub_ok) {
@@ -290,31 +297,27 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
             f_pubsub.tags.strings[2] = mystrdup("unauthenticated");
 
             add_finding(result, &f_pubsub);
-            add_log(result, "FINDING: Anonymous publish/subscribe is allowed!");
+            log_prefixed(result, "FINDING: Anonymous publish/subscribe is allowed!");
         } else {
-            add_log(result, "Anonymous publish/subscribe is restricted (good)");
+            log_prefixed(result, "Anonymous publish/subscribe is restricted (good)");
         }
 
     } else if (anon_result == 0) {
-        add_log(result, "Anonymous authentication rejected (good)");
+        log_prefixed(result, "Anonymous authentication rejected (good)");
     } else {
-        add_log(result, "Failed to test anonymous authentication (connection issue)");
+        log_prefixed(result, "Failed to test anonymous authentication (connection issue)");
     }
 
     // 4. Test credentials if file provided
     char *creds_path = json_extract_string(params_json, "creds_file");
     if (creds_path && *creds_path) {
-        snprintf(log_buf, sizeof(log_buf), "Credential testing from file: %s", creds_path);
+        snprintf(log_buf, sizeof(log_buf), "%sCredential testing from file: %s", LOG_PREFIX, creds_path);
         add_log(result, log_buf);
-
-        add_log(result, "WARNING: V2 API with single conduit - cannot test multiple credentials");
-        add_log(result, "Each credential test requires a fresh connection");
-        add_log(result, "Consider using a connection pool or runner-side credential iteration");
 
         // Load credentials for reference
         creds_list_t creds = load_creds_file(creds_path);
         if (creds.count > 0) {
-            snprintf(log_buf, sizeof(log_buf), "Loaded %zu credential pairs (testing requires reconnection)", creds.count);
+            snprintf(log_buf, sizeof(log_buf), "%sLoaded %zu credential pairs", LOG_PREFIX, creds.count);
             add_log(result, log_buf);
 
             // Note: In a real implementation, you would need the runner to:
@@ -325,7 +328,7 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
             // For now, just log that credentials were found
             add_log(result, "Credentials available for testing in future multi-connection implementation");
         } else {
-            snprintf(log_buf, sizeof(log_buf), "No credentials loaded from %s", creds_path);
+            snprintf(log_buf, sizeof(log_buf), "%sNo credentials loaded from %s", LOG_PREFIX, creds_path);
             add_log(result, log_buf);
         }
 

@@ -1,0 +1,153 @@
+# Kraken Campaign for Scenario A: MQTT Threat Model
+#
+# This campaign evaluates the MQTT security posture described in thesis Section 9.3.
+# It tests authentication, authorization, TLS configuration, and protocol conformance.
+#
+# Target: MQTT broker in the industrial DMZ (172.20.0.10)
+# Ports: 1883 (plaintext), 8883 (TLS), 8884 (mTLS)
+#
+# Threat coverage:
+#   S-1: Unauthorized command publication
+#   T-1: Telemetry tampering/replay
+#   T-2: Abuse of retained messages
+#   I-1: Unauthorized subscription
+#   I-2: Metadata leakage via $SYS
+#   D-1: Denial-of-Service on broker
+#   E-1: Session hijack via weak TLS
+
+id: scenario-a-mqtt
+type: network
+
+runner:
+  max_parallel_targets: 4
+  
+scanner:
+  ports: ["1883", "8883", "8884"]
+  open_only: true
+  timing: T3
+  skip_host_discovery: true
+  service_detection:
+    version: all
+
+attack_trees: ./attack-tree.yaml
+
+tasks:
+  # =========================================================================
+  # TLS Security Assessment (E-1)
+  # =========================================================================
+  - id: tls-version-check
+    type: lib
+    required_tags: ["protocol:tls", "protocol:mqtt"]
+    max_duration: 30s
+    exec:
+      abi:
+        api: v1
+        library_path: ../../../modules/kraken/abi/tls_version_check/build/libtls_version_check.so
+        symbol: kraken_run
+      params:
+        min_version: "1.2"
+        max_version: "1.3"
+
+  - id: cert-inspect
+    type: lib
+    required_tags: ["protocol:tls", "protocol:mqtt"]
+    max_duration: 30s
+    exec:
+      abi:
+        api: v1
+        library_path: ../../../modules/kraken/abi/cert_inspect/target/release/libcert_inspect.so
+        symbol: kraken_run
+      params:
+        warn_days: 30
+        min_rsa_bits: 2048
+        allow_sha1: false
+        disallow_self_signed: true
+
+  # =========================================================================
+  # MQTT Authentication Testing (S-1, I-1)
+  # =========================================================================
+  - id: mqtt-auth-check
+    type: lib
+    required_tags: ["protocol:mqtt"]
+    max_duration: 60s
+    exec:
+      abi:
+        api: v2
+        library_path: ../../../modules/kraken/abi/mqtt_auth_check/build/libmqtt_auth_check.so
+        symbol: kraken_run_v2
+      conduit:
+        kind: stream
+        stack:
+          - tcp
+
+  # =========================================================================
+  # MQTT ACL Probing (S-1, I-1)
+  # =========================================================================
+  - id: mqtt-acl-probe
+    type: lib
+    required_tags: ["protocol:mqtt"]
+    max_duration: 120s
+    exec:
+      abi:
+        api: v2
+        library_path: ../../../modules/kraken/abi/mqtt_acl_probe/build/libmqtt_acl_probe.so
+        symbol: kraken_run_v2
+      conduit:
+        kind: stream
+        stack:
+          - tcp
+      params:
+        credentials_file: ./config/test-credentials.txt
+
+  # =========================================================================
+  # MQTT Dictionary Attack (S-1)
+  # =========================================================================
+  - id: mqtt-dict-attack
+    type: native
+    required_tags: ["protocol:mqtt"]
+    max_duration: 180s
+    exec:
+      conduit:
+        kind: stream
+        stack:
+          - tcp
+      params:
+        credentials:
+          - "admin:admin"
+          - "admin:admin123"
+          - "admin:password"
+          - "scada:scada"
+          - "scada:scada123"
+          - "operator:operator"
+          - "guest:guest"
+          - "test:test"
+          - "mqtt:mqtt"
+          - "root:root"
+
+  # =========================================================================
+  # MQTT $SYS Topic Disclosure (I-2)
+  # =========================================================================
+  - id: mqtt-sys-disclosure
+    type: lib
+    required_tags: ["protocol:mqtt"]
+    max_duration: 30s
+    exec:
+      abi:
+        api: v1
+        library_path: ../../../modules/kraken/abi/mqtt_sys_disclosure/build/libmqtt_sys_disclosure.so
+        symbol: kraken_run
+      params:
+        sys_prefix: "$SYS"
+
+  # =========================================================================
+  # MQTT Conformance Testing (T-1, D-1)
+  # =========================================================================
+  - id: mqtt-conformance-test
+    type: native
+    required_tags: ["protocol:mqtt"]
+    max_duration: 120s
+    exec:
+      conduit:
+        kind: stream
+        stack:
+          - tcp

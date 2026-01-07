@@ -165,6 +165,23 @@ tasks:
           params:
               creds_file: "./credentialdbs/creds.txt"
 
+    - id: "mqtt-acl-probe"
+      required_tags: ["protocol:mqtt"]
+      max_duration: 20s
+      type: lib
+      exec:
+          abi:
+              api: v2
+              library_path: "./modules/kraken/abi/mqtt_acl_probe/build/mqtt_acl_probe"
+              symbol: kraken_run_v2
+          conduit:
+              kind: 1
+              stack:
+                  - name: tcp
+          params:
+              creds_file: "./credentialdbs/creds.txt"
+              topic: "kraken/acl/probe"
+
     - id: "mqtt-replay"
       required_tags: ["protocol:mqtt", "protocol:tcp"]
       max_duration: 1m

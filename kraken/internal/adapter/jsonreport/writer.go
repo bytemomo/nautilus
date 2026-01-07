@@ -35,7 +35,10 @@ func (w *Writer) Aggregate(all []domain.RunResult) (string, error) {
 	if err := os.MkdirAll(w.OutDir, 0o755); err != nil {
 		return "", err
 	}
+
 	path := filepath.Join(w.OutDir, "assessment.json")
+	successPath := filepath.Join(w.OutDir, "assessment.success.json")
+
 	payload := struct {
 		Version   string             `json:"version"`
 		Generated string             `json:"generated_utc"`
@@ -45,7 +48,27 @@ func (w *Writer) Aggregate(all []domain.RunResult) (string, error) {
 		Generated: time.Now().UTC().Format(time.RFC3339),
 		Results:   all,
 	}
-	return path, writeJSONAtomic(path, payload)
+
+	if err := writeJSONAtomic(path, payload); err != nil {
+		return "", err
+	}
+
+	successOnly := filterSuccess(all)
+	successPayload := struct {
+		Version   string             `json:"version"`
+		Generated string             `json:"generated_utc"`
+		Results   []domain.RunResult `json:"results"`
+	}{
+		Version:   "1.0",
+		Generated: payload.Generated,
+		Results:   successOnly,
+	}
+
+	if err := writeJSONAtomic(successPath, successPayload); err != nil {
+		return "", err
+	}
+
+	return path, nil
 }
 
 // -------------------- helpers --------------------
@@ -126,4 +149,22 @@ func sanitize(v any) any {
 	default:
 		return t
 	}
+}
+
+func filterSuccess(results []domain.RunResult) []domain.RunResult {
+	out := make([]domain.RunResult, 0, len(results))
+	for _, r := range results {
+		var filtered []domain.Finding
+		for _, f := range r.Findings {
+			if f.Success {
+				filtered = append(filtered, f)
+			}
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		r.Findings = filtered
+		out = append(out, r)
+	}
+	return out
 }

@@ -8,14 +8,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/time.h>
 
 #define KRAKEN_MODULE_BUILD
 #include <kraken_module_abi.h>
 
 KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION = KRAKEN_ABI_VERSION;
+static const char *LOG_PREFIX = "[mqtt-sys-disclosure] ";
 
 /* -------------------------------------------------------- */
 /* Minimal MQTT Helper                                      */
@@ -426,7 +427,9 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
 
     result->target.host = mystrdup(host);
     result->target.port = (uint16_t)port;
-    add_log(result, "MQTT $SYS disclosure assessment started");
+    char logbuf[256];
+snprintf(logbuf, sizeof(logbuf), "%sMQTT $SYS disclosure assessment started", LOG_PREFIX);
+add_log(result, logbuf);
 
     char *username = json_extract_string(params_json, "username");
     char *password = json_extract_string(params_json, "password");
@@ -445,23 +448,29 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     char client_id[48];
     snprintf(client_id, sizeof(client_id), "krk-sub-%u", (unsigned)rand());
     if (mqtt_client_connect(&subscriber, host, (uint16_t)port, client_id, username, password, op_timeout) != 0) {
-        add_log(result, "failed to open subscriber connection");
+        snprintf(logbuf, sizeof(logbuf), "%sfailed to open subscriber connection", LOG_PREFIX);
+    add_log(result, logbuf);
         goto finalize;
     }
-    add_log(result, "subscriber connected");
+    snprintf(logbuf, sizeof(logbuf), "%ssubscriber connected", LOG_PREFIX);
+    add_log(result, logbuf);
 
     if (mqtt_client_subscribe(subscriber, "#", op_timeout) != 0) {
-        add_log(result, "failed to subscribe to '#' topic");
+        snprintf(logbuf, sizeof(logbuf), "%sfailed to subscribe to '#' topic", LOG_PREFIX);
+        add_log(result, logbuf);
         goto finalize;
     }
-    add_log(result, "subscriber registered to '#' topic");
+    snprintf(logbuf, sizeof(logbuf), "%ssubscriber registered to '#' topic", LOG_PREFIX);
+    add_log(result, logbuf);
 
     snprintf(client_id, sizeof(client_id), "krk-pub-%u", (unsigned)rand());
     if (mqtt_client_connect(&publisher, host, (uint16_t)port, client_id, username, password, op_timeout) != 0) {
-        add_log(result, "failed to open publisher connection");
+        snprintf(logbuf, sizeof(logbuf), "%sfailed to open publisher connection", LOG_PREFIX);
+    add_log(result, logbuf);
         goto finalize;
     }
-    add_log(result, "publisher connected");
+    snprintf(logbuf, sizeof(logbuf), "%spublisher connected", LOG_PREFIX);
+    add_log(result, logbuf);
 
     char topic[128];
     char payload[128];
@@ -469,10 +478,12 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     snprintf(payload, sizeof(payload), "kraken_probe_%u", (unsigned)rand());
 
     if (mqtt_client_publish(publisher, topic, payload, op_timeout) != 0) {
-        add_log(result, "publisher failed to send probe message");
+        snprintf(logbuf, sizeof(logbuf), "%spublisher failed to send probe message", LOG_PREFIX);
+    add_log(result, logbuf);
         goto finalize;
     }
-    add_log(result, "probe message published");
+    snprintf(logbuf, sizeof(logbuf), "%sprobe message published", LOG_PREFIX);
+    add_log(result, logbuf);
 
     uint32_t wait_window = op_timeout * 2;
     if (wait_window > 15000)
@@ -480,15 +491,16 @@ KRAKEN_API int kraken_run(const char *host, uint32_t port, uint32_t timeout_ms, 
     leak_detected = mqtt_wait_for_sys_topic(subscriber, sys_prefix, wait_window, leaked_topic, sizeof(leaked_topic), leaked_payload, sizeof(leaked_payload));
     if (leak_detected) {
         char logbuf[256];
-        snprintf(logbuf, sizeof(logbuf), "received $SYS topic via '#': %s", leaked_topic);
+        snprintf(logbuf, sizeof(logbuf), "%sreceived $SYS topic via '#': %s", LOG_PREFIX, leaked_topic);
         add_log(result, logbuf);
         if (leaked_payload[0] != '\0') {
             char paybuf[300];
-            snprintf(paybuf, sizeof(paybuf), "payload preview: %s", leaked_payload);
+            snprintf(paybuf, sizeof(paybuf), "%spayload preview: %s", LOG_PREFIX, leaked_payload);
             add_log(result, paybuf);
         }
     } else {
-        add_log(result, "no $SYS topic observed via '#' subscription");
+        snprintf(logbuf, sizeof(logbuf), "%sno $SYS topic observed via '#' subscription", LOG_PREFIX);
+        add_log(result, logbuf);
     }
 
 finalize:

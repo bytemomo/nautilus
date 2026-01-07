@@ -11,6 +11,13 @@
 /* ABI Version Export                                                 */
 /* ------------------------------------------------------------------ */
 KRAKEN_API const uint32_t KRAKEN_MODULE_ABI_VERSION_V2 = KRAKEN_ABI_VERSION_V2;
+static const char *LOG_PREFIX = "[telnet-default-creds] ";
+
+static void log_prefixed(KrakenRunResult *res, const char *msg) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s%s", LOG_PREFIX, msg);
+    add_log(res, buf);
+}
 
 /* ------------------------------------------------------------------ */
 /* V2 Telnet Default Credentials Check                                */
@@ -36,13 +43,14 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
     result->target.host = mystrdup(target->host);
     result->target.port = target->port;
 
-    add_log(result, "Telnet default credentials check started (V2)");
+    log_prefixed(result, "Telnet default credentials check started (V2)");
 
     // 2. Get connection info
     const KrakenConnectionInfo *info = ops->get_info(conn);
 
     char log_buf[256];
-    snprintf(log_buf, sizeof(log_buf), "Connection type: %s", info->type == KRAKEN_CONN_TYPE_STREAM ? "stream" : "datagram");
+    snprintf(log_buf, sizeof(log_buf), "%sConnection type: %s", LOG_PREFIX,
+             info->type == KRAKEN_CONN_TYPE_STREAM ? "stream" : "datagram");
     add_log(result, log_buf);
 
     // 3. Send a probe to see if telnet responds
@@ -50,7 +58,7 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
     int64_t sent = ops->send(conn, (const uint8_t *)probe, strlen(probe), timeout_ms);
 
     if (sent > 0) {
-        snprintf(log_buf, sizeof(log_buf), "Sent %lld bytes", (long long)sent);
+        snprintf(log_buf, sizeof(log_buf), "%sSent %lld bytes", LOG_PREFIX, (long long)sent);
         add_log(result, log_buf);
 
         // Try to receive banner
@@ -58,7 +66,7 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
         int64_t received = ops->recv(conn, recv_buffer, sizeof(recv_buffer), timeout_ms);
 
         if (received > 0) {
-            snprintf(log_buf, sizeof(log_buf), "Received %lld bytes (likely telnet banner)", (long long)received);
+            snprintf(log_buf, sizeof(log_buf), "%sReceived %lld bytes (likely telnet banner)", LOG_PREFIX, (long long)received);
             add_log(result, log_buf);
 
             // Create a finding
@@ -99,14 +107,14 @@ KRAKEN_API int kraken_run_v2(KrakenConnectionHandle conn, const KrakenConnection
             f->tags.strings[0] = mystrdup("telnet");
             f->tags.strings[1] = mystrdup("v2-api");
         } else {
-            add_log(result, "No response from telnet service");
+            log_prefixed(result, "No response from telnet service");
         }
     } else {
-        add_log(result, "Failed to send probe");
+        log_prefixed(result, "Failed to send probe");
     }
 
-    add_log(result, "Note: V2 single-connection model limits credential brute-forcing");
-    add_log(result, "Consider using V1 for comprehensive credential testing");
+    log_prefixed(result, "Note: V2 single-connection model limits credential brute-forcing");
+    log_prefixed(result, "Consider using V1 for comprehensive credential testing");
 
     *out_result = result;
     return 0;

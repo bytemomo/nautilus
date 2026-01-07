@@ -7,6 +7,7 @@ modules/kraken/
 ├── abi/              # ABI-based modules (C/C++/Rust shared libraries)
 │   ├── tls_version_check/     # TLS version detection (v1)
 │   ├── mqtt_auth_check/       # MQTT authentication testing (v2)
+│   ├── mqtt_acl_probe/        # MQTT ACL probe (v2)
 │   ├── telnel_default_creds/  # Telnet default credentials (v2 sample)
 │   ├── cert_inspect/          # TLS certificate inspection (Rust, v1)
 │   ├── mqtt_sys_disclosure/   # $SYS topic leakage (v1)
@@ -77,6 +78,7 @@ cmake --build build --config Release
 | -------------------- | ------------- | -------- | ------------------------------------------------- |
 | tls_version_check    | ABI v1        | C        | Summarizes accepted TLS protocol versions         |
 | mqtt_auth_check      | ABI v2        | C        | Tests anonymous MQTT auth and pub/sub on conduit  |
+| mqtt_acl_probe       | ABI v2        | C        | Tests MQTT ACLs (connect/sub/pub per credential)  |
 | telnet_default_creds | ABI v2        | C        | Telnet banner/probe; brute-force not in v2        |
 | cert_inspect         | ABI v1 (Rust) | Rust     | Certificate posture checks (expiry, key, SAN)     |
 | mqtt_sys_disclosure  | ABI v1        | C        | Detects `$SYS` topic leakage via `#` subscription |

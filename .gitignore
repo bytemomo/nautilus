@@ -65,3 +65,7 @@
 
 
 .DS_Store
+
+!resources/
+!resources/scenario-a/
+!resources/scenario-a/**
