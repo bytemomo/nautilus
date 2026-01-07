@@ -46,6 +46,11 @@ services:
         else
           echo "Password file already contains hashed passwords."
         fi
+        
+        # Fix permissions so mosquitto user (UID 1883) can read files
+        chmod 644 /config/passwd /config/acl.conf /config/mosquitto.conf 2>/dev/null || true
+        chmod 644 /certs/*.crt 2>/dev/null || true
+        chmod 644 /certs/*.key 2>/dev/null || true
     networks:
       - dmz_net
 
@@ -71,17 +76,18 @@ services:
       - ./certs:/mosquitto/certs:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
-    user: root
+    entrypoint: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     networks:
       dmz_net:
         ipv4_address: 172.20.0.10
       ot_net:
         ipv4_address: 172.21.0.10
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "1883", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "nc -z localhost 1883 || exit 1"]
+      interval: 5s
+      timeout: 3s
       retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   # =============================================================================
