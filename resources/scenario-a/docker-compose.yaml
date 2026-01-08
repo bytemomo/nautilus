@@ -1,5 +1,5 @@
 # Scenario A: MQTT Threat Model for Remote Telemetry & Control
-# 
+#
 # This environment mirrors the MQTT control plane described in Section 9.3 of the thesis:
 # - MQTT broker with TLS in the industrial DMZ
 # - Publisher containers emulating PLCs/RTUs (field devices)
@@ -30,16 +30,16 @@ services:
       - ./certs:/certs
       - ./profiles/common:/common
       - ./scripts:/scripts
-    command: 
+    command:
       - /bin/sh
       - -c
       - |
         # Install openssl for certificate generation
         apk add --no-cache openssl > /dev/null 2>&1
-        
+
         # Generate certificates
         /bin/sh /scripts/generate-certs.sh
-        
+
         # Generate password file if it doesn't have hashed passwords
         if ! grep -q '$$' /common/passwd 2>/dev/null; then
           echo "Generating hashed password file..."
@@ -54,7 +54,7 @@ services:
         else
           echo "Password file already contains hashed passwords."
         fi
-        
+
         # Fix permissions so mosquitto user (UID 1883) can read files
         chmod 644 /common/passwd 2>/dev/null || true
         chmod 644 /certs/*.crt 2>/dev/null || true
@@ -222,17 +222,22 @@ services:
   # Kraken Security Scanner
   # =============================================================================
   kraken:
-    image: golang:1.22-alpine
+    image: golang:1.25-alpine
     container_name: scenario-a-kraken
     depends_on:
       broker:
         condition: service_healthy
     volumes:
-      - ../../../kraken:/kraken:ro
-      - ../../../modules/kraken:/modules:ro
+      - ../../kraken:/proj/kraken:ro
+      - ../../trident:/proj/trident:ro
+      - ../../go.work:/proj/go.work:ro
+      - ../../go.work.sum:/proj/go.work.sum:ro
+      - ../../modules/kraken:/proj/modules:ro
+      - ./results:/proj/results
+
       - ./:/scenario:ro
-      - ./results:/results
       - ./certs:/certs:ro
+
     working_dir: /kraken
     entrypoint: ["/bin/sh", "-c", "echo 'Kraken container ready. Run: docker exec -it scenario-a-kraken sh' && tail -f /dev/null"]
     environment:

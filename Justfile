@@ -26,13 +26,6 @@ kraken-build:
     cd kraken/pkg/modulepb && go generate
     cd kraken && go build -o ../dist/kraken main.go
 
-[doc('Builds the Siren application.
-This process involves generating the eBPF object file from the C source and then compiling the application.')]
-siren-build:
-    rm -f ./siren/ebpf/program/xdp_proxy.bpf.o
-    go generate ./siren/ebpf
-    go build -o dist/siren ./siren/cmd/siren
-
 # ==============================================================================
 # == Fuzzing
 # ==============================================================================
