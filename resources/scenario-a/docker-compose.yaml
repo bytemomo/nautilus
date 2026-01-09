@@ -241,6 +241,9 @@ services:
       - ./results:/results
       - ./:/scenario:ro
       - ./certs:/certs:ro
+    cap_add:
+        - NET_RAW
+        - NET_ADMIN
     networks:
       dmz_net:
         ipv4_address: 172.20.0.100

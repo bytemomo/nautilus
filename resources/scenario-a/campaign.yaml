@@ -25,11 +25,11 @@ scanner:
   ports: ["1883", "8883", "8884"]
   open_only: true
   timing: T3
-  skip_host_discovery: true
+  skip_host_discovery: false
   service_detection:
     version: all
 
-attack_trees: ./attack-tree.yaml
+attack_trees_def_path: /scenario/attack-tree.yaml
 
 tasks:
   # =========================================================================
@@ -42,7 +42,7 @@ tasks:
     exec:
       abi:
         api: v1
-        library_path: ../../../modules/kraken/abi/tls_version_check/build/libtls_version_check.so
+        library_path: /modules/kraken/abi/tls_version_check/build/tls_version_check
         symbol: kraken_run
       params:
         min_version: "1.2"
@@ -55,7 +55,7 @@ tasks:
     exec:
       abi:
         api: v1
-        library_path: ../../../modules/kraken/abi/cert_inspect/target/release/libcert_inspect.so
+        library_path: /modules/kraken/abi/cert_inspect/target/release/libcert_inspect
         symbol: kraken_run
       params:
         warn_days: 30
@@ -73,7 +73,7 @@ tasks:
     exec:
       abi:
         api: v2
-        library_path: ../../../modules/kraken/abi/mqtt_auth_check/build/libmqtt_auth_check.so
+        library_path: /modules/kraken/abi/mqtt_auth_check/build/mqtt_auth_check
         symbol: kraken_run_v2
       conduit:
         kind: stream
@@ -90,14 +90,14 @@ tasks:
     exec:
       abi:
         api: v2
-        library_path: ../../../modules/kraken/abi/mqtt_acl_probe/build/libmqtt_acl_probe.so
+        library_path: /modules/kraken/abi/mqtt_acl_probe/build/mqtt_acl_probe
         symbol: kraken_run_v2
       conduit:
         kind: stream
         stack:
           - name: tcp
       params:
-        credentials_file: ./config/test-credentials.txt
+        credentials_file: /scenario/profiles/common/test-credentials.txt
 
   # =========================================================================
   # MQTT Dictionary Attack (S-1)
@@ -134,7 +134,7 @@ tasks:
     exec:
       abi:
         api: v1
-        library_path: ../../../modules/kraken/abi/mqtt_sys_disclosure/build/libmqtt_sys_disclosure.so
+        library_path: /modules/kraken/abi/mqtt_sys_disclosure/build/mqtt_sys_disclosure
         symbol: kraken_run
       params:
         sys_prefix: "$SYS"
@@ -151,3 +151,14 @@ tasks:
         kind: stream
         stack:
           - name: tcp
+
+  # TODO: MAP INTO ATTACK TREES
+  - id: "mqtt-dict-attack"
+    required_tags: ["protocol:mqtt", "protocol:tcp"]
+    max_duration: 30s
+    type: native
+    exec:
+        params:
+            client_id: "kraken-dict"
+            keep_alive: 30
+            credentials_file: /scenario/profiles/common/test-credentials.txt

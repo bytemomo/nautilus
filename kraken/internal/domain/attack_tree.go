@@ -31,6 +31,12 @@ const (
 	SuccessModeThreshold SuccessMode = "threshold"
 )
 
+// AttackTreeResult represents the evaluation result of an attack tree for a target.
+type AttackTreeResult struct {
+	Target HostPort
+	Tree   *AttackNode
+}
+
 // AttackNode is a node in an attack tree.
 type AttackNode struct {
 	Name     string        `yaml:"name"`
@@ -42,6 +48,35 @@ type AttackNode struct {
 	FindingIDs       []string    `yaml:"finding_ids"`
 	FindingMode      SuccessMode `yaml:"finding_mode"`
 	FindingThreshold int         `yaml:"finding_threshold,omitempty"`
+}
+
+// Clone creates a deep copy of the attack tree node and all its children.
+func (t *AttackNode) Clone() *AttackNode {
+	if t == nil {
+		return nil
+	}
+
+	clone := &AttackNode{
+		Name:             t.Name,
+		Type:             t.Type,
+		Success:          false, // Reset success state
+		FindingMode:      t.FindingMode,
+		FindingThreshold: t.FindingThreshold,
+	}
+
+	if len(t.FindingIDs) > 0 {
+		clone.FindingIDs = make([]string, len(t.FindingIDs))
+		copy(clone.FindingIDs, t.FindingIDs)
+	}
+
+	if len(t.Children) > 0 {
+		clone.Children = make([]*AttackNode, len(t.Children))
+		for i, child := range t.Children {
+			clone.Children[i] = child.Clone()
+		}
+	}
+
+	return clone
 }
 
 // Evaluate evaluates the attack tree against a set of findings.
@@ -205,4 +240,71 @@ func moduleModeToString(m SuccessMode) string {
 	default:
 		return string(m)
 	}
+}
+
+// RenderTable renders the attack tree as a markdown table.
+func (t *AttackNode) RenderTable() string {
+	var sb strings.Builder
+	sb.WriteString("| Node | Type | Status | Finding IDs | Finding Mode |\n")
+	sb.WriteString("|------|------|--------|-------------|-------------|\n")
+
+	var renderRow func(node *AttackNode, depth int)
+	renderRow = func(node *AttackNode, depth int) {
+		indent := strings.Repeat("  ", depth)
+		name := indent + node.Name
+
+		status := "❌"
+		if node.Success {
+			status = "✅"
+		}
+
+		findingIDs := "-"
+		findingMode := "-"
+		if node.Type == LEAF {
+			if len(node.FindingIDs) > 0 {
+				findingIDs = strings.Join(node.FindingIDs, ", ")
+			}
+			findingMode = string(node.FindingMode)
+			if node.FindingMode == SuccessModeThreshold {
+				findingMode = fmt.Sprintf("%s (%d)", node.FindingMode, node.FindingThreshold)
+			}
+		}
+
+		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
+			name, node.Type, status, findingIDs, findingMode))
+
+		for _, child := range node.Children {
+			renderRow(child, depth+1)
+		}
+	}
+
+	renderRow(t, 0)
+	return sb.String()
+}
+
+// RenderMarkdown renders the attack tree as a complete markdown document with both table and Mermaid graph.
+func (t *AttackNode) RenderMarkdown() string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("# Attack Tree: %s\n\n", t.Name))
+
+	// Overall result
+	result := "**Result: FAILED**"
+	if t.Success {
+		result = "**Result: SUCCEEDED**"
+	}
+	sb.WriteString(result + "\n\n")
+
+	// Table view
+	sb.WriteString("## Table View\n\n")
+	sb.WriteString(t.RenderTable())
+	sb.WriteString("\n")
+
+	// Mermaid graph
+	sb.WriteString("## Graph View\n\n")
+	sb.WriteString("```mermaid\n")
+	sb.WriteString(t.RenderTree())
+	sb.WriteString("```\n")
+
+	return sb.String()
 }

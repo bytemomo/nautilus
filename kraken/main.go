@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"bytemomo/kraken/internal/adapter/attacktreereport"
 	"bytemomo/kraken/internal/adapter/jsonreport"
 	"bytemomo/kraken/internal/adapter/logger"
 	"bytemomo/kraken/internal/adapter/yamlconfig"
@@ -74,6 +75,7 @@ func run(campaignPath, cidrsArg, outDir string) error {
 
 	resultDir := fmt.Sprintf("%s/%s/%d", outDir, camp.ID, time.Now().Unix())
 	jsonReporter := jsonreport.New(resultDir)
+	attackTreeReporter := attacktreereport.New(resultDir)
 	camp.Runner.ResultDirectory = resultDir
 
 	if campType == domain.CampaignFuzz {
@@ -81,7 +83,7 @@ func run(campaignPath, cidrsArg, outDir string) error {
 		if err != nil {
 			return err
 		}
-		return report(log, jsonReporter, results, camp)
+		return report(log, jsonReporter, attackTreeReporter, results, camp)
 	}
 
 	cidrs := splitCSV(cidrsArg)
@@ -95,7 +97,7 @@ func run(campaignPath, cidrsArg, outDir string) error {
 		return err
 	}
 
-	return report(log, jsonReporter, results, camp)
+	return report(log, jsonReporter, attackTreeReporter, results, camp)
 }
 
 func setupAndRunScanner(log *logrus.Entry, camp *domain.Campaign, cidrs []string) ([]domain.ClassifiedTarget, error) {
@@ -176,7 +178,7 @@ func newModuleExecutors() []runner.ModuleExecutor {
 	}
 }
 
-func report(log *logrus.Entry, reportWriter domain.ReportWriter, results []domain.RunResult, camp *domain.Campaign) error {
+func report(log *logrus.Entry, reportWriter domain.ReportWriter, attackTreeWriter *attacktreereport.Writer, results []domain.RunResult, camp *domain.Campaign) error {
 	log.Info("Starting reporting")
 	path, err := reportWriter.Aggregate(results)
 	if err != nil {
@@ -201,18 +203,32 @@ func report(log *logrus.Entry, reportWriter domain.ReportWriter, results []domai
 		return nil
 	}
 
+	var attackTreeResults []domain.AttackTreeResult
 	for _, result := range results {
 		log := log.WithFields(logrus.Fields{
 			"target_host": result.Target.Host,
 			"target_port": result.Target.Port,
 		})
 		for _, tree := range trees {
-			if tree.Evaluate(result.Findings) {
-				log.WithField("attack_tree_name", tree.Name).Warning("Attack tree evaluated as true")
-				// fmt.Printf("Code to render attack tree:\n%s", tree.RenderTree())
+			// Clone the tree so each target gets its own evaluation state
+			treeClone := tree.Clone()
+			treeClone.Evaluate(result.Findings)
+			attackTreeResults = append(attackTreeResults, domain.AttackTreeResult{
+				Target: result.Target,
+				Tree:   treeClone,
+			})
+			if treeClone.Success {
+				log.WithField("attack_tree_name", treeClone.Name).Warning("Attack tree evaluated as true")
 			}
 		}
 	}
+
+	// Save attack trees to result directory
+	if err := attackTreeWriter.Save(attackTreeResults); err != nil {
+		return fmt.Errorf("cannot save attack trees: %w", err)
+	}
+	log.Info("Attack trees saved to result directory")
+
 	return nil
 }
 
