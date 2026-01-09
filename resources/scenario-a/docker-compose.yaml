@@ -1,6 +1,6 @@
 # Scenario A: MQTT Threat Model for Remote Telemetry & Control
 #
-# This environment mirrors the MQTT control plane described in Section 9.3 of the thesis:
+# This environment mirrors the MQTT control plane described in the docs:
 # - MQTT broker with TLS in the industrial DMZ
 # - Publisher containers emulating PLCs/RTUs (field devices)
 # - Subscriber containers emulating SCADA/HMI systems

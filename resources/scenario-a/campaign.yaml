@@ -1,6 +1,6 @@
 # Kraken Campaign for Scenario A: MQTT Threat Model
 #
-# This campaign evaluates the MQTT security posture described in thesis Section 9.3.
+# This campaign evaluates the MQTT security posture.
 # It tests authentication, authorization, TLS configuration, and protocol conformance.
 #
 # Target: MQTT broker in the industrial DMZ (172.20.0.10)

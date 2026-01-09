@@ -1,7 +1,6 @@
 # Scenario A: MQTT Threat Model for Remote Telemetry & Control
 
-This directory contains the evaluation environment for **Thesis Section 9.3**,
-which models an industrial control system using MQTT for telemetry and command transmission.
+This directory contains the evaluation of Kraken that models an industrial control system using MQTT for telemetry and command transmission.
 
 ## Overview
 

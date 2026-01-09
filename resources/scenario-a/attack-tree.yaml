@@ -1,7 +1,6 @@
 # Attack Tree for Scenario A: MQTT Threat Model
 #
-# This attack tree is aligned with the thesis Section 9.3 threat analysis
-# and uses the ACTUAL finding IDs produced by Kraken modules.
+# This attack tree uses the ACTUAL finding IDs produced by Kraken modules.
 #
 # Finding ID Reference (from implemented modules):
 #
