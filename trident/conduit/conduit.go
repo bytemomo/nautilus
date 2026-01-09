@@ -26,6 +26,30 @@ const (
 	KindFrame
 )
 
+func (k *Kind) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "stream":
+		*k = KindStream
+	case "datagram":
+		*k = KindDatagram
+	case "network":
+		*k = KindNetwork
+	case "frame":
+		*k = KindFrame
+	default:
+		*k = KindUnknown
+	}
+	return nil
+}
+
+func (k *Kind) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return err
+	}
+	return k.UnmarshalText([]byte(s))
+}
+
 // Timestamp captures hardware or software timestamps for I/O operations.
 // Not all systems or network interfaces provide hardware timestamps.
 type Timestamp struct {

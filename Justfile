@@ -27,6 +27,68 @@ kraken-build:
     cd kraken && go build -o ../dist/kraken main.go
 
 # ==============================================================================
+# == Scenarios
+# ==============================================================================
+
+scenario_a_run sec_level:
+    #!/bin/bash
+    SCENARIO_NAME="scenario-a"
+    SESSION_NAME="scenario_lab"
+
+    if [[ ! "{{sec_level}}" =~ ^(hardened|insecure|partial)$ ]]; then
+        echo "Error: Invalid security level '{{sec_level}}'"
+    fi
+    [[ -d "resources/$SCENARIO_NAME" ]] || { echo "Directory not found"; }
+    [[ `command -v tmux` ]] || { echo "This recipy requires _tmux_ command!"; }
+
+    echo "Pre-flight: Cleaning..."
+    tmux kill-session -t "$SESSION_NAME" 2>/dev/null
+    just scenario_a_clean > /dev/null 2>&1
+
+    WORK_DIR="$(pwd)/resources/$SCENARIO_NAME"
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    mkdir -p "$WORK_DIR/results"
+
+    # Create Session (Pane 0 - Left Side)
+    tmux new-session -d -s "$SESSION_NAME" -c "$WORK_DIR"
+    tmux rename-window -t "$SESSION_NAME:0" "Lab_Dashboard"
+
+    # >>> PANE 0 (Left): Main ICS Environment
+    tmux send-keys -t "$SESSION_NAME:0" "export SECURITY_PROFILE={{sec_level}}" C-m
+    tmux send-keys -t "$SESSION_NAME:0" "echo 'Starting Main ICS ({{sec_level}})...'" C-m
+    tmux send-keys -t "$SESSION_NAME:0" "podman compose up --build 2>&1 | tee results/main_${TIMESTAMP}.log" C-m
+
+    # Split the window horizontally (-h) to create the right side
+    tmux split-window -h -t "$SESSION_NAME:0" -c "$WORK_DIR"
+    tmux send-keys -t "$SESSION_NAME:0.1" "echo 'Starting Tools...'" C-m
+    tmux send-keys -t "$SESSION_NAME:0.1" "podman compose --profile tools up --build 2>&1 | tee results/tools_${TIMESTAMP}.log" C-m
+
+    # Split Pane 1 (the right side) vertically (-v) to create a bottom panel
+    tmux split-window -v -t "$SESSION_NAME:0.1" -c "$WORK_DIR"
+    tmux send-keys -t "$SESSION_NAME:0.2" "clear; echo 'INTERACTIVE SHELL'" C-m
+
+    tmux attach-session -t "$SESSION_NAME"
+
+    echo "Session ended. Cleaning up..."
+    pushd "$WORK_DIR" > /dev/null
+    just scenario_a_clean || true
+    popd > /dev/null
+
+scenario_a_clean:
+    #!/bin/sh
+    pushd resources/scenario-a
+
+    echo "🧹 Cleaning up"
+    SECURITY_PROFILE=partial podman compose --profile tools --profile bridge down -v --remove-orphans
+
+    echo "💀 Environment nuked:"
+    podman ps -a
+    # sudo docker volume ls
+    # sudo docker network ls
+
+    popd
+
+# ==============================================================================
 # == Fuzzing
 # ==============================================================================
 

@@ -20,7 +20,7 @@ type: network
 
 runner:
   max_parallel_targets: 4
-  
+
 scanner:
   ports: ["1883", "8883", "8884"]
   open_only: true
@@ -78,7 +78,7 @@ tasks:
       conduit:
         kind: stream
         stack:
-          - tcp
+          - name: tcp
 
   # =========================================================================
   # MQTT ACL Probing (S-1, I-1)
@@ -95,7 +95,7 @@ tasks:
       conduit:
         kind: stream
         stack:
-          - tcp
+          - name: tcp
       params:
         credentials_file: ./config/test-credentials.txt
 
@@ -110,7 +110,7 @@ tasks:
       conduit:
         kind: stream
         stack:
-          - tcp
+          - name: tcp
       params:
         credentials:
           - "admin:admin"
@@ -150,4 +150,4 @@ tasks:
       conduit:
         kind: stream
         stack:
-          - tcp
+          - name: tcp

@@ -1,24 +1,53 @@
 FROM golang:1.25.1-alpine AS builder
 
-# Install build tools
-RUN apk add --no-cache protobuf-dev gcc bash musl-dev
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
-RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+RUN apk add --no-cache \
+    protobuf-dev \
+    gcc \
+    bash \
+    musl-dev \
+    cmake \
+    ninja \
+    rust \
+    cargo \
+    openssl-dev \
+    perl \
+    make
+
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
 
 WORKDIR /app
+
 COPY go.work go.work.sum ./
 COPY kraken/go.mod kraken/go.sum ./kraken/
-COPY siren/go.mod siren/go.sum ./siren/
 COPY trident/go.mod trident/go.sum ./trident/
 RUN go mod download
-COPY . .
 
-# Generate protobuf code
+COPY modules/kraken/abi/ ./modules/kraken/abi/
+
+RUN cd modules/kraken/abi && \
+    for dir in */ ; do \
+      if [ -f "$dir/CMakeLists.txt" ]; then \
+        cd "$dir" && \
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
+        cmake --build build --config Release && \
+        cd .. ; \
+      fi \
+    done
+
+RUN cd modules/kraken/abi/cert_inspect && cargo build --release
+
+COPY kraken/pkg/modulepb/ ./kraken/pkg/modulepb/
 RUN cd kraken/pkg/modulepb && go generate
+
+COPY kraken/ ./kraken/
+COPY trident/ ./trident/
 
 RUN CGO_ENABLED=1 GOOS=linux go build -o /kraken ./kraken
 
 # Final stage
 FROM alpine:latest
+RUN apk add --no-cache nmap
 COPY --from=builder /kraken /kraken
-ENTRYPOINT [ "/kraken" ]
+COPY --from=builder /app/modules /modules
+ENTRYPOINT ["/kraken"]

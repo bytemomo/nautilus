@@ -222,26 +222,25 @@ services:
   # Kraken Security Scanner
   # =============================================================================
   kraken:
-    image: golang:1.25-alpine
     container_name: scenario-a-kraken
+    build:
+      context: ../../
+      dockerfile: deploy/build/Dockerfile.alpine.kraken
+    command: [
+        "-campaign", "/scenario/campaign.yaml",
+        "-out", "/results",
+        "-cidrs", "172.20.0.0/24"
+    ]
+    # entrypoint: ["/bin/sh"]
+    # tty: true
+    # stdin_open: true
     depends_on:
       broker:
         condition: service_healthy
     volumes:
-      - ../../kraken:/proj/kraken:ro
-      - ../../trident:/proj/trident:ro
-      - ../../go.work:/proj/go.work:ro
-      - ../../go.work.sum:/proj/go.work.sum:ro
-      - ../../modules/kraken:/proj/modules:ro
-      - ./results:/proj/results
-
+      - ./results:/results
       - ./:/scenario:ro
       - ./certs:/certs:ro
-
-    working_dir: /kraken
-    entrypoint: ["/bin/sh", "-c", "echo 'Kraken container ready. Run: docker exec -it scenario-a-kraken sh' && tail -f /dev/null"]
-    environment:
-      - KRAKEN_OUTPUT=/results
     networks:
       dmz_net:
         ipv4_address: 172.20.0.100

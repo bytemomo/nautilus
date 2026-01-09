@@ -1,6 +1,7 @@
 *
 
 !.gitignore
+!.dockerignore
 
 !.github/
 !.github/**

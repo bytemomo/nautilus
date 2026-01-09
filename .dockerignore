@@ -1,0 +1,38 @@
+# Scenario resources and outputs
+resources/
+captures/
+results/
+
+# Build artifacts
+dist/
+*.log
+
+# IDE and editor files
+.idea/
+.vscode/
+.zed/
+.venv/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.github/
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Fuzzing artifacts
+modules/kraken/fuzz/**/findings/
+modules/kraken/fuzz/**/output/
+
+# Local build directories (handled inside container)
+modules/kraken/abi/*/build/
+modules/kraken/abi/*/target/
+
+# Misc
+.DS_Store
+Thumbs.db
