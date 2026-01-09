@@ -3,8 +3,8 @@
 #
 # Generates a properly hashed Mosquitto password file.
 # Run this before starting the environment if passwd file doesn't exist.
-
-PASSWD_FILE="${1:-/home/momo/repos/uni/nautilus/resources/scenario-a/config/passwd}"
+SCRIPT_DIR="$(dirname "$0")"
+PASSWD_FILE="${1:-$SCRIPT_DIR/config/passwd}"
 
 echo "Generating Mosquitto password file..."
 

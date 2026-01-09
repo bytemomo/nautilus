@@ -42,13 +42,11 @@ jobs:
             - name: Build binaries
               run: |
                   just kraken_build
-                  just siren_build
 
             - name: Archive release files
               working-directory: dist
               run: |
                   zip kraken-${{ env.GOOS }}-${{ env.GOARCH }}.zip kraken
-                  zip siren-${{ env.GOOS }}-${{ env.GOARCH }}.zip siren
                   zip modules-src.zip -r ../modules
 
             - name: Create GitHub release
@@ -56,3 +54,15 @@ jobs:
               if: github.ref_type == 'tag'
               with:
                   files: dist/*.zip
+
+    public_release:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Push to public repository
+              run: |
+                  git remote add public-repo https://github.com/bytemomo/.git
+                  git push public-repo your-branch-name:main --force
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

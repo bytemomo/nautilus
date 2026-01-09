@@ -46,19 +46,6 @@
 !kraken/pkg/modulepb/generate.go
 !kraken/pkg/modulepb/module.proto
 
-# Siren
-
-!siren/
-!siren/README.md
-
-!siren/*
-!siren/**
-!siren/**/*.c
-!siren/**/*.go
-!siren/**/*.yaml
-!siren/scripts/
-!siren/scripts/**
-!siren/ebpf/program/
 
 # Trident
 !trident/

@@ -55,7 +55,8 @@ tasks:
           # The orchestrator will to set the --output-dir parameter automatically
           # so that the outputs of boofuzz will be placed in the right directory.
           cli:
-              exec: "/home/momo/repos/uni/nautilus/modules/kraken/fuzz/mqtt/boofuzz/boofuzz_poc.py"
+              # There could be the need of root path
+              exec: "./modules/kraken/fuzz/mqtt/boofuzz/boofuzz_poc.py"
               command: "fuzz"
           # Params will be translated in arguments, entry, e.g.:
           #     --test-case-index: 10-20

@@ -1,5 +1,3 @@
-#!/home/momo/repos/uni/nautilus/.venv/bin/python3
-
 import sys
 import json
 import io
@@ -313,7 +311,6 @@ def ping_callback(target, fuzz_data_logger, session, test_case_context, *args, *
 # - Look at AUTH
 # - Lighten the protocol graph
 # - Add mutation strategies
-# - Look into 1-bit LLMs
 
 # UTILS ------------------------------
 
