@@ -1,0 +1,53 @@
+FROM golang:1.25.1-alpine AS builder
+
+RUN apk add --no-cache \
+    protobuf-dev \
+    gcc \
+    bash \
+    musl-dev \
+    cmake \
+    ninja \
+    rust \
+    cargo \
+    openssl-dev \
+    perl \
+    make
+
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+
+WORKDIR /app
+
+COPY go.work go.work.sum ./
+COPY kraken/go.mod kraken/go.sum ./kraken/
+COPY trident/go.mod trident/go.sum ./trident/
+RUN go mod download
+
+COPY kraken/pkg/moduleabi/ ./kraken/pkg/moduleabi/
+COPY modules/kraken/abi/ ./modules/kraken/abi/
+
+RUN set -ex && cd modules/kraken/abi && \
+    for dir in */ ; do \
+      if [ -f "$dir/CMakeLists.txt" ]; then \
+        echo "Building $dir" && \
+        cmake -S "$dir" -B "$dir/build" -G Ninja -DCMAKE_BUILD_TYPE=Release && \
+        cmake --build "$dir/build" --config Release ; \
+      fi \
+    done
+
+RUN cd modules/kraken/abi/cert_inspect && cargo build --release
+
+COPY kraken/pkg/modulepb/ ./kraken/pkg/modulepb/
+RUN cd kraken/pkg/modulepb && go generate
+
+COPY kraken/ ./kraken/
+COPY trident/ ./trident/
+
+RUN CGO_ENABLED=1 GOOS=linux go build -o /kraken ./kraken
+
+# Final stage
+FROM alpine:latest
+RUN apk add --no-cache nmap nmap-scripts libgcc musl openssl-dev
+COPY --from=builder /kraken /kraken
+COPY --from=builder /app/modules /modules
+ENTRYPOINT ["/kraken"]

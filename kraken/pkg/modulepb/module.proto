@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package kraken.module.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = ".;modulepb";
+
+// ------------------------------
+// Messages
+// ------------------------------
+
+// NetworkTarget represents a network host:port target.
+message NetworkTarget {
+  string host = 1;
+  uint32 port = 2;
+}
+
+// EtherCATTarget represents an EtherCAT slave device.
+message EtherCATTarget {
+  string interface = 1;       // Network interface (e.g., "eth0")
+  uint32 position = 2;        // Auto-increment position (0-based)
+  uint32 station_addr = 3;    // Configured station address
+  uint32 alias_addr = 4;      // Alias from EEPROM
+  uint32 vendor_id = 5;
+  uint32 product_code = 6;
+  uint32 revision_no = 7;
+  uint32 serial_no = 8;
+  uint32 port_status = 9;     // DL Status register
+}
+
+// Target is a polymorphic target type supporting both network and EtherCAT targets.
+message Target {
+  oneof target {
+    NetworkTarget network = 1;
+    EtherCATTarget ethercat = 2;
+  }
+}
+
+message RunRequest {
+  Target target = 1;
+  uint32 timeout_ms = 2;
+  map<string, google.protobuf.Value> params = 3;
+}
+
+message Finding {
+  string id = 1;
+  string module_id = 2;
+
+  bool success = 3;
+  string title = 4;
+  string severity = 5;      // e.g., "info","low","medium","high","critical"
+  string description = 6;
+
+  map<string, string> evidence = 7;
+  repeated string tags = 8;
+
+  int64 timestamp = 9;
+}
+
+message LogLine {
+  int64 ts = 1;
+  string line = 2;
+}
+
+message RunResponse {
+  repeated Finding findings = 1;
+  repeated LogLine logs = 2;
+}
+
+message ModuleMetadata {
+  string id = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+}
+
+// ------------------------------
+// Service
+// ------------------------------
+
+service KrakenModule {
+  rpc Run(RunRequest) returns (RunResponse);
+  rpc Metadata(google.protobuf.Empty) returns (ModuleMetadata);
+}
+
+import "google/protobuf/empty.proto";
