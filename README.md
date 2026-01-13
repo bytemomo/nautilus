@@ -63,82 +63,41 @@ Supported transports: TCP, TLS, UDP, DTLS, Raw IP
 
 ```text
 .
-├── campaigns
-│   ├── iot-black-fuzz.yaml
-│   ├── iot-grey-fuzz.yaml
-│   ├── iot-standard.yaml
-│   ├── README.md
-│   └── trees
-│       └── iot.yaml
-├── deploy
-│   ├── build
-│   │   └── Dockerfile.alpine.kraken
-│   └── fuzzing
-│       └── aflpp
-├── dist
-│   └── kraken
-├── docs
-│   ├── kraken
-│   │   ├── architecture.svg
-│   │   ├── component.puml
-│   │   ├── documentation.md
-│   │   └── requirements.md
-│   └── trident
-│       ├── documentation.md
-│       └── requirements.md
-├── go.work
-├── go.work.sum
-├── Justfile
-├── kraken
-│   ├── go.mod
-│   ├── go.sum
-│   ├── internal
-│   │   ├── adapter
-│   │   ├── domain
-│   │   ├── loader
-│   │   ├── modules
-│   │   ├── native
-│   │   ├── protocol
-│   │   ├── runner
-│   │   ├── scanner
-│   │   ├── testutil
-│   │   └── transport
-│   ├── main.go
-│   ├── pkg
-│   │   ├── moduleabi
-│   │   └── modulepb
-│   └── testdata
-│       ├── campaigns
-│       └── modules
-├── modules
-│   └── kraken
-│       ├── abi
-│       ├── fuzz
-│       └── README.md
-├── README.md
-├── resources
-│   └── scenario-a
-│       ├── attack-tree.yaml
-│       ├── campaign.yaml
-│       ├── captures
-│       ├── certs
-│       ├── docker-compose.yaml
-│       ├── profiles
-│       ├── README.md
-│       ├── results
-│       └── scripts
-├── thesis_extracted.txt
-└── trident
-    ├── conduit
-    │   ├── adapters
-    │   ├── conduit.go
-    │   ├── datalink
-    │   ├── logging
-    │   ├── network
-    │   ├── transport
-    │   └── utils
-    ├── go.mod
-    └── go.sum
+├── campaigns/              # Campaign definitions for kraken
+│   ├── iot-standard.yaml   # Production campaign
+│   ├── iot-black-fuzz.yaml # Black-box fuzzing (Boofuzz)
+│   ├── iot-grey-fuzz.yaml  # Grey-box fuzzing (AFL++)
+│   └── trees/
+│       └── iot.yaml        # Attack tree definitions
+├── docs/
+│   ├── kraken/
+│   ├── trident/
+│   └── status.md           # Implementation status
+├── kraken/                 # Kraken orchestrator
+│   ├── internal/
+│   │   ├── adapter/        # Report writers (JSON, attack tree markdown)
+│   │   ├── domain/         # Core types (Campaign, Finding, AttackNode)
+│   │   ├── loader/         # Dynamic library loader
+│   │   ├── modules/        # Native modules (mqtt, rtsp, telnet)
+│   │   ├── native/         # Module registry
+│   │   ├── runner/         # Parallel execution engine
+│   │   ├── scanner/        # nmap-based discovery
+│   │   └── transport/      # Conduit management
+│   ├── pkg/
+│   │   ├── moduleabi/      # ABI headers (v1, v2)
+│   │   └── modulepb/       # gRPC protobuf definitions
+│   └── main.go
+├── modules/                # External modules
+│   └── kraken/
+│       └── abi/            # C/Rust ABI modules
+├── resources/
+│   └── scenario-a/         # MQTT evaluation scenario
+├── trident/                # Transport abstraction library
+│   └── conduit/
+├── fuzz/                   # Fuzzing infrastructure
+│   ├── harnesses/          # AFL++ harnesses
+│   └── seeds/              # Seed corpus
+└── deploy/                 # Docker deployment scripts
 ```
 
 ## Quick Start
@@ -167,6 +126,13 @@ Results are written to `{out}/{campaign_id}/{timestamp}/`:
 - `runs/{host}_{port}.json` - Per-target results
 - `attack-trees/summary.md` - Attack tree evaluation summary
 - `attack-trees/{host}_{port}.md` - Per-target attack tree details with Mermaid graphs
+
+## Documentation
+
+- [Kraken docs](docs/kraken/documentation.md) - Campaign orchestration, module APIs, attack trees
+- [Trident docs](docs/trident/documentation.md) - Transport abstraction and conduit system
+- [Implementation status](docs/status.md) - Current implementation status
+- [Kraken progress](KRAKEN_PROGRESS.md) - Detailed progress tracking
 
 ## Testing
 

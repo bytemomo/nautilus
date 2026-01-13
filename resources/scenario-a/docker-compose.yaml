@@ -27,9 +27,9 @@ services:
     image: eclipse-mosquitto:2.0
     container_name: scenario-a-certs
     volumes:
-      - ./certs:/certs
-      - ./profiles/common:/common
-      - ./scripts:/scripts
+      - ./scripts:/scripts:z
+      - ./certs:/certs:z
+      - ./profiles/common:/common:z
     command:
       - /bin/sh
       - -c
@@ -78,10 +78,10 @@ services:
       - "8883:8883"   # MQTTS (TLS)
       - "8884:8884"   # MQTTS with client certificates (mTLS)
     volumes:
-      - ./profiles/${SECURITY_PROFILE:-insecure}/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./profiles/${SECURITY_PROFILE:-insecure}/acl.conf:/mosquitto/config/acl.conf:ro
-      - ./profiles/common/passwd:/mosquitto/config/passwd:ro
-      - ./certs:/mosquitto/certs:ro
+      - ./profiles/${SECURITY_PROFILE:-insecure}/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro,z
+      - ./profiles/${SECURITY_PROFILE:-insecure}/acl.conf:/mosquitto/config/acl.conf:ro,z
+      - ./profiles/common/passwd:/mosquitto/config/passwd:ro,z
+      - ./certs:/mosquitto/certs:ro,z
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     entrypoint: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
@@ -110,8 +110,8 @@ services:
       broker:
         condition: service_healthy
     volumes:
-      - ./certs:/certs:ro
-      - ./scripts:/scripts:ro
+      - ./certs:/certs:ro,z
+      - ./scripts:/scripts:ro,z
     entrypoint: ["/bin/sh", "/scripts/plc-publisher.sh"]
     environment:
       - MQTT_BROKER=mqtt-broker
@@ -135,8 +135,8 @@ services:
       broker:
         condition: service_healthy
     volumes:
-      - ./certs:/certs:ro
-      - ./scripts:/scripts:ro
+      - ./certs:/certs:ro,z
+      - ./scripts:/scripts:ro,z
     entrypoint: ["/bin/sh", "/scripts/rtu-publisher.sh"]
     environment:
       - MQTT_BROKER=mqtt-broker
@@ -160,8 +160,8 @@ services:
       broker:
         condition: service_healthy
     volumes:
-      - ./certs:/certs:ro
-      - ./scripts:/scripts:ro
+      - ./certs:/certs:ro,z
+      - ./scripts:/scripts:ro,z
     entrypoint: ["/bin/sh", "/scripts/scada-subscriber.sh"]
     environment:
       - MQTT_BROKER=mqtt-broker
@@ -183,8 +183,8 @@ services:
       broker:
         condition: service_healthy
     volumes:
-      - ./profiles/common/bridge.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./certs:/mosquitto/certs:ro
+      - ./profiles/common/bridge.conf:/mosquitto/config/mosquitto.conf:ro,z
+      - ./certs:/mosquitto/certs:ro,z
     networks:
       dmz_net:
         ipv4_address: 172.20.0.30
@@ -204,8 +204,8 @@ services:
       broker:
         condition: service_healthy
     volumes:
-      - ./certs:/certs:ro
-      - ./scripts:/scripts:ro
+      - ./certs:/certs:ro,z
+      - ./scripts:/scripts:ro,z
     entrypoint: ["/bin/sh", "/scripts/seed-topics.sh"]
     environment:
       - MQTT_BROKER=mqtt-broker
@@ -231,16 +231,15 @@ services:
         "-out", "/results",
         "-cidrs", "172.20.0.0/24"
     ]
-    # entrypoint: ["/bin/sh"]
-    # tty: true
-    # stdin_open: true
     depends_on:
       broker:
         condition: service_healthy
     volumes:
-      - ./results:/results
-      - ./:/scenario:ro
-      - ./certs:/certs:ro
+      - ./results/${SECURITY_PROFILE:-insecure}/:/results:z
+      - ./:/scenario:ro,z
+      # This is mounted as it can be useful to test kraken's mTLS compatibility or
+      # someone want to test ACL constraints in a mTLS hardened environment.
+      - ./certs:/certs:ro,z
     cap_add:
         - NET_RAW
         - NET_ADMIN
@@ -260,7 +259,7 @@ services:
       broker:
         condition: service_healthy
     volumes:
-      - ./captures:/captures
+      - ./captures:/captures:z
     entrypoint: ["/bin/sh", "-c", "apk add --no-cache tcpdump && echo 'Capture ready. Use: docker exec scenario-a-capture tcpdump -i any -w /captures/mqtt.pcap port 1883 or port 8883' && tail -f /dev/null"]
     cap_add:
       - NET_ADMIN

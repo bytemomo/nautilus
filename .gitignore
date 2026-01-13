@@ -60,3 +60,6 @@
 !resources/
 !resources/scenario-a/
 !resources/scenario-a/**
+
+!resources/scenario-b/
+!resources/scenario-b/**

@@ -35,24 +35,30 @@ test:
 # == Scenarios
 # ==============================================================================
 
+[doc("Macro to run scenario a in a simple way, need `tmux`. sec_level= ^(hardened|insecure|partial)$ ")]
 scenario_a_run sec_level:
     #!/bin/bash
+    set -euo pipefail
     SCENARIO_NAME="scenario-a"
     SESSION_NAME="scenario_lab"
 
     if [[ ! "{{sec_level}}" =~ ^(hardened|insecure|partial)$ ]]; then
         echo "Error: Invalid security level '{{sec_level}}'"
+        exit 1
     fi
-    [[ -d "resources/$SCENARIO_NAME" ]] || { echo "Directory not found"; }
-    [[ `command -v tmux` ]] || { echo "This recipy requires _tmux_ command!"; }
+    [[ -d "resources/$SCENARIO_NAME" ]] || { echo "Directory not found"; exit 1; }
+    [[ `command -v tmux` ]] || { echo "This recipe requires the tmux command."; exit 1; }
 
     echo "Pre-flight: Cleaning..."
-    tmux kill-session -t "$SESSION_NAME" 2>/dev/null
-    just scenario_a_clean > /dev/null 2>&1
+    tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+    if ! just scenario_a_clean > /dev/null 2>&1; then
+        echo "Warning: scenario_a_clean failed, attempting manual cleanup..."
+        podman rm -f scenario-a-broker scenario-a-certs scenario-a-plc scenario-a-rtu scenario-a-scada scenario-a-seeder scenario-a-kraken scenario-a-capture 2>/dev/null || true
+    fi
 
     WORK_DIR="$(pwd)/resources/$SCENARIO_NAME"
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    mkdir -p "$WORK_DIR/results"
+    mkdir -p "$WORK_DIR/results/{{sec_level}}"
 
     # Create Session (Pane 0 - Left Side)
     tmux new-session -d -s "$SESSION_NAME" -c "$WORK_DIR"
@@ -61,18 +67,18 @@ scenario_a_run sec_level:
     # >>> PANE 0 (Left): Main ICS Environment
     tmux send-keys -t "$SESSION_NAME:0" "export SECURITY_PROFILE={{sec_level}}" C-m
     tmux send-keys -t "$SESSION_NAME:0" "echo 'Starting Main ICS ({{sec_level}})...'" C-m
-    tmux send-keys -t "$SESSION_NAME:0" "podman compose up --build 2>&1 | tee results/main_${TIMESTAMP}.log" C-m
+    tmux send-keys -t "$SESSION_NAME:0" "podman compose up --build 2>&1 | tee results/{{sec_level}}/main_${TIMESTAMP}.log" C-m
 
     sleep 2
 
     # Split the window horizontally (-h) to create the right side
     tmux split-window -h -t "$SESSION_NAME:0" -c "$WORK_DIR"
+    tmux send-keys -t "$SESSION_NAME:0.1" "export SECURITY_PROFILE={{sec_level}}" C-m
     tmux send-keys -t "$SESSION_NAME:0.1" "echo 'Starting Tools...'" C-m
-    tmux send-keys -t "$SESSION_NAME:0.1" "podman compose --profile tools run --build -it --rm kraken 2>&1 | tee results/tools_${TIMESTAMP}.log" C-m
+    tmux send-keys -t "$SESSION_NAME:0.1" "podman compose --profile tools run --no-deps --build -it --rm kraken 2>&1 | tee results/{{sec_level}}/tools_${TIMESTAMP}.log" C-m
 
-    # Split Pane 1 (the right side) vertically (-v) to create a bottom panel
-    tmux split-window -v -t "$SESSION_NAME:0.1" -c "$WORK_DIR"
-    tmux send-keys -t "$SESSION_NAME:0.2" "clear; echo 'INTERACTIVE SHELL'" C-m
+    # tmux split-window -v -t "$SESSION_NAME:0.1" -c "$WORK_DIR"
+    # tmux send-keys -t "$SESSION_NAME:0.2" "clear; echo 'INTERACTIVE SHELL'" C-m
 
     tmux attach-session -t "$SESSION_NAME"
 
@@ -82,17 +88,17 @@ scenario_a_run sec_level:
     popd > /dev/null
 
 scenario_a_clean:
-    #!/bin/sh
+    #!/bin/bash
+    set -euo pipefail
     pushd resources/scenario-a
 
-    echo "Cleaning up"
-    SECURITY_PROFILE=partial podman compose --profile tools --profile bridge down -v --remove-orphans
+    echo "Cleaning up all profiles..."
+    for profile in insecure partial hardened; do
+        SECURITY_PROFILE=$profile podman compose --profile tools --profile bridge down -v --remove-orphans || true
+    done
 
     echo "Environment nuked:"
     podman ps -a
-    # sudo docker volume ls
-    # sudo docker network ls
-
     popd
 
 # ==============================================================================
