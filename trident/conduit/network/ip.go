@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -55,7 +56,7 @@ func (i *IpConduit) Dial(ctx context.Context) error {
 		err error
 	)
 	if i.v6 {
-		pc, err = lc.ListenPacket(ctx, "ip6:", net.IPv6unspecified.String())
+		pc, err = lc.ListenPacket(ctx, "ip6:"+strconv.Itoa(i.proto), net.IPv6unspecified.String())
 		if err != nil {
 			return err
 		}
@@ -63,13 +64,16 @@ func (i *IpConduit) Dial(ctx context.Context) error {
 		i.p6 = ipv6.NewPacketConn(pc)
 		_ = i.p6.SetControlMessage(ipv6.FlagTrafficClass|ipv6.FlagHopLimit|ipv6.FlagDst, true)
 	} else {
-		pc, err = lc.ListenPacket(ctx, "ip4:", "0.0.0.0")
+		pc, err = lc.ListenPacket(ctx, "ip4:"+strconv.Itoa(i.proto), "0.0.0.0")
 		if err != nil {
 			return err
 		}
 		i.pc = pc
 		i.p4 = ipv4.NewPacketConn(pc)
 		_ = i.p4.SetControlMessage(ipv4.FlagTTL|ipv4.FlagDst, true)
+	}
+	if i.pc != nil {
+		i.laddr = utils.ToNetip(i.pc.LocalAddr())
 	}
 	return nil
 }

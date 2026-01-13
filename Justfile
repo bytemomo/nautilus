@@ -31,6 +31,21 @@ test:
     go test ./kraken/... -v -timeout 10s
     go test ./trident/... -v -timeout 10s
 
+    @read -p "Continue? Sudo required (y/N) " RESP; \
+        if [ "$RESP" != "y" ] && [ "$RESP" != "Y" ]; then \
+            exit 0; \
+        fi
+
+    @go test -c ./trident/conduit/datalink/... -o ./dist/sudo_tests/
+    @go test -c ./trident/conduit/network/... -o ./dist/sudo_tests/
+
+    @for test in ./dist/sudo_tests/*.test; do \
+        sudo $test -test.v -test.timeout 10s; \
+    done
+
+
+
+
 # ==============================================================================
 # == Scenarios
 # ==============================================================================
